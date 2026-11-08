@@ -17,10 +17,12 @@ from .chart import render_signal
 from .data import PIP
 from .db import DB
 from .i18n import DEFAULT, per_lang, t
-from .live_strategy import STRATEGIES, LiveStrategy, expected_setup
+from .live_strategy import STRATEGIES, LiveStrategy, daily_trend_side, expected_setup, resolve_keys
 from .market import TF_MINUTES, Provider
 
 log = logging.getLogger(__name__)
+
+CANDLES = 1000  # свечей на запрос: хватает на EMA200 и на вчерашний день даже на M5
 
 
 @dataclass
@@ -95,21 +97,38 @@ class SignalEngine:
                  on_late: Optional[OnLate] = None, late_pips: float = 30,
                  on_day_closed: Optional[OnDayClosed] = None, max_sl_streak: int = 0):
         self.db, self.provider = db, provider
-        self.strategy = STRATEGIES[strategy_key]
+        # одна стратегия, список через запятую или «all» — тогда каждая работает независимо
+        self.strategies = [STRATEGIES[k] for k in resolve_keys(strategy_key)]
+        self.strategy = self.strategies[0]
         self.sl_pips, self.tp_pips = sl_pips, tp_pips
         self.tz = display_tz
         self.on_signal, self.on_close, self.on_late = on_signal, on_close, on_late
         self.late_pips = late_pips
         self.on_day_closed, self.max_sl_streak = on_day_closed, max_sl_streak
-        self.last_bar: pd.Timestamp | None = None
+        self.last_bars: dict[str, pd.Timestamp | None] = {}   # стратегия → последняя обработанная свеча
+        self.dfs: dict[str, pd.DataFrame] = {}                 # таймфрейм → последние закрытые свечи
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
-        self.retry_at: pd.Timestamp | None = None  # когда снова запрашивать свечи, если новой ещё нет
+        self.retry_at: dict[str, pd.Timestamp] = {}  # когда снова запрашивать свечи, если новой ещё нет
+        self._trend: tuple[pd.Timestamp, int] | None = None  # (день UTC, дневной тренд)
+
+    @property
+    def multi(self) -> bool:
+        return len(self.strategies) > 1
+
+    def _kv_bar(self, key: str) -> str:
+        return f"last_bar:{key}" if self.multi else "last_bar"
 
     async def _load_last_bar(self) -> None:
-        if self.last_bar is None:
-            v = await self.db.get_kv("last_bar")
-            self.last_bar = pd.Timestamp(v) if v else None
+        for st in self.strategies:
+            if st.key not in self.last_bars:
+                v = await self.db.get_kv(self._kv_bar(st.key))
+                self.last_bars[st.key] = pd.Timestamp(v) if v else None
+
+    def df_for(self, strategy_key: str | None = None) -> pd.DataFrame | None:
+        """Свечи таймфрейма стратегии (для картинки закрытия сделки)."""
+        st = STRATEGIES.get(strategy_key or "")
+        return self.dfs.get(st.timeframe) if st is not None and st.timeframe in self.dfs else self.last_df
 
     async def check_open(self, price: float) -> None:
         for s in await self.db.open_signals():
@@ -164,57 +183,105 @@ class SignalEngine:
         self.last_price = price
         await self.check_open(price)
 
-        tf = self.strategy.timeframe
+        open_keys = {s["strategy"] for s in await self.db.open_signals()}
+        cache: dict[str, pd.DataFrame] = {}
+        result = None
+        for st in self.strategies:
+            ns = await self._tick_strategy(st, now, price, cache, open_keys)
+            result = ns or result
+        return result
+
+    async def _candles(self, tf: str, now: pd.Timestamp, cache: dict) -> pd.DataFrame:
+        if tf not in cache:
+            cache[tf] = closed_bars(await self.provider.candles(tf, CANDLES), tf, now)
+        return cache[tf]
+
+    async def _tick_strategy(self, st: LiveStrategy, now: pd.Timestamp, price: float,
+                             cache: dict, open_keys: set) -> NewSignal | None:
+        tf = st.timeframe
         step = pd.Timedelta(minutes=TF_MINUTES[tf])
         naive_now = now.tz_convert(None)
-        if self.last_bar is not None and naive_now < self.last_bar + 2 * step:
+        last_bar = self.last_bars.get(st.key)
+        if last_bar is not None and naive_now < last_bar + 2 * step:
             return None  # новая свеча ещё не закрылась
-        if self.retry_at is not None and naive_now < self.retry_at:
+        retry = self.retry_at.get(st.key)
+        if retry is not None and naive_now < retry:
             return None  # выходные или задержка данных: не тратим лимит API
 
-        df = closed_bars(await self.provider.candles(tf, 400), tf, now)
+        df = await self._candles(tf, now, cache)
         if df.empty:
             return None
+        self.dfs[tf] = df
         self.last_df = df
         bar = df.index[-1]
-        if self.last_bar is not None and bar <= self.last_bar:
-            self.retry_at = naive_now + pd.Timedelta(minutes=5)
+        if last_bar is not None and bar <= last_bar:
+            self.retry_at[st.key] = naive_now + pd.Timedelta(minutes=5)
             return None
-        self.retry_at = None
-        first_run = self.last_bar is None
-        self.last_bar = bar
-        await self.db.set_kv("last_bar", bar.isoformat())
-        if first_run:
+        self.retry_at.pop(st.key, None)
+        self.last_bars[st.key] = bar
+        await self.db.set_kv(self._kv_bar(st.key), bar.isoformat())
+        if last_bar is None:
             return None  # не шлём старый сигнал при первом запуске
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
+        if st.key in open_keys:
+            return None  # у этой стратегии уже есть открытая сделка (как в бэктесте)
 
-        sig = self.strategy.signals(df)
-        d = int(sig[-1])
+        d = await self.direction(df, now, st)
         if d == 0:
             return None
         entry = price
         sl = entry - d * self.sl_pips * PIP
         tp = entry + d * self.tp_pips * PIP
-        sid = await self.db.add_signal(self.strategy.key, d, entry, sl, tp)
+        sid = await self.db.add_signal(st.key, d, entry, sl, tp)
+        open_keys.add(st.key)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
         title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
-                       per_lang(lambda lang: format_signal(self.strategy, d, entry, sl, tp,
+                       per_lang(lambda lang: format_signal(st, d, entry, sl, tp,
                                                            self.sl_pips, self.tp_pips, when, lang)),
                        lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
         await self.on_signal(ns)
         return ns
 
+    async def direction(self, df: pd.DataFrame, now: pd.Timestamp, st: LiveStrategy | None = None) -> int:
+        """Сигнал на последней закрытой свече: 1 BUY, -1 SELL, 0 нет.
+        С фильтром дневного тренда сигнал против тренда пропускается; у составной стратегии
+        берётся первая её часть, давшая сигнал по тренду."""
+        st = st or self.strategy
+        raw = [int(p(df)[-1]) for p in (st.parts or (st.signals,))]
+        if not any(raw):
+            return 0
+        if not st.daily_trend:
+            return next(x for x in raw if x)
+        trend = await self.daily_trend(now)
+        return next((x for x in raw if x and x == trend), 0)
+
+    async def daily_trend(self, now: pd.Timestamp) -> int:
+        """Дневной тренд по EMA50 (запрашиваем дневные свечи только когда он нужен, один раз за день UTC)."""
+        day = now.tz_convert("UTC").normalize()
+        if self._trend is None or self._trend[0] != day:
+            self._trend = (day, daily_trend_side(await self.provider.candles("1day", 150), now))
+        return self._trend[1]
+
     async def expected(self, lang: str = "ru") -> str:
         now = pd.Timestamp.now(tz="UTC")
+        if self.multi:
+            trend = await self.daily_trend(now)
+            lines = [t(lang, "exp_portfolio", n=len(self.strategies))]
+            lines += [f"• {t(lang, f'strat_{st.key}')}" for st in self.strategies]
+            lines += [t(lang, "exp_daily_trend",
+                        trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down")),
+                      t(lang, "exp_confirm")]
+            return "\n".join(lines)
         tf = self.strategy.timeframe
-        df = self.last_df
+        df = self.dfs.get(tf)
         if df is None or df.empty:
-            df = closed_bars(await self.provider.candles(tf, 400), tf, now)
-            self.last_df = df
-        return expected_setup(df, self.strategy.key, now, self.tz, lang)
+            df = closed_bars(await self.provider.candles(tf, CANDLES), tf, now)
+            self.dfs[tf] = self.last_df = df
+        trend = await self.daily_trend(now) if self.strategy.daily_trend else 0
+        return expected_setup(df, self.strategy.key, now, self.tz, lang, trend)
 
     async def run_forever(self, interval: int) -> None:
         while True:

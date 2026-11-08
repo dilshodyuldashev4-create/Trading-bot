@@ -81,6 +81,9 @@ class FlowTests(unittest.TestCase):
 
                 class Eng:
                     last_df = None
+
+                    def df_for(self, key=None):
+                        return None
                 app.engine = Eng()
                 st = STRATEGIES["combo"]
                 sid = await db.add_signal("combo", 1, 2900, 2890, 2920)
@@ -193,6 +196,9 @@ class FlowTests(unittest.TestCase):
 
                 class Eng:
                     last_df = None
+
+                    def df_for(self, key=None):
+                        return None
                 app.engine = Eng()
                 sig = await db.get_signal(sid)
                 await db.close_signal(sid, "sl")

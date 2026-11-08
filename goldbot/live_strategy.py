@@ -9,6 +9,8 @@ import pandas as pd
 
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
+from .strategies.popular import donchian_breakout
+from .strategies.research import rsi_pullback_raw, squeeze_breakout, trendline_breakout
 from .strategies.sessions import asian_range_breakout, silver_bullet
 
 
@@ -19,12 +21,23 @@ class LiveStrategy:
     timeframe: str
     signals: Callable[[pd.DataFrame], np.ndarray]
     backtest_note: str
+    daily_trend: bool = False   # сигналы только по дневному тренду (close последнего закрытого дня vs EMA50)
+    # несколько стратегий сразу: фильтр тренда к каждой, берётся первая сработавшая по тренду
+    parts: tuple = ()
 
 
 def _combo(df: pd.DataFrame) -> np.ndarray:
     a, b = asian_range_breakout(df), silver_bullet(df)
     return np.where(a != 0, a, b)
 
+
+def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
+    return fvg_bos_signals(df)
+
+
+
+# Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
+GENERIC = {"rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -34,15 +47,64 @@ STRATEGIES = {
         "fvg", "OB + FVG + BOS по тренду EMA200", "1h",
         lambda df: fvg_bos_signals(df, trend_filter=True),
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 283 сделки, винрейт 37.8%, +3800 пипсов"),
+    # ── самые прибыльные в 2026 году (M5–H4, без привязки к сессиям) ──
+    "rsi_m5": LiveStrategy(
+        "rsi_m5", "RSI-откат по дневному тренду", "5min", rsi_pullback_raw,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 2462 сделки, винрейт 35.0%, +12100 пипсов",
+        daily_trend=True),
+    "squeeze": LiveStrategy(
+        "squeeze", "Squeeze (Боллинджер в Кельтнере) по дневному тренду", "15min", squeeze_breakout,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 441 сделка, винрейт 40.8%, +9900 пипсов",
+        daily_trend=True),
+    "donchian": LiveStrategy(
+        "donchian", "Пробой канала Дончиана 20 по тренду EMA200", "15min", donchian_breakout,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1635 сделок, винрейт 34.7%, +6900 пипсов"),
+    "fvg_m5": LiveStrategy(
+        "fvg_m5", "OB + FVG + BOS по дневному тренду", "5min", _fvg_raw,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1375 сделок, винрейт 36.7%, +14000 пипсов",
+        daily_trend=True),
+    "trendline_m5": LiveStrategy(
+        "trendline_m5", "Пробой трендовой линии по дневному тренду", "5min", trendline_breakout,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1812 сделок, винрейт 35.2%, +9900 пипсов",
+        daily_trend=True),
 }
+
+
+# STRATEGY=all — 5 самых прибыльных стратегий 2026 года на M5–H4 (по одной на сетап, чтобы один и тот же
+# сигнал не приходил дважды). Каждая работает сама по себе: не больше одной открытой сделки.
+PORTFOLIO = ("rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5")
+
+
+def resolve_keys(spec: str) -> list[str]:
+    """«all» → PORTFOLIO, «a,b» → [a, b], иначе одна стратегия."""
+    keys = list(PORTFOLIO) if spec.strip() == "all" else [k.strip() for k in spec.split(",") if k.strip()]
+    unknown = [k for k in keys if k not in STRATEGIES]
+    if unknown or not keys:
+        raise ValueError(f"неизвестные стратегии: {unknown or spec}")
+    return keys
+
+
+DAILY_EMA = 50
+
+
+def daily_trend_side(daily: pd.DataFrame, now: pd.Timestamp) -> int:
+    """+1 / -1 / 0: close последней ЗАКРЫТОЙ дневной свечи (UTC) выше / ниже EMA50 дневных close."""
+    today = _utc(now).tz_convert(None).normalize()
+    idx = daily.index.tz_convert(None) if daily.index.tz is not None else daily.index
+    closed = daily.close[idx < today]
+    if len(closed) < 2:
+        return 0
+    e = closed.ewm(span=DAILY_EMA, adjust=False).mean().iloc[-1]
+    return int(np.sign(closed.iloc[-1] - e))
 
 
 def _utc(ts: pd.Timestamp) -> pd.Timestamp:
     return ts.tz_localize("UTC") if ts.tzinfo is None else ts
 
 
-def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str, lang: str = "ru") -> str:
-    """Текст «что бот ждёт» по закрытым свечам df (UTC)."""
+def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str, lang: str = "ru",
+                   trend: int = 0) -> str:
+    """Текст «что бот ждёт» по закрытым свечам df (UTC); trend — дневной тренд для стратегий с daily_trend."""
     now = _utc(now)
     fmt = lambda x: x.tz_convert(tz).strftime("%H:%M")  # noqa: E731
     if strategy_key == "fvg":
@@ -50,6 +112,12 @@ def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: s
         up = last.close > df.close.ewm(span=200, adjust=False).mean().iloc[-1]
         return t(lang, "exp_fvg", trend=t(lang, "exp_trend_up" if up else "exp_trend_down"))
 
+    if strategy_key in GENERIC:
+        lines = [t(lang, f"exp_{strategy_key}"), t(lang, "exp_confirm")]
+        if STRATEGIES[strategy_key].daily_trend:
+            lines.insert(0, t(lang, "exp_daily_trend",
+                              trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down")))
+        return "\n".join(lines)
     parts = []
     idx = df.index.tz_localize("UTC") if df.index.tz is None else df.index
     # пробой азиатского диапазона

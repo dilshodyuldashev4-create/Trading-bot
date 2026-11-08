@@ -251,9 +251,10 @@ class App:
                     + (t(lang, "winrate", wr=f"{100 * st['tp'] / closed:.0f}") if closed else ""))
 
         image = None
-        if self.engine.last_df is not None:
+        df = self.engine.df_for(s.get("strategy"))
+        if df is not None:
             try:
-                image = render_signal(self.engine.last_df, s["direction"], s["entry"], s["sl"], s["tp"],
+                image = render_signal(df, s["direction"], s["entry"], s["sl"], s["tp"],
                                       f"XAUUSD · #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
                                       tz=config.display_tz)
             except Exception:  # noqa: BLE001

@@ -125,3 +125,135 @@ class MarketHoursTests(unittest.TestCase):
                 self.assertIsNone(await eng.tick(now=pd.Timestamp("2026-11-07 12:00", tz="UTC")))
                 await db.close()
         run(go())
+
+
+class ComboTrendTests(unittest.TestCase):
+    def test_signals_only_with_daily_trend(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                df = m5_frame(days=20, start="2025-03-03 00:00")
+                prov = Replay(df, start=300)
+                eng = SignalEngine(db, prov, "fvg_m5", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                trends = []
+                while prov.pos < len(df):
+                    prov.step()
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    n = len(sent)
+                    await eng.tick(now=t)
+                    if len(sent) > n:
+                        trends.append((sent[-1].direction, await eng.daily_trend(t)))
+                self.assertTrue(trends, "ожидали хотя бы один сигнал")
+                self.assertTrue(all(a == b for a, b in trends))
+                text = await eng.expected()
+                self.assertIn("EMA50", text)
+                await db.close()
+        run(go())
+
+    def test_all_strategies_at_once(self):
+        from goldbot.live_strategy import PORTFOLIO
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    open_same = [x for x in await db.open_signals() if x["id"] != s.id and x["strategy"] == key_of[s.id]]
+                    self.assertFalse(open_same, "у стратегии уже была открытая сделка")
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                key_of = {}
+                orig = db.add_signal
+
+                async def add_signal(strategy, *a):
+                    sid = await orig(strategy, *a)
+                    key_of[sid] = strategy
+                    return sid
+                db.add_signal = add_signal
+
+                df = m5_frame(days=8, start="2025-03-03 00:00")
+                prov = Replay(df, start=600)
+                eng = SignalEngine(db, prov, "all", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                self.assertEqual([st.key for st in eng.strategies], list(PORTFOLIO))
+                while prov.pos < len(df):
+                    prov.step()
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    await eng.tick(now=t)
+                self.assertGreater(len({key_of[s.id] for s in sent}), 1, "сигналы должны идти от разных стратегий")
+                text = await eng.expected()
+                self.assertIn(str(len(PORTFOLIO)), text)
+                await db.close()
+        run(go())
+
+
+class AllLiveStrategiesTests(unittest.TestCase):
+    def test_every_strategy_runs_and_explains_setup(self):
+        from goldbot.live_strategy import STRATEGIES
+
+        async def go(key):
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                df = m5_frame(days=6, start="2025-03-03 00:00")
+                prov = Replay(df, start=600)
+                eng = SignalEngine(db, prov, key, 30, 60, "Asia/Tashkent", on_signal, on_close)
+                while prov.pos < len(df):
+                    prov.step(3)
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    await eng.tick(now=t)
+                for lang in ("ru", "en", "uz"):
+                    self.assertTrue(await eng.expected(lang))
+                await db.close()
+
+        for key in STRATEGIES:
+            with self.subTest(key=key):
+                run(go(key))
+
+
+class HybridProviderTests(unittest.TestCase):
+    def test_price_and_candles_from_different_sources(self):
+        from goldbot.market import Hybrid
+
+        class Src:
+            def __init__(self, p):
+                self.p, self.calls = p, []
+
+            async def candles(self, tf, count):
+                self.calls.append(("candles", tf))
+                return "df"
+
+            async def price(self):
+                self.calls.append(("price",))
+                return self.p
+
+            async def close(self):
+                pass
+
+        a, b = Src(1.0), Src(2.0)
+        h = Hybrid(a, b)
+        self.assertEqual(run(h.price()), 2.0)
+        self.assertEqual(run(h.candles("5min", 10)), "df")
+        self.assertEqual(a.calls, [("candles", "5min")])
+        self.assertEqual(b.calls, [("price",)])
