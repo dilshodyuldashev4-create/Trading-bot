@@ -107,7 +107,8 @@ class Replay(Provider):
 
     async def candles(self, tf: str, count: int) -> pd.DataFrame:
         from .data import resample
-        part = self.df.iloc[: self.pos]
+        per = 288 if tf == "1day" else TF_MINUTES[tf] // 5   # свечей M5 в одной свече tf
+        part = self.df.iloc[max(0, self.pos - (count + 1) * per): self.pos]
         return resample(part, "1D" if tf == "1day" else tf).iloc[-count:]
 
     async def price(self) -> float:

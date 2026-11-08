@@ -143,7 +143,7 @@ class ComboTrendTests(unittest.TestCase):
 
                 df = m5_frame(days=20, start="2025-03-03 00:00")
                 prov = Replay(df, start=300)
-                eng = SignalEngine(db, prov, "combo_trend", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                eng = SignalEngine(db, prov, "fvg_m5", 30, 60, "Asia/Tashkent", on_signal, on_close)
                 trends = []
                 while prov.pos < len(df):
                     prov.step()
@@ -156,6 +156,46 @@ class ComboTrendTests(unittest.TestCase):
                 self.assertTrue(all(a == b for a, b in trends))
                 text = await eng.expected()
                 self.assertIn("EMA50", text)
+                await db.close()
+        run(go())
+
+    def test_all_strategies_at_once(self):
+        from goldbot.live_strategy import PORTFOLIO
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    open_same = [x for x in await db.open_signals() if x["id"] != s.id and x["strategy"] == key_of[s.id]]
+                    self.assertFalse(open_same, "у стратегии уже была открытая сделка")
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                key_of = {}
+                orig = db.add_signal
+
+                async def add_signal(strategy, *a):
+                    sid = await orig(strategy, *a)
+                    key_of[sid] = strategy
+                    return sid
+                db.add_signal = add_signal
+
+                df = m5_frame(days=8, start="2025-03-03 00:00")
+                prov = Replay(df, start=600)
+                eng = SignalEngine(db, prov, "all", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                self.assertEqual([st.key for st in eng.strategies], list(PORTFOLIO))
+                while prov.pos < len(df):
+                    prov.step()
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    await eng.tick(now=t)
+                self.assertGreater(len({key_of[s.id] for s in sent}), 1, "сигналы должны идти от разных стратегий")
+                text = await eng.expected()
+                self.assertIn(str(len(PORTFOLIO)), text)
                 await db.close()
         run(go())
 

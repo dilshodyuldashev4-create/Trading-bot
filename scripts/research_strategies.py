@@ -23,7 +23,7 @@ from goldbot.strategies.sessions import asian_range_breakout, ny_opening_range, 
 from goldbot.strategies.fvg_bos import fvg_bos_signals  # noqa: E402
 
 SL, TP = 100, 200
-TIMEFRAMES = {"M5": "5min", "M15": "15min", "H1": "1h"}
+TIMEFRAMES = {"M5": "5min", "M15": "15min", "H1": "1h", "H4": "4h"}
 MIN_TRADES = 60
 
 EXTRA = {
@@ -52,20 +52,15 @@ EXTRA = {
     "Пробой трендовой линии по дневному тренду": R.with_trend(R.trendline_breakout),
     "Отскок от трендовой линии": lambda df: R.trendline_breakout(df, bounce=True),
     "Отскок от трендовой линии по дневному тренду": R.with_trend(lambda df: R.trendline_breakout(df, bounce=True)),
-    "MULTI: Combo + FVG/BOS + Squeeze по тренду": R.merge(*(R.with_trend(f) for f in (
-        R.combo, lambda df: fvg_bos_signals(df), R.squeeze_breakout))),
-    "MULTI M5: FVG/BOS + RSI-откат по тренду": R.merge(*(R.with_trend(f) for f in (
-        lambda df: fvg_bos_signals(df), R.rsi_pullback_raw))),
 }
 
 # стратегии, добавленные в бота (ключ STRATEGY → название и ТФ в таблице)
 IN_BOT = {
-    ("MULTI: Combo + FVG/BOS + Squeeze по тренду", "M15"): "multi",
-    ("MULTI M5: FVG/BOS + RSI-откат по тренду", "M5"): "multi_m5",
-    ("FVG+BOS по дневному тренду", "M5"): "fvg_m5",
+    ("RSI-откат по дневному тренду", "M5"): "rsi_m5",
     ("Squeeze по дневному тренду", "M15"): "squeeze",
+    ("Пробой Дончиана 20 + EMA200", "M15"): "donchian",
+    ("FVG+BOS по дневному тренду", "M5"): "fvg_m5",
     ("Пробой трендовой линии по дневному тренду", "M5"): "trendline_m5",
-    ("Combo по дневному тренду", "M15"): "combo_trend",
 }
 
 
@@ -125,18 +120,15 @@ def main() -> None:
         "",
         "## Коротко",
         "",
-        "* Ни одна из стратегий не закрыла в плюсе **каждые** 10 сигналов: при 1:2 для этого нужен винрейт 70%+,",
+        "* Ни одна стратегия не закрыла в плюсе **каждые** 10 сигналов: при 1:2 для этого нужен винрейт 70%+,",
         "  а у реальных стратегий на золоте он 35–40%.",
-        "* Лучшее улучшение для бота — оставить текущую стратегию (Silver Bullet + пробой Азии, M15),",
-        "  но брать сигналы **только по дневному тренду** (close вчерашнего дня выше/ниже EMA50 дневных свечей).",
-        "  Винрейт 36.6% → 38.4%, PF 1.15 → 1.24, в плюсе 63% десяток вместо 51%, все годы 2024–2026 в плюсе,",
-        "  сигналов примерно вдвое меньше (около 11 в месяц). В боте это `STRATEGY=combo_trend`.",
-        "* Фильтр помогает при любых настройках EMA (таблица в конце), значит это не подгонка под историю.",
-        "* По запросу «максимальный плюс» в бота добавлены стратегии с наибольшей прибылью, которые в плюсе и в 2026",
-        "  году (таблица «В плюсе в 2026 году»). По умолчанию `STRATEGY=multi`: 4 сетапа на M15 по дневному тренду.",
+        "* В бота (`STRATEGY=all`) поставлены 5 самых прибыльных стратегий 2026 года на таймфреймах M5–H4,",
+        "  без привязки к сессиям: RSI-откат (M5), Squeeze (M15), пробой Дончиана (M15), FVG/BOS (M5),",
+        "  пробой трендовой линии (M5). Сигналы идут от каждой; у каждой не больше одной открытой сделки.",
+        "  Итог по всем пяти вместе — в разделе «Все 5 стратегий вместе» ниже.",
+        "* H1 и H4 при SL 100 / TP 200 в 2026 году заметно слабее M5/M15 (стоп слишком короткий для этих ТФ).",
         "* Фибоначчи (откат 50–61.8% и 38.2–61.8%) в 2026 году в минусе на всех таймфреймах, в бота не добавлен.",
-        "  Трендовая линия по дневному тренду на M5 в плюсе каждый год — добавлена (`trendline_m5`).",
-        "* Учтите: золото в 2024–2026 почти всё время росло, поэтому стратегии «по тренду» и «только BUY» выглядят",
+        "* Учтите: золото в 2024–2026 почти всё время росло, поэтому стратегии «по тренду» выглядят",
         "  хорошо. При развороте рынка результаты будут хуже.",
         "",
         f"Стратегии с {MIN_TRADES}+ сделками, отсортированы по «Блоки 10».",
@@ -150,9 +142,9 @@ def main() -> None:
                  f"{s['slide']:.0f}% | {s['worst']} из 10 | {s['streak']} | {ys} |")
     # плюс в 2026 году, по максимальной прибыли
     y26 = sorted((r for r in ok if r[3][2026][2] > 0 and r[2]["pips"] > 0),
-                 key=lambda r: (-r[2]["pips"], -r[3][2026][2]))
-    L += ["", "## В плюсе в 2026 году — по максимальной прибыли", "",
-          "Только стратегии с плюсом и за весь период, и в 2026 году (январь–август). "
+                 key=lambda r: (-r[3][2026][2], -r[2]["pips"]))
+    L += ["", "## В плюсе в 2026 году — по прибыли за 2026 год", "",
+          "Только стратегии с плюсом и за весь период, и в 2026 году (январь–август), M5–H4. "
           "✅ — плюс в каждом году 2024–2026; в скобках — ключ STRATEGY, если стратегия есть в боте.", "",
           "| Стратегия | ТФ | Итог, пипс | 2026, пипс | Винрейт 2026 | Сделок | Винрейт | Макс. просадка | Блоки 10 в плюсе |",
           "|---|---|---|---|---|---|---|---|---|"]
@@ -162,6 +154,42 @@ def main() -> None:
         label = f"{name} (`{key}`)" if key else name
         L.append(f"| {label}{mark} | {tf} | {s['pips']:+d} | {y[2026][2]:+d} | {y[2026][1]:.0f}% | {s['n']} | "
                  f"{s['wr']:.1f}% | {rep.max_drawdown_pips():.0f} | {s['block']:.0f}% |")
+    # все стратегии бота вместе: каждая сама по себе, плюс правило «2 стопа подряд — день закрыт»
+    import pandas as pd
+    from goldbot.live_strategy import PORTFOLIO, STRATEGIES as LIVE
+    tr = []
+    for k in PORTFOLIO:
+        st = LIVE[k]
+        d = resample(m5, st.timeframe)
+        f = R.with_trend(st.signals) if st.daily_trend else st.signals
+        tr += [(t.entry_time, t.exit_time, t.pips) for t in run_backtest(d, f(d), SL, TP).trades]
+    tr = pd.DataFrame(tr, columns=["ent", "ex", "pips"]).sort_values("ent")
+    tr["day"] = tr.ent.dt.tz_localize("UTC").dt.tz_convert("Asia/Tashkent").dt.date
+    kept = []
+    for _, g in tr.groupby("day"):
+        today = []
+        for _, r in g.iterrows():
+            done = sorted((x.ex, x.pips) for x in today if x.ex <= r.ent)
+            streak = 0
+            for _, p in reversed(done):
+                if p >= 0:
+                    break
+                streak += 1
+            if streak >= 2:
+                break
+            today.append(r)
+        kept += today
+    days26 = pd.bdate_range("2026-01-01", m5.index[-1]).size
+    L += ["", "## Все 5 стратегий вместе (`STRATEGY=all`), 2026 год", "",
+          "| Режим | Сигналов в день | В неделю | Винрейт | Итог 2026, пипс | Макс. просадка 2026 | Итог 12.2023–08.2026 |",
+          "|---|---|---|---|---|---|---|"]
+    for label, t in (("без остановки дня (MAX_SL_STREAK=0)", tr),
+                     ("2 стопа подряд — день закрыт (MAX_SL_STREAK=2, как в боте)", pd.DataFrame(kept))):
+        t26 = t[t.ent.dt.year == 2026]
+        eq = t26.sort_values("ex").pips.cumsum()
+        dd = (eq.cummax().clip(lower=0) - eq).max()
+        L.append(f"| {label} | {len(t26) / days26:.1f} | {5 * len(t26) / days26:.0f} | "
+                 f"{100 * (t26.pips > 0).mean():.1f}% | {t26.pips.sum():+.0f} | {dd:.0f} | {t.pips.sum():+.0f} |")
     perfect = [r for r in ok if r[2]["block"] == 100]
     L += ["", "## Вывод", ""]
     if perfect:
