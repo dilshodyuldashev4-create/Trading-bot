@@ -248,6 +248,12 @@ class DB:
         cur = await self.conn.execute("SELECT user_id, lot FROM signal_lots WHERE signal_id=?", (sid,))
         return {r[0]: r[1] for r in await cur.fetchall()}
 
+    async def closed_since(self, since: datetime) -> list[str]:
+        """Статусы сигналов, созданных после since и уже закрытых, от последнего к первому."""
+        cur = await self.conn.execute(
+            "SELECT status FROM signals WHERE created_at>=? AND status!='open' ORDER BY id DESC", (_iso(since),))
+        return [r[0] for r in await cur.fetchall()]
+
     async def last_signals(self, n: int = 10) -> list[dict]:
         cur = await self.conn.execute("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (n,))
         return [dict(r) for r in await cur.fetchall()]

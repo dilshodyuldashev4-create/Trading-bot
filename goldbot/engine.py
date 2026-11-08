@@ -41,6 +41,8 @@ class NewSignal:
 
 OnSignal = Callable[[NewSignal], Awaitable[None]]
 OnClose = Callable[[dict, str, float], Awaitable[None]]
+OnDayClosed = Callable[[int], Awaitable[None]]  # сколько стопов подряд
+OnLate = Callable[[dict, float, float], Awaitable[None]]  # сигнал, цена, на сколько пипсов ушла
 
 
 def market_open(now: pd.Timestamp) -> bool:
@@ -76,12 +78,16 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
 
 class SignalEngine:
     def __init__(self, db: DB, provider: Provider, strategy_key: str, sl_pips: float, tp_pips: float,
-                 display_tz: str, on_signal: OnSignal, on_close: OnClose):
+                 display_tz: str, on_signal: OnSignal, on_close: OnClose,
+                 on_late: Optional[OnLate] = None, late_pips: float = 30,
+                 on_day_closed: Optional[OnDayClosed] = None, max_sl_streak: int = 0):
         self.db, self.provider = db, provider
         self.strategy = STRATEGIES[strategy_key]
         self.sl_pips, self.tp_pips = sl_pips, tp_pips
         self.tz = display_tz
-        self.on_signal, self.on_close = on_signal, on_close
+        self.on_signal, self.on_close, self.on_late = on_signal, on_close, on_late
+        self.late_pips = late_pips
+        self.on_day_closed, self.max_sl_streak = on_day_closed, max_sl_streak
         self.last_bar: pd.Timestamp | None = None
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
@@ -103,6 +109,38 @@ class SignalEngine:
             if status:
                 await self.db.close_signal(s["id"], status)
                 await self.on_close(s, status, price)
+                if status == "sl":
+                    await self.check_day_stop()
+                continue
+            moved = d * (price - s["entry"]) / PIP  # пипсов в сторону тейка
+            key = f"late_warned:{s['id']}"
+            if self.on_late and self.late_pips > 0 and moved >= self.late_pips and not await self.db.get_kv(key):
+                await self.db.set_kv(key, "1")
+                await self.on_late(s, price, moved)
+
+    def today(self, now: pd.Timestamp | None = None) -> str:
+        now = now or pd.Timestamp.now(tz="UTC")
+        return now.tz_convert(self.tz).strftime("%Y-%m-%d")
+
+    async def day_closed(self, now: pd.Timestamp | None = None) -> bool:
+        return await self.db.get_kv("day_closed") == self.today(now)
+
+    async def check_day_stop(self, now: pd.Timestamp | None = None) -> None:
+        """N стопов подряд за сегодня — закрываем торговый день до завтра."""
+        if self.max_sl_streak <= 0 or await self.day_closed(now):
+            return
+        now = now or pd.Timestamp.now(tz="UTC")
+        start = now.tz_convert(self.tz).normalize().tz_convert("UTC").to_pydatetime()
+        statuses = await self.db.closed_since(start)
+        streak = 0
+        for st in statuses:
+            if st != "sl":
+                break
+            streak += 1
+        if streak >= self.max_sl_streak:
+            await self.db.set_kv("day_closed", self.today(now))
+            if self.on_day_closed:
+                await self.on_day_closed(streak)
 
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
@@ -135,6 +173,8 @@ class SignalEngine:
         await self.db.set_kv("last_bar", bar.isoformat())
         if first_run:
             return None  # не шлём старый сигнал при первом запуске
+        if await self.day_closed(now):
+            return None  # торговый день закрыт после серии стопов — ждём завтра
 
         sig = self.strategy.signals(df)
         d = int(sig[-1])

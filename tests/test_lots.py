@@ -1,4 +1,5 @@
 import asyncio
+import re
 import os
 import sqlite3
 import tempfile
@@ -41,9 +42,10 @@ class CaptionTests(unittest.TestCase):
         for lang in LANGS:
             base = format_signal(st, 1, 2900, 2890, 2920, 100, 200, "08.11.2026 12:00", lang)
             for cap in (None, 100, 1000, 25000):
-                cap_text = botmod.with_lot(base, botmod.lot_text(lang, cap))
-                self.assertLessEqual(len(cap_text), 1024, (lang, cap))  # лимит подписи к фото
-                self.assertTrue(cap_text.rstrip().endswith("</i>"))
+                cap_text = botmod.signal_caption(lang, base, cap, 1, 2900)
+                visible = re.sub(r"<[^>]+>", "", cap_text)
+                self.assertLessEqual(len(visible), 1024, (lang, cap))  # лимит подписи к фото
+                self.assertIn("2903.00", cap_text)  # до какой цены входить (30 пипсов)
         ru = botmod.lot_text("ru", 1000)
         self.assertIn("0.02", ru)
         self.assertIn("−$20 (2%)", ru)
@@ -92,7 +94,7 @@ class FlowTests(unittest.TestCase):
                 self.assertIn("Your lot: 0.01", caps[2])
                 self.assertIn("/capital", caps[3])
                 self.assertEqual({r["lot"] for r in rendered}, {"LOT 0.02", "LOT 0.01"})
-                self.assertEqual(await db.signal_lots(sid), {1: 0.02, 2: 0.01})
+                self.assertEqual(await db.signal_lots(sid), {1: 0.02, 2: 0.01, 3: 0})
 
                 app.bot.sent.clear()
                 sig = (await db.open_signals())[0]
@@ -108,6 +110,65 @@ class FlowTests(unittest.TestCase):
 
                 await db.add_capital(2, -10000)  # не уходим в минус
                 self.assertEqual((await db.user_capitals())[2], 0)
+                await db.close()
+        asyncio.run(go())
+
+    def test_late_warning_and_day_stop(self):
+        from goldbot.engine import SignalEngine
+        import pandas as pd
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                late, closed, days = [], [], []
+
+                async def on_late(s, price, moved):
+                    late.append((s["id"], round(moved)))
+
+                async def on_close(s, status, price):
+                    closed.append(status)
+
+                async def on_day(n):
+                    days.append(n)
+
+                async def noop(*a):
+                    pass
+
+                eng = SignalEngine(db, None, "combo", 100, 200, "Asia/Tashkent", noop, on_close,
+                                   on_late, 30, on_day, 2)
+                a = await db.add_signal("combo", 1, 2900, 2890, 2920)
+                await eng.check_open(2902)            # +20 пипсов — ещё можно входить
+                await eng.check_open(2903.5)          # +35 — опоздали
+                await eng.check_open(2904)            # второй раз не шлём
+                self.assertEqual(late, [(a, 35)])
+                await eng.check_open(2889)            # стоп №1
+                b = await db.add_signal("combo", -1, 2890, 2900, 2870)
+                self.assertFalse(await eng.day_closed())
+                await eng.check_open(2901)            # стоп №2 подряд → день закрыт
+                self.assertEqual(closed, ["sl", "sl"])
+                self.assertEqual(days, [2])
+                self.assertTrue(await eng.day_closed())
+                self.assertFalse(await eng.day_closed(pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=1)))
+                self.assertTrue(b)
+                await db.close()
+        asyncio.run(go())
+
+    def test_day_closed_message_has_capital(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                await db.add_user(1, None, None, 3)
+                await db.add_user(2, None, None, 3)
+                await db.set_capital(1, 980)
+                app = botmod.App.__new__(botmod.App)
+                app.db, app.bot = db, FakeBot()
+                await app.broadcast_day_closed(2)
+                msgs = dict(app.bot.sent)
+                self.assertIn("Торговый день закрыт", msgs[1])
+                self.assertIn("$980", msgs[1])
+                self.assertNotIn("💰", msgs[2])
                 await db.close()
         asyncio.run(go())
 

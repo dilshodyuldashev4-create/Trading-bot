@@ -55,6 +55,17 @@ TEXTS: dict[str, dict[str, str]] = {
                     "🛑 Если стоп: −${loss} ({loss_pct}%) · 🎯 Если тейк: +${profit}"),
         "sig_lot_warn": "\n⚠️ Капитал маленький: даже минимальный лот 0.01 — это риск {loss_pct}%, больше {pct}%.",
         "sig_nocap": "\n\n💰 Укажите свой капитал, и бот покажет ваш лот: /capital",
+        "sig_rules": ("\n\n❗️ <b>Работайте строго так, как рекомендует бот</b>: этот лот, этот стоп и этот тейк. "
+                      "Бывает 2–3 стопа подряд, это нормально. После {n} стопов подряд за день бот закрывает торговый день."),
+        "day_closed": ("🛑 <b>Торговый день закрыт</b>\n\n"
+                       "Мы взяли {n} стопа подряд. Сегодня больше не торгуем, чтобы сберечь депозит. Продолжим завтра 💪"),
+        "day_closed_cap": "\n\n💰 Ваш капитал сейчас: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Входить, только пока цена не выше <b>{limit}</b>. Выше: вы опоздали, сделку не открывайте.",
+        "late_hint_sell": "\n⏱ Входить, только пока цена не ниже <b>{limit}</b>. Ниже: вы опоздали, сделку не открывайте.",
+        "late": ("⚠️ <b>Сигнал #{id} {side}: вход уже неактуален</b>\n\n"
+                 "Цена ушла от входа {entry} на {pips} пипсов и сейчас {price}.\n"
+                 "Если вы ещё не открыли сделку, <b>не входите</b>: вы опоздали, риск стал больше, а прибыль меньше.\n"
+                 "Кто уже в сделке, держите по плану: стоп и тейк те же."),
         "close_balance": ("\n\n💼 Ваш лот {lot}: <b>{pnl}</b>\n💰 Ваш баланс теперь: <b>${bal}</b>\n"
                           "<i>Если вы не открывали эту сделку, обновите капитал: /capital</i>"),
         "paid_ok": "✅ Спасибо! Подписка активна до {until}.",
@@ -182,6 +193,17 @@ TEXTS: dict[str, dict[str, str]] = {
                     "🛑 If stop: −${loss} ({loss_pct}%) · 🎯 If take: +${profit}"),
         "sig_lot_warn": "\n⚠️ Small capital: even the minimum lot 0.01 risks {loss_pct}%, more than {pct}%.",
         "sig_nocap": "\n\n💰 Set your capital and the bot will show your lot: /capital",
+        "sig_rules": ("\n\n❗️ <b>Trade exactly as the bot recommends</b>: this lot, this stop and this take profit. "
+                      "2–3 losses in a row can happen, that's normal. After {n} stops in a row in a day the bot closes the trading day."),
+        "day_closed": ("🛑 <b>Trading day closed</b>\n\n"
+                       "We took {n} stops in a row. No more trading today, to protect the deposit. We'll continue tomorrow 💪"),
+        "day_closed_cap": "\n\n💰 Your capital now: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Enter only while the price is not above <b>{limit}</b>. Above it you're late, don't open the trade.",
+        "late_hint_sell": "\n⏱ Enter only while the price is not below <b>{limit}</b>. Below it you're late, don't open the trade.",
+        "late": ("⚠️ <b>Signal #{id} {side}: entry is no longer valid</b>\n\n"
+                 "Price has moved {pips} pips from the entry {entry} and is now {price}.\n"
+                 "If you haven't opened the trade yet, <b>don't enter</b>: you're late, the risk is bigger and the profit smaller.\n"
+                 "If you're already in, keep to the plan: same stop and take profit."),
         "close_balance": ("\n\n💼 Your lot {lot}: <b>{pnl}</b>\n💰 Your balance now: <b>${bal}</b>\n"
                           "<i>If you didn't open this trade, update your capital: /capital</i>"),
         "paid_ok": "✅ Thank you! Subscription active until {until}.",
@@ -310,6 +332,17 @@ TEXTS: dict[str, dict[str, str]] = {
                     "🛑 Stop boʻlsa: −${loss} ({loss_pct}%) · 🎯 Teyk boʻlsa: +${profit}"),
         "sig_lot_warn": "\n⚠️ Kapital kichik: hatto minimal lot 0.01 ham {loss_pct}% risk, bu {pct}% dan koʻp.",
         "sig_nocap": "\n\n💰 Kapitalingizni koʻrsating, bot lotingizni koʻrsatadi: /capital",
+        "sig_rules": ("\n\n❗️ <b>Aynan bot tavsiya qilgandek savdo qiling</b>: shu lot, shu stop va shu teyk. "
+                      "Ketma-ket 2–3 ta stop boʻlishi mumkin, bu normal. Kun davomida ketma-ket {n} ta stopdan keyin bot savdo kunini yopadi."),
+        "day_closed": ("🛑 <b>Savdo kuni yopildi</b>\n\n"
+                       "Ketma-ket {n} ta stop oldik. Depozitni asrash uchun bugun boshqa savdo qilmaymiz. Ertaga davom etamiz 💪"),
+        "day_closed_cap": "\n\n💰 Hozirgi kapitalingiz: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Narx <b>{limit}</b> dan yuqori boʻlmaguncha kiring. Yuqori boʻlsa, kech qoldingiz, savdoni ochmang.",
+        "late_hint_sell": "\n⏱ Narx <b>{limit}</b> dan past boʻlmaguncha kiring. Past boʻlsa, kech qoldingiz, savdoni ochmang.",
+        "late": ("⚠️ <b>Signal #{id} {side}: kirish endi dolzarb emas</b>\n\n"
+                 "Narx kirish {entry} dan {pips} pips uzoqlashdi va hozir {price}.\n"
+                 "Agar savdoni hali ochmagan boʻlsangiz, <b>kirmang</b>: kech qoldingiz, risk kattaroq, foyda kamroq.\n"
+                 "Savdoda boʻlsangiz, reja boʻyicha ushlab turing: stop va teyk oʻsha."),
         "close_balance": ("\n\n💼 Lotingiz {lot}: <b>{pnl}</b>\n💰 Balansingiz endi: <b>${bal}</b>\n"
                           "<i>Agar bu savdoni ochmagan boʻlsangiz, kapitalni yangilang: /capital</i>"),
         "paid_ok": "✅ Rahmat! Obuna {until} gacha faol.",

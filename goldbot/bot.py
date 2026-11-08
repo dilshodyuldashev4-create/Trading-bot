@@ -26,6 +26,7 @@ from .db import DB
 from .chart import render_signal
 from .engine import NewSignal, SignalEngine
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
+from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
 from .market import make_provider
 from .news import NewsService
@@ -93,8 +94,22 @@ def lot_text(lang: str, capital: float | None) -> str:
     return text
 
 
+def late_hint(lang: str, direction: int, entry: float) -> str:
+    """«Входить, только пока цена не выше/ниже X» — для тех, кто увидит сигнал позже."""
+    if config.late_pips <= 0:
+        return ""
+    limit = entry + direction * config.late_pips * PIP
+    return t(lang, "late_hint_buy" if direction == 1 else "late_hint_sell", limit=f"{limit:.2f}")
+
+
+def signal_caption(lang: str, text: str, capital: float | None, direction: int, entry: float) -> str:
+    """Подпись к фото сигнала для конкретного подписчика: его лот, до какой цены входить, правила."""
+    rules = t(lang, "sig_rules", n=config.max_sl_streak) if config.max_sl_streak > 0 else ""
+    return with_lot(text, lot_text(lang, capital) + late_hint(lang, direction, entry)) + rules
+
+
 def with_lot(caption: str, block: str) -> str:
-    """Вставляет блок лота перед курсивной припиской внизу сигнала."""
+    """Вставляет блок лота (и подсказку «до какой цены входить») перед курсивной припиской внизу сигнала."""
     mark = "\n\n<i>"
     return caption.replace(mark, block + mark, 1) if mark in caption else caption + block
 
@@ -107,7 +122,9 @@ class App:
         self.news = NewsService(config.news_feeds, config.anthropic_model)
         self.provider = make_provider(config)
         self.engine = SignalEngine(self.db, self.provider, config.strategy, config.sl_pips, config.tp_pips,
-                                   config.display_tz, self.broadcast_signal, self.broadcast_close)
+                                   config.display_tz, self.broadcast_signal, self.broadcast_close,
+                                   self.broadcast_late, config.late_pips,
+                                   self.broadcast_day_closed, config.max_sl_streak)
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -173,11 +190,11 @@ class App:
         for u in uids:
             lang, capital = norm(langs.get(u)), caps.get(u)
             img = await image_for(capital)
-            caption = with_lot(s.texts[lang], lot_text(lang, capital))
+            caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry)
             sent = await self._send(u, lambda u=u, img=img, caption=caption: self.bot.send_photo(
                 u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption))
-            if sent and capital:
-                await self.db.add_signal_lot(s.id, u, lot_plan(capital)["lot"])
+            if sent:  # запоминаем, кто получил сигнал и с каким лотом (0 — капитал не указан)
+                await self.db.add_signal_lot(s.id, u, lot_plan(capital)["lot"] if capital else 0)
             ok += sent
             await asyncio.sleep(0.04)
         log.info("signal #%s sent to %s users", s.id, ok)
@@ -212,6 +229,8 @@ class App:
         # у кого был лот в этом сигнале — пересчитываем баланс и пишем результат в $
         results: dict[int, str] = {}
         for u, lot in (await self.db.signal_lots(s["id"])).items():
+            if not lot:
+                continue
             pnl = money(lot, pips) * (1 if status == "tp" else -1)
             bal = await self.db.add_capital(u, pnl)
             results[u] = (lot, pnl, bal)
@@ -233,6 +252,35 @@ class App:
             return self.bot.send_message(u, body)
 
         await self.broadcast(await self.db.all_user_ids(), make)
+
+    async def broadcast_late(self, s: dict, price: float, moved: float) -> None:
+        """Цена уже ушла от входа к тейку — тем, кто получил сигнал: не входите, вы опоздали."""
+        langs = await self.db.user_langs()
+        side = "BUY" if s["direction"] == 1 else "SELL"
+        uids = list(await self.db.signal_lots(s["id"]))
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            return self.bot.send_message(u, t(lang, "late", id=s["id"], side=side, entry=f"{s['entry']:.2f}",
+                                              price=f"{price:.2f}", pips=f"{moved:.0f}"))
+
+        n = await self.broadcast(uids, make)
+        log.info("late warning for signal #%s sent to %s users", s["id"], n)
+
+    async def broadcast_day_closed(self, streak: int) -> None:
+        """Серия стопов: всем подписчикам — торговый день закрыт, у кого указан капитал — сколько осталось."""
+        langs = await self.db.user_langs()
+        caps = await self.db.user_capitals()
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            text = t(lang, "day_closed", n=streak)
+            if caps.get(u):
+                text += t(lang, "day_closed_cap", cap=fmt_usd(caps[u]))
+            return self.bot.send_message(u, text)
+
+        n = await self.broadcast(await self.db.active_user_ids(), make)
+        log.info("day closed after %s SL, sent to %s users", streak, n)
 
     async def broadcast_all(self, make_text) -> None:
         """Всем пользователям, каждому на его языке: make_text(lang) → текст."""

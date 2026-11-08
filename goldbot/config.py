@@ -40,6 +40,10 @@ class Config:
     tp_pips: float = float(os.getenv("TP_PIPS", "200"))
     # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
+    # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
+    late_pips: float = float(os.getenv("LATE_PIPS", "30"))
+    # после стольких стопов подряд за день бот закрывает торговый день (0 — не закрывать)
+    max_sl_streak: int = int(os.getenv("MAX_SL_STREAK", "2"))
     lot_mode: str = os.getenv("LOT_MODE", "risk")
     lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "2"))
 
