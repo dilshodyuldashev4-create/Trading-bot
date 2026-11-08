@@ -110,6 +110,7 @@ class SignalEngine:
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
         self.retry_at: dict[str, pd.Timestamp] = {}  # когда снова запрашивать свечи, если новой ещё нет
+        self._trend: tuple[pd.Timestamp, int] | None = None  # (день UTC, дневной тренд)
 
     @property
     def multi(self) -> bool:
@@ -258,8 +259,11 @@ class SignalEngine:
         return next((x for x in raw if x and x == trend), 0)
 
     async def daily_trend(self, now: pd.Timestamp) -> int:
-        """Дневной тренд по EMA50 (запрашиваем дневные свечи только когда он нужен)."""
-        return daily_trend_side(await self.provider.candles("1day", 150), now)
+        """Дневной тренд по EMA50 (запрашиваем дневные свечи только когда он нужен, один раз за день UTC)."""
+        day = now.tz_convert("UTC").normalize()
+        if self._trend is None or self._trend[0] != day:
+            self._trend = (day, daily_trend_side(await self.provider.candles("1day", 150), now))
+        return self._trend[1]
 
     async def expected(self, lang: str = "ru") -> str:
         now = pd.Timestamp.now(tz="UTC")

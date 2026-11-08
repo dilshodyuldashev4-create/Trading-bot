@@ -96,6 +96,44 @@ class Oanda(_Http):
         return float(c[-1]["mid"]["c"])
 
 
+class FinnhubPrice(_Http):
+    """https://finnhub.io — только текущая цена (бесплатно ~60 запросов в минуту), свечи берём у другого источника.
+    Символ по умолчанию OANDA:XAU_USD."""
+    URL = "https://finnhub.io/api/v1/quote"
+
+    def __init__(self, api_key: str, symbol: str = "OANDA:XAU_USD"):
+        super().__init__()
+        self.key, self.symbol = api_key, symbol
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        raise NotImplementedError("Finnhub используется только для цены")
+
+    async def price(self) -> float:
+        j = await self._get(self.URL, params={"symbol": self.symbol, "token": self.key})
+        p = float(j.get("c") or 0)
+        if p <= 0:
+            raise RuntimeError(f"Finnhub: нет цены для {self.symbol}: {j}")
+        return p
+
+
+class Hybrid(Provider):
+    """Свечи от одного источника (например, бесплатный Twelve Data: запрос только при закрытии свечи),
+    цена каждые CHECK_INTERVAL секунд от другого (например, Finnhub)."""
+
+    def __init__(self, candles_from: Provider, price_from: Provider):
+        self.c, self.p = candles_from, price_from
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        return await self.c.candles(tf, count)
+
+    async def price(self) -> float:
+        return await self.p.price()
+
+    async def close(self) -> None:
+        await self.c.close()
+        await self.p.close()
+
+
 class Replay(Provider):
     """Проигрывает исторические свечи — для тестов и демо без API-ключа."""
 
@@ -119,7 +157,13 @@ def make_provider(cfg) -> Provider:
     if cfg.data_provider == "oanda":
         if not cfg.oanda_token:
             raise RuntimeError("OANDA_TOKEN не задан")
-        return Oanda(cfg.oanda_token, cfg.oanda_live)
-    if not cfg.twelvedata_key:
-        raise RuntimeError("TWELVEDATA_API_KEY не задан")
-    return TwelveData(cfg.twelvedata_key)
+        base: Provider = Oanda(cfg.oanda_token, cfg.oanda_live)
+    else:
+        if not cfg.twelvedata_key:
+            raise RuntimeError("TWELVEDATA_API_KEY не задан")
+        base = TwelveData(cfg.twelvedata_key)
+    if cfg.price_provider == "finnhub":
+        if not cfg.finnhub_key:
+            raise RuntimeError("FINNHUB_API_KEY не задан")
+        return Hybrid(base, FinnhubPrice(cfg.finnhub_key, cfg.finnhub_symbol))
+    return base

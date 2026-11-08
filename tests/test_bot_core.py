@@ -230,3 +230,30 @@ class AllLiveStrategiesTests(unittest.TestCase):
         for key in STRATEGIES:
             with self.subTest(key=key):
                 run(go(key))
+
+
+class HybridProviderTests(unittest.TestCase):
+    def test_price_and_candles_from_different_sources(self):
+        from goldbot.market import Hybrid
+
+        class Src:
+            def __init__(self, p):
+                self.p, self.calls = p, []
+
+            async def candles(self, tf, count):
+                self.calls.append(("candles", tf))
+                return "df"
+
+            async def price(self):
+                self.calls.append(("price",))
+                return self.p
+
+            async def close(self):
+                pass
+
+        a, b = Src(1.0), Src(2.0)
+        h = Hybrid(a, b)
+        self.assertEqual(run(h.price()), 2.0)
+        self.assertEqual(run(h.candles("5min", 10)), "df")
+        self.assertEqual(a.calls, [("candles", "5min")])
+        self.assertEqual(b.calls, [("price",)])

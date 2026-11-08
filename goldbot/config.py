@@ -34,6 +34,10 @@ class Config:
     twelvedata_key: str = os.getenv("TWELVEDATA_API_KEY", "")
     oanda_token: str = os.getenv("OANDA_TOKEN", "")
     oanda_live: bool = os.getenv("OANDA_LIVE", "0") == "1"
+    # откуда брать текущую цену каждые CHECK_INTERVAL секунд: пусто — тот же источник, finnhub — Finnhub
+    price_provider: str = os.getenv("PRICE_PROVIDER", "")
+    finnhub_key: str = os.getenv("FINNHUB_API_KEY", "")
+    finnhub_symbol: str = os.getenv("FINNHUB_SYMBOL", "OANDA:XAU_USD")
     check_interval: int = int(os.getenv("CHECK_INTERVAL", "15"))     # секунд
     strategy: str = os.getenv("STRATEGY", "all")  # all | ключ стратегии | несколько через запятую (см. .env.example)
     sl_pips: float = float(os.getenv("SL_PIPS", "100"))
