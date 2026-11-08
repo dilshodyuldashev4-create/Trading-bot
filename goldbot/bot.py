@@ -62,7 +62,8 @@ class App:
         self.news = NewsService(config.news_feeds, config.anthropic_model)
         self.provider = make_provider(config)
         self.engine = SignalEngine(self.db, self.provider, config.strategy, config.sl_pips, config.tp_pips,
-                                   config.display_tz, self.broadcast_signal, self.broadcast_close)
+                                   config.display_tz, self.broadcast_signal, self.broadcast_close,
+                                   config.weekend_stop)
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
