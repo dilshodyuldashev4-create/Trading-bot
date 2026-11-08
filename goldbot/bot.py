@@ -1,8 +1,9 @@
-"""Telegram-бот: меню, подписка (Telegram Stars), пробный период, админ-панель, рассылка сигналов."""
+"""Telegram-бот: меню, подписка (Click / Payme или вручную), пробный период, админ-панель, рассылка сигналов."""
 from __future__ import annotations
 
 import asyncio
 import csv
+import html
 import io
 import logging
 from datetime import timedelta
@@ -47,6 +48,10 @@ ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="👥 Подписчики (CSV)", callback_data="adm:export"),
      InlineKeyboardButton(text="🧾 Последние сигналы", callback_data="adm:signals")],
     [InlineKeyboardButton(text="🎁 Выдать / забрать подписку", callback_data="adm:granthelp")],
+])
+
+PAID_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="✅ Я оплатил", callback_data="paid")],
 ])
 
 
@@ -159,12 +164,26 @@ class App:
             return f"🎁 Бесплатный период до {self.fmt_dt(u['trial_until'])}"
         return "⛔️ Бесплатный период закончился. Оформите подписку, чтобы получать сигналы."
 
-    async def send_invoice(self, chat_id: int) -> None:
-        await self.bot.send_invoice(
-            chat_id, title=f"Подписка на сигналы XAUUSD — {config.sub_days} дней",
-            description="Автоматические сигналы по золоту с графиком, входом, SL и TP.",
-            payload="sub", currency="XTR", provider_token="",
-            prices=[LabeledPrice(label=f"{config.sub_days} дней", amount=config.sub_price_stars)])
+    @staticmethod
+    def price_str() -> str:
+        return f"{config.sub_price_uzs:,}".replace(",", " ") + " сум"
+
+    def pay_text(self) -> str:
+        text = f"💎 Подписка: <b>{self.price_str()}</b> за {config.sub_days} дней.\n\n"
+        if config.pay_details:
+            text += f"Как оплатить:\n{html.escape(config.pay_details)}\n\n"
+        return text + "После оплаты нажмите «✅ Я оплатил» — администратор проверит и включит подписку."
+
+    async def send_pay_info(self, chat_id: int) -> None:
+        if config.payment_token:
+            # Click / Payme через Telegram Payments: оплата картой Uzcard/Humo прямо в чате
+            await self.bot.send_invoice(
+                chat_id, title=f"Подписка на сигналы XAUUSD — {config.sub_days} дней",
+                description="Автоматические сигналы по золоту с графиком, входом, SL и TP.",
+                payload="sub", currency="UZS", provider_token=config.payment_token,
+                prices=[LabeledPrice(label=f"{config.sub_days} дней", amount=config.sub_price_uzs * 100)])
+        else:
+            await self.bot.send_message(chat_id, self.pay_text(), reply_markup=PAID_KB)
 
     # ── handlers ─────────────────────────────────────────────────────────────
     def _register(self) -> None:
@@ -195,7 +214,7 @@ class App:
                 u = await self.db.get_user(m.from_user.id)
             if not self.db.has_access(u):
                 await m.answer("⛔️ Бесплатный период закончился. Сигналы доступны по подписке.")
-                await self.send_invoice(m.chat.id)
+                await self.send_pay_info(m.chat.id)
                 return
             await m.answer("🔎 Анализирую рынок…")
             try:
@@ -230,9 +249,8 @@ class App:
         @r.message(F.text == BTN_SUB)
         @r.message(Command("subscribe"))
         async def subscribe(m: Message):
-            await m.answer(f"{await self.sub_status(m.from_user.id)}\n\n"
-                           f"Подписка: <b>{config.sub_price_stars} ⭐</b> за {config.sub_days} дней.")
-            await self.send_invoice(m.chat.id)
+            await m.answer(await self.sub_status(m.from_user.id))
+            await self.send_pay_info(m.chat.id)
 
         @r.message(F.text == BTN_PROFILE)
         async def profile(m: Message):
@@ -245,12 +263,31 @@ class App:
         @r.message(F.successful_payment)
         async def paid(m: Message):
             p = m.successful_payment
-            await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
+            await self.db.add_payment(m.from_user.id, p.total_amount // 100, p.currency,
+                                      p.telegram_payment_charge_id)
             until = await self.db.extend_paid(m.from_user.id, config.sub_days)
             await m.answer(f"✅ Спасибо! Подписка активна до {self.fmt_dt(until)}.", reply_markup=MENU)
             for a in config.admin_ids:
                 await self._send(a, lambda a=a: self.bot.send_message(
-                    a, f"💰 Оплата {p.total_amount} {p.currency} от {m.from_user.id} @{m.from_user.username}"))
+                    a, f"💰 Оплата {p.total_amount // 100} {p.currency} от {m.from_user.id} @{m.from_user.username}"))
+
+        @r.callback_query(F.data == "paid")
+        async def i_paid(c: CallbackQuery):
+            u = c.from_user
+            name = html.escape(u.full_name or "")
+            uname = f" @{u.username}" if u.username else ""
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=f"🎁 Выдать {config.sub_days} дней",
+                                     callback_data=f"adm:give:{u.id}:{config.sub_days}"),
+                InlineKeyboardButton(text="❌ Не пришло", callback_data=f"adm:nopay:{u.id}"),
+            ]])
+            for a in config.admin_ids:
+                await self._send(a, lambda a=a: self.bot.send_message(
+                    a, f"💰 <b>{name}</b>{uname} (ID <code>{u.id}</code>) говорит, что оплатил подписку.\n"
+                       f"Проверьте поступление и нажмите кнопку.", reply_markup=kb))
+            await c.answer()
+            await c.message.answer("🙏 Спасибо! Администратор проверит оплату и включит подписку. "
+                                   "Вы получите сообщение, как только доступ откроется.")
 
         # ── админ-панель ─────────────────────────────────────────────────────
         @r.message(Command("admin"))
@@ -264,14 +301,28 @@ class App:
                 await c.answer()
                 return
             action = c.data.split(":", 1)[1]
-            if action == "stats":
+            if action.startswith("give:"):
+                _, uid, days = action.split(":")
+                uid, days = int(uid), int(days)
+                until = await self.db.extend_paid(uid, days)
+                await c.message.edit_reply_markup(reply_markup=None)
+                await c.message.answer(f"✅ {uid}: подписка до {self.fmt_dt(until)}")
+                await self._send(uid, lambda: self.bot.send_message(
+                    uid, f"✅ Оплата получена! Подписка активна до {self.fmt_dt(until)}.", reply_markup=MENU))
+            elif action.startswith("nopay:"):
+                uid = int(action.split(":")[1])
+                await c.message.edit_reply_markup(reply_markup=None)
+                await c.message.answer(f"Ок, {uid}: подписка не выдана")
+                await self._send(uid, lambda: self.bot.send_message(
+                    uid, "⚠️ Оплата пока не найдена. Если вы уже перевели деньги, напишите администратору."))
+            elif action == "stats":
                 s = await self.db.stats()
                 closed = s["tp"] + s["sl"]
                 wr = f"{100 * s['tp'] / closed:.1f}%" if closed else "—"
                 await c.message.answer(
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
                     f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
-                    f"⭐ Выручка: {s['revenue']}\n\n"
+                    f"💰 Оплачено через Click/Payme: {s['revenue']:,} сум\n\n".replace(",", " ") +
                     f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}")
             elif action == "broadcast":
                 await state.set_state(AdminStates.broadcast)

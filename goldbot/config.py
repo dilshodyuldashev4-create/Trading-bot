@@ -42,7 +42,10 @@ class Config:
     # подписка
     trial_days: int = int(os.getenv("TRIAL_DAYS", "3"))
     sub_days: int = int(os.getenv("SUB_DAYS", "30"))
-    sub_price_stars: int = int(os.getenv("SUB_PRICE_STARS", "500"))
+    sub_price_uzs: int = int(os.getenv("SUB_PRICE_UZS", "150000"))   # цена в сумах
+    # токен Click или Payme из @BotFather → Payments; пусто — оплата вручную по PAY_DETAILS
+    payment_token: str = os.getenv("PAYMENT_PROVIDER_TOKEN", "")
+    pay_details: str = os.getenv("PAY_DETAILS", "")                  # реквизиты для ручной оплаты
 
     # новости
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")

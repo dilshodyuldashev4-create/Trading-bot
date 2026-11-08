@@ -153,7 +153,7 @@ class DB:
             "signals": "SELECT COUNT(*) FROM signals",
             "tp": "SELECT COUNT(*) FROM signals WHERE status='tp'",
             "sl": "SELECT COUNT(*) FROM signals WHERE status='sl'",
-            "revenue": "SELECT COALESCE(SUM(amount),0) FROM payments",
+            "revenue": "SELECT COALESCE(SUM(amount),0) FROM payments WHERE currency='UZS'",
         }
         out = {}
         for k, sql in q.items():
