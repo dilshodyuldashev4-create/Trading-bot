@@ -158,3 +158,35 @@ class ComboTrendTests(unittest.TestCase):
                 self.assertIn("EMA50", text)
                 await db.close()
         run(go())
+
+
+class AllLiveStrategiesTests(unittest.TestCase):
+    def test_every_strategy_runs_and_explains_setup(self):
+        from goldbot.live_strategy import STRATEGIES
+
+        async def go(key):
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                df = m5_frame(days=6, start="2025-03-03 00:00")
+                prov = Replay(df, start=600)
+                eng = SignalEngine(db, prov, key, 30, 60, "Asia/Tashkent", on_signal, on_close)
+                while prov.pos < len(df):
+                    prov.step(3)
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    await eng.tick(now=t)
+                for lang in ("ru", "en", "uz"):
+                    self.assertTrue(await eng.expected(lang))
+                await db.close()
+
+        for key in STRATEGIES:
+            with self.subTest(key=key):
+                run(go(key))

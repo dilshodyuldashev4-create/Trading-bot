@@ -35,7 +35,7 @@ class Config:
     oanda_token: str = os.getenv("OANDA_TOKEN", "")
     oanda_live: bool = os.getenv("OANDA_LIVE", "0") == "1"
     check_interval: int = int(os.getenv("CHECK_INTERVAL", "15"))     # секунд
-    strategy: str = os.getenv("STRATEGY", "combo_trend")             # combo_trend | combo | fvg
+    strategy: str = os.getenv("STRATEGY", "multi")  # multi | multi_m5 | fvg_m5 | squeeze | trendline_m5 | combo_trend | combo | fvg
     sl_pips: float = float(os.getenv("SL_PIPS", "100"))
     tp_pips: float = float(os.getenv("TP_PIPS", "200"))
     # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),

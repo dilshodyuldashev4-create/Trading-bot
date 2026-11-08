@@ -45,6 +45,27 @@ EXTRA = {
     "VWAP-откат по дневному тренду": R.vwap_pullback,
     "Поглощение у EMA50": R.engulfing_ema,
     "Combo только BUY": R.buy_only(R.combo),
+    "Фибоначчи 50–61.8%": R.fibonacci_retracement,
+    "Фибоначчи 50–61.8% по дневному тренду": R.with_trend(R.fibonacci_retracement),
+    "Фибоначчи 38.2–61.8% по дневному тренду": R.with_trend(lambda df: R.fibonacci_retracement(df, lo_lvl=0.382)),
+    "Пробой трендовой линии": R.trendline_breakout,
+    "Пробой трендовой линии по дневному тренду": R.with_trend(R.trendline_breakout),
+    "Отскок от трендовой линии": lambda df: R.trendline_breakout(df, bounce=True),
+    "Отскок от трендовой линии по дневному тренду": R.with_trend(lambda df: R.trendline_breakout(df, bounce=True)),
+    "MULTI: Combo + FVG/BOS + Squeeze по тренду": R.merge(*(R.with_trend(f) for f in (
+        R.combo, lambda df: fvg_bos_signals(df), R.squeeze_breakout))),
+    "MULTI M5: FVG/BOS + RSI-откат по тренду": R.merge(*(R.with_trend(f) for f in (
+        lambda df: fvg_bos_signals(df), R.rsi_pullback_raw))),
+}
+
+# стратегии, добавленные в бота (ключ STRATEGY → название и ТФ в таблице)
+IN_BOT = {
+    ("MULTI: Combo + FVG/BOS + Squeeze по тренду", "M15"): "multi",
+    ("MULTI M5: FVG/BOS + RSI-откат по тренду", "M5"): "multi_m5",
+    ("FVG+BOS по дневному тренду", "M5"): "fvg_m5",
+    ("Squeeze по дневному тренду", "M15"): "squeeze",
+    ("Пробой трендовой линии по дневному тренду", "M5"): "trendline_m5",
+    ("Combo по дневному тренду", "M15"): "combo_trend",
 }
 
 
@@ -111,6 +132,10 @@ def main() -> None:
         "  Винрейт 36.6% → 38.4%, PF 1.15 → 1.24, в плюсе 63% десяток вместо 51%, все годы 2024–2026 в плюсе,",
         "  сигналов примерно вдвое меньше (около 11 в месяц). В боте это `STRATEGY=combo_trend`.",
         "* Фильтр помогает при любых настройках EMA (таблица в конце), значит это не подгонка под историю.",
+        "* По запросу «максимальный плюс» в бота добавлены стратегии с наибольшей прибылью, которые в плюсе и в 2026",
+        "  году (таблица «В плюсе в 2026 году»). По умолчанию `STRATEGY=multi`: 4 сетапа на M15 по дневному тренду.",
+        "* Фибоначчи (откат 50–61.8% и 38.2–61.8%) в 2026 году в минусе на всех таймфреймах, в бота не добавлен.",
+        "  Трендовая линия по дневному тренду на M5 в плюсе каждый год — добавлена (`trendline_m5`).",
         "* Учтите: золото в 2024–2026 почти всё время росло, поэтому стратегии «по тренду» и «только BUY» выглядят",
         "  хорошо. При развороте рынка результаты будут хуже.",
         "",
@@ -123,6 +148,20 @@ def main() -> None:
         ys = " | ".join(f"{y[k][1]:.0f}% / {y[k][2]:+d}" for k in (2024, 2025, 2026))
         L.append(f"| {name} | {tf} | {s['n']} | {s['wr']:.1f}% | {s['pips']:+d} | {s['block']:.0f}% из {s['blocks']} | "
                  f"{s['slide']:.0f}% | {s['worst']} из 10 | {s['streak']} | {ys} |")
+    # плюс в 2026 году, по максимальной прибыли
+    y26 = sorted((r for r in ok if r[3][2026][2] > 0 and r[2]["pips"] > 0),
+                 key=lambda r: (-r[2]["pips"], -r[3][2026][2]))
+    L += ["", "## В плюсе в 2026 году — по максимальной прибыли", "",
+          "Только стратегии с плюсом и за весь период, и в 2026 году (январь–август). "
+          "✅ — плюс в каждом году 2024–2026; в скобках — ключ STRATEGY, если стратегия есть в боте.", "",
+          "| Стратегия | ТФ | Итог, пипс | 2026, пипс | Винрейт 2026 | Сделок | Винрейт | Макс. просадка | Блоки 10 в плюсе |",
+          "|---|---|---|---|---|---|---|---|---|"]
+    for name, tf, s, y, rep in y26:
+        mark = " ✅" if all(y[k][2] > 0 for k in (2024, 2025, 2026)) else ""
+        key = IN_BOT.get((name, tf))
+        label = f"{name} (`{key}`)" if key else name
+        L.append(f"| {label}{mark} | {tf} | {s['pips']:+d} | {y[2026][2]:+d} | {y[2026][1]:.0f}% | {s['n']} | "
+                 f"{s['wr']:.1f}% | {rep.max_drawdown_pips():.0f} | {s['block']:.0f}% |")
     perfect = [r for r in ok if r[2]["block"] == 100]
     L += ["", "## Вывод", ""]
     if perfect:

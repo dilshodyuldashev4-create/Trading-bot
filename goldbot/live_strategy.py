@@ -9,6 +9,7 @@ import pandas as pd
 
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
+from .strategies.research import merge, rsi_pullback_raw, squeeze_breakout, trendline_breakout
 from .strategies.sessions import asian_range_breakout, silver_bullet
 
 
@@ -20,12 +21,25 @@ class LiveStrategy:
     signals: Callable[[pd.DataFrame], np.ndarray]
     backtest_note: str
     daily_trend: bool = False   # сигналы только по дневному тренду (close последнего закрытого дня vs EMA50)
+    # несколько стратегий сразу: фильтр тренда к каждой, берётся первая сработавшая по тренду
+    parts: tuple = ()
 
 
 def _combo(df: pd.DataFrame) -> np.ndarray:
     a, b = asian_range_breakout(df), silver_bullet(df)
     return np.where(a != 0, a, b)
 
+
+def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
+    return fvg_bos_signals(df)
+
+
+def _multi(key, title, tf, parts, note) -> LiveStrategy:
+    return LiveStrategy(key, title, tf, merge(*parts), note, daily_trend=True, parts=parts)
+
+
+# Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
+GENERIC = {"multi", "multi_m5", "fvg_m5", "squeeze", "trendline_m5"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -34,6 +48,24 @@ STRATEGIES = {
     "combo_trend": LiveStrategy(
         "combo_trend", "ICT Silver Bullet + пробой азиатского диапазона по дневному тренду", "15min", _combo,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 352 сделки, винрейт 38.4%, +5300 пипсов",
+        daily_trend=True),
+    "multi": _multi("multi", "Silver Bullet + Азия + FVG/BOS + Squeeze по дневному тренду", "15min",
+                    (_combo, _fvg_raw, squeeze_breakout),
+                    "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 900 сделок, винрейт 38.3%, +13500 пипсов"),
+    "multi_m5": _multi("multi_m5", "FVG/BOS + RSI-откат по дневному тренду", "5min",
+                       (_fvg_raw, rsi_pullback_raw),
+                       "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 2976 сделок, винрейт 35.3%, +17700 пипсов"),
+    "fvg_m5": LiveStrategy(
+        "fvg_m5", "OB + FVG + BOS по дневному тренду", "5min", _fvg_raw,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1375 сделок, винрейт 36.7%, +14000 пипсов",
+        daily_trend=True),
+    "squeeze": LiveStrategy(
+        "squeeze", "Squeeze (Боллинджер в Кельтнере) по дневному тренду", "15min", squeeze_breakout,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 441 сделка, винрейт 40.8%, +9900 пипсов",
+        daily_trend=True),
+    "trendline_m5": LiveStrategy(
+        "trendline_m5", "Пробой трендовой линии по дневному тренду", "5min", trendline_breakout,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1812 сделок, винрейт 35.2%, +9900 пипсов",
         daily_trend=True),
     "fvg": LiveStrategy(
         "fvg", "OB + FVG + BOS по тренду EMA200", "1h",
@@ -70,7 +102,12 @@ def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: s
         up = last.close > df.close.ewm(span=200, adjust=False).mean().iloc[-1]
         return t(lang, "exp_fvg", trend=t(lang, "exp_trend_up" if up else "exp_trend_down"))
 
+    trend_line = t(lang, "exp_daily_trend", trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down"))
+    if strategy_key in GENERIC and strategy_key != "multi":
+        return "\n".join([trend_line, t(lang, f"exp_{strategy_key}"), t(lang, "exp_confirm")])
     parts = []
+    if strategy_key == "multi":
+        parts += [trend_line, t(lang, "exp_multi")]
     if strategy_key == "combo_trend":
         parts.append(t(lang, "exp_daily_trend", trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down")))
     idx = df.index.tz_localize("UTC") if df.index.tz is None else df.index

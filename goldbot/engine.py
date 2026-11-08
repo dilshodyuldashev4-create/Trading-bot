@@ -189,12 +189,9 @@ class SignalEngine:
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
 
-        sig = self.strategy.signals(df)
-        d = int(sig[-1])
+        d = await self.direction(df, now)
         if d == 0:
             return None
-        if self.strategy.daily_trend and d != await self.daily_trend(now):
-            return None  # сигнал против дневного тренда — пропускаем
         entry = price
         sl = entry - d * self.sl_pips * PIP
         tp = entry + d * self.tp_pips * PIP
@@ -208,6 +205,19 @@ class SignalEngine:
                        lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
         await self.on_signal(ns)
         return ns
+
+    async def direction(self, df: pd.DataFrame, now: pd.Timestamp) -> int:
+        """Сигнал на последней закрытой свече: 1 BUY, -1 SELL, 0 нет.
+        С фильтром дневного тренда сигнал против тренда пропускается; у составной стратегии
+        берётся первая её часть, давшая сигнал по тренду."""
+        st = self.strategy
+        raw = [int(p(df)[-1]) for p in (st.parts or (st.signals,))]
+        if not any(raw):
+            return 0
+        if not st.daily_trend:
+            return next(x for x in raw if x)
+        trend = await self.daily_trend(now)
+        return next((x for x in raw if x and x == trend), 0)
 
     async def daily_trend(self, now: pd.Timestamp) -> int:
         """Дневной тренд по EMA50 (запрашиваем дневные свечи только когда он нужен)."""

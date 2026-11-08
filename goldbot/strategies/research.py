@@ -70,13 +70,28 @@ def london_open_trend(df):
     return sig
 
 
+def rsi_pullback_raw(df):
+    """RSI(14) вернулся выше 40 → BUY, ниже 60 → SELL (без фильтра тренда, его накладывают отдельно)."""
+    r = rsi(df.close, 14)
+    up = ((r > 40) & (r.shift() <= 40)).to_numpy()
+    dn = ((r < 60) & (r.shift() >= 60)).to_numpy()
+    return (up.astype(np.int8) - dn.astype(np.int8))
+
+
 def rsi_pullback(df):
     """Откат RSI(14) ниже 40 / выше 60 и возврат при дневном тренде (по закрытию свечи)."""
-    r = rsi(df.close, 14)
-    tr = htf_trend(df, "1D", 50)
-    up = ((r > 40) & (r.shift() <= 40)).to_numpy() & (tr == 1)
-    dn = ((r < 60) & (r.shift() >= 60)).to_numpy() & (tr == -1)
-    return (up.astype(np.int8) - dn.astype(np.int8))
+    return _filter(rsi_pullback_raw(df), htf_trend(df, "1D", 50))
+
+
+def merge(*fns):
+    """Несколько стратегий в одну: на каждой свече берётся сигнал первой сработавшей (по порядку)."""
+    def f(df):
+        out = np.zeros(len(df), dtype=np.int8)
+        for g in reversed(fns):
+            s = g(df)
+            out = np.where(s != 0, s, out)
+        return out.astype(np.int8)
+    return f
 
 
 def inside_bar(df):
@@ -130,3 +145,78 @@ def engulfing_ema(df):
 
 def buy_only(fn):
     return lambda df: np.where(fn(df) == 1, 1, 0).astype(np.int8)
+
+
+def fibonacci_retracement(df, swing: int = 5, lo_lvl: float = 0.5, hi_lvl: float = 0.618, min_atr: float = 2.0):
+    """Откат по Фибоначчи: после импульса (подтверждённые свинги low→high или high→low размером
+    от min_atr × ATR14) ждём возврата в зону 50–61.8% и свечу в сторону импульса, закрытую из зоны.
+    Один вход на импульс; импульс отменяется, если цена закрылась за его началом."""
+    from ..indicators import pivot_high, pivot_low
+    o, h, l, c = (df[k].to_numpy() for k in ("open", "high", "low", "close"))
+    a = atr(df, 14).to_numpy()
+    ph, pl = pivot_high(h, swing), pivot_low(l, swing)
+    sig = np.zeros(len(df), dtype=np.int8)
+    last_low = last_high = np.nan
+    up = dn = None  # (start, end) активного импульса
+    for i in range(len(df)):
+        if not np.isnan(pl[i]):
+            last_low = pl[i]
+            if not np.isnan(last_high) and last_high - last_low >= min_atr * a[i]:
+                dn = (last_high, last_low)       # импульс вниз завершён на этом low
+            up = up if up is None or last_low > up[0] else None
+        if not np.isnan(ph[i]):
+            last_high = ph[i]
+            if not np.isnan(last_low) and last_high - last_low >= min_atr * a[i]:
+                up = (last_low, last_high)
+        if up is not None:
+            s, e = up
+            z_hi, z_lo = e - lo_lvl * (e - s), e - hi_lvl * (e - s)
+            if c[i] < s:
+                up = None
+            elif l[i] <= z_hi and c[i] > z_lo and c[i] > o[i]:
+                sig[i], up = 1, None
+        if dn is not None and sig[i] == 0:
+            s, e = dn
+            z_lo, z_hi = e + lo_lvl * (s - e), e + hi_lvl * (s - e)
+            if c[i] > s:
+                dn = None
+            elif h[i] >= z_lo and c[i] < z_hi and c[i] < o[i]:
+                sig[i], dn = -1, None
+    return sig
+
+
+def trendline_breakout(df, swing: int = 5, bounce: bool = False):
+    """Трендовая линия по двум последним подтверждённым свингам.
+    breakout: линия по двум понижающимся хаям → BUY при закрытии выше линии; по двум повышающимся
+    лоям → SELL при закрытии ниже. bounce: касание повышающейся линии лоёв и закрытие выше → BUY
+    (и зеркально SELL от понижающейся линии хаёв). Один сигнал на линию."""
+    from ..indicators import pivot_high, pivot_low
+    o, h, l, c = (df[k].to_numpy() for k in ("open", "high", "low", "close"))
+    ph, pl = pivot_high(h, swing), pivot_low(l, swing)
+    sig = np.zeros(len(df), dtype=np.int8)
+    highs, lows = [], []          # (index, price)
+    hl_used = ll_used = True
+    for i in range(len(df)):
+        if not np.isnan(ph[i]):
+            highs = (highs + [(i - swing, ph[i])])[-2:]
+            hl_used = False
+        if not np.isnan(pl[i]):
+            lows = (lows + [(i - swing, pl[i])])[-2:]
+            ll_used = False
+        # линия хаёв
+        if len(highs) == 2 and not hl_used and highs[1][1] < highs[0][1]:
+            (i1, p1), (i2, p2) = highs
+            line = p2 + (p2 - p1) / (i2 - i1) * (i - i2)
+            if not bounce and c[i] > line and c[i - 1] <= line + (p2 - p1) / (i2 - i1) * -1:
+                sig[i], hl_used = 1, True
+            elif bounce and h[i] >= line and c[i] < line and c[i] < o[i]:
+                sig[i], hl_used = -1, True
+        # линия лоёв
+        if sig[i] == 0 and len(lows) == 2 and not ll_used and lows[1][1] > lows[0][1]:
+            (i1, p1), (i2, p2) = lows
+            line = p2 + (p2 - p1) / (i2 - i1) * (i - i2)
+            if not bounce and c[i] < line and c[i - 1] >= line - (p2 - p1) / (i2 - i1):
+                sig[i], ll_used = -1, True
+            elif bounce and l[i] <= line and c[i] > line and c[i] > o[i]:
+                sig[i], ll_used = 1, True
+    return sig
