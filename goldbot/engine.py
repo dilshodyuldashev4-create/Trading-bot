@@ -69,6 +69,7 @@ class SignalEngine:
         self.last_bar: pd.Timestamp | None = None
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
+        self.retry_at: pd.Timestamp | None = None  # когда снова запрашивать свечи, если новой ещё нет
 
     async def _load_last_bar(self) -> None:
         if self.last_bar is None:
@@ -99,6 +100,8 @@ class SignalEngine:
         naive_now = now.tz_convert(None)
         if self.last_bar is not None and naive_now < self.last_bar + 2 * step:
             return None  # новая свеча ещё не закрылась
+        if self.retry_at is not None and naive_now < self.retry_at:
+            return None  # выходные или задержка данных: не тратим лимит API
 
         df = closed_bars(await self.provider.candles(tf, 400), tf, now)
         if df.empty:
@@ -106,7 +109,9 @@ class SignalEngine:
         self.last_df = df
         bar = df.index[-1]
         if self.last_bar is not None and bar <= self.last_bar:
+            self.retry_at = naive_now + pd.Timedelta(minutes=5)
             return None
+        self.retry_at = None
         first_run = self.last_bar is None
         self.last_bar = bar
         await self.db.set_kv("last_bar", bar.isoformat())
