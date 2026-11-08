@@ -45,6 +45,8 @@ def main() -> None:
         "|---|---|---|---|---|---|---|---|",
     ]
     for name, tf, sl, r in rows:
+        if r.n == 0:
+            continue
         flag = " ✅" if r.win_rate >= WIN_RATE_GOAL and r.n >= 30 else ""
         lines.append(f"| {name} | {tf} | {sl}/{2*sl} | {r.n} | {r.win_rate:.1f}%{flag} | "
                      f"{r.total_pips:+.0f} | {r.profit_factor:.2f} | {r.max_drawdown_pips():.0f} |")
