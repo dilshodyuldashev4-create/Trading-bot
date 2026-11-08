@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     trial_until TEXT NOT NULL,
     paid_until TEXT,
     blocked INTEGER NOT NULL DEFAULT 0,
-    lang TEXT
+    lang TEXT,
+    capital REAL
 );
 CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +46,13 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     previous TEXT,
     actual TEXT
 );
+CREATE TABLE IF NOT EXISTS signal_lots (
+    signal_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    lot REAL NOT NULL,
+    declined INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (signal_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 """
 
@@ -71,8 +79,11 @@ class DB:
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
         cur = await self.conn.execute("PRAGMA table_info(users)")
-        if "lang" not in [r[1] for r in await cur.fetchall()]:  # старая база — добавляем колонку
+        cols = [r[1] for r in await cur.fetchall()]
+        if "lang" not in cols:  # старая база — добавляем колонки
             await self.conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
+        if "capital" not in cols:
+            await self.conn.execute("ALTER TABLE users ADD COLUMN capital REAL")
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -131,6 +142,24 @@ class DB:
     async def set_lang(self, uid: int, lang: str) -> None:
         await self.conn.execute("UPDATE users SET lang=? WHERE id=?", (lang, uid))
         await self.conn.commit()
+
+    async def set_capital(self, uid: int, capital: float) -> None:
+        """Капитал в $; 0 — пользователь пропустил вопрос."""
+        await self.conn.execute("UPDATE users SET capital=? WHERE id=?", (capital, uid))
+        await self.conn.commit()
+
+    async def add_capital(self, uid: int, delta: float) -> float:
+        """Прибавляет результат сделки к капиталу (не ниже 0), возвращает новый капитал."""
+        await self.conn.execute("UPDATE users SET capital=MAX(0, ROUND(COALESCE(capital,0)+?, 2)) WHERE id=?",
+                                (delta, uid))
+        await self.conn.commit()
+        cur = await self.conn.execute("SELECT capital FROM users WHERE id=?", (uid,))
+        row = await cur.fetchone()
+        return row[0] if row else 0.0
+
+    async def user_capitals(self) -> dict[int, float | None]:
+        cur = await self.conn.execute("SELECT id, capital FROM users")
+        return {r[0]: r[1] for r in await cur.fetchall()}
 
     async def user_langs(self) -> dict[int, str | None]:
         """id → выбранный язык (None, если ещё не выбирал)."""
@@ -209,6 +238,41 @@ class DB:
         await self.conn.execute("UPDATE signals SET status=?, closed_at=? WHERE id=?",
                                 (status, _iso(now()), sid))
         await self.conn.commit()
+
+    async def add_signal_lot(self, sid: int, uid: int, lot: float) -> None:
+        """Какой лот бот показал подписчику в сигнале — по нему потом считаем его результат."""
+        await self.conn.execute("INSERT OR REPLACE INTO signal_lots (signal_id, user_id, lot) VALUES (?,?,?)",
+                                (sid, uid, lot))
+        await self.conn.commit()
+
+    async def signal_lots(self, sid: int) -> dict[int, float]:
+        """Кто получил сигнал и с каким лотом — без тех, кто нажал «Отклонить»."""
+        cur = await self.conn.execute("SELECT user_id, lot FROM signal_lots WHERE signal_id=? AND declined=0",
+                                      (sid,))
+        return {r[0]: r[1] for r in await cur.fetchall()}
+
+    async def set_decision(self, sid: int, uid: int, declined: bool, lot: float = 0) -> None:
+        """«Принять» / «Отклонить» под сигналом."""
+        await self.conn.execute(
+            "INSERT INTO signal_lots (signal_id, user_id, lot, declined) VALUES (?,?,?,?) "
+            "ON CONFLICT(signal_id, user_id) DO UPDATE SET declined=excluded.declined",
+            (sid, uid, lot, int(declined)))
+        await self.conn.commit()
+
+    async def declined_users(self, sid: int) -> set[int]:
+        cur = await self.conn.execute("SELECT user_id FROM signal_lots WHERE signal_id=? AND declined=1", (sid,))
+        return {r[0] for r in await cur.fetchall()}
+
+    async def get_signal(self, sid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM signals WHERE id=?", (sid,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def closed_since(self, since: datetime) -> list[str]:
+        """Статусы сигналов, созданных после since и уже закрытых, от последнего к первому."""
+        cur = await self.conn.execute(
+            "SELECT status FROM signals WHERE created_at>=? AND status!='open' ORDER BY id DESC", (_iso(since),))
+        return [r[0] for r in await cur.fetchall()]
 
     async def last_signals(self, n: int = 10) -> list[dict]:
         cur = await self.conn.execute("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (n,))

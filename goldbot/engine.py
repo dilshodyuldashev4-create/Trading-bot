@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional
 
 import pandas as pd
 
@@ -32,6 +32,7 @@ class NewSignal:
     tp: float
     image: bytes
     texts: dict[str, str]  # язык → текст сигнала
+    render: Optional[Callable[..., bytes]] = None  # картинка с подписями для конкретного подписчика
 
     @property
     def text(self) -> str:
@@ -40,6 +41,8 @@ class NewSignal:
 
 OnSignal = Callable[[NewSignal], Awaitable[None]]
 OnClose = Callable[[dict, str, float], Awaitable[None]]
+OnDayClosed = Callable[[int], Awaitable[None]]  # сколько стопов подряд
+OnLate = Callable[[dict, float, float], Awaitable[None]]  # сигнал, цена, на сколько пипсов ушла
 
 
 def market_open(now: pd.Timestamp) -> bool:
@@ -56,6 +59,19 @@ def market_open(now: pd.Timestamp) -> bool:
     if wd == 4 and h >= 17:          # пятница после 17:00
         return False
     return h != 17                   # ежедневный перерыв 17:00–18:00
+
+
+def next_open(now: pd.Timestamp) -> pd.Timestamp:
+    """Когда рынок откроется снова (вызывать, когда он закрыт): 18:00 по Нью-Йорку сегодня или в воскресенье."""
+    ny = (now if now.tzinfo else now.tz_localize("UTC")).tz_convert("America/New_York")
+    day = ny.normalize()
+    if ny.weekday() == 4 and ny.hour >= 17:
+        day += pd.Timedelta(days=2)          # пятница вечером → воскресенье
+    elif ny.weekday() == 5:
+        day += pd.Timedelta(days=1)          # суббота → воскресенье
+    elif ny.hour >= 18:
+        day += pd.Timedelta(days=1)
+    return day.replace(hour=18).tz_convert("UTC")
 
 
 def closed_bars(df: pd.DataFrame, tf: str, now: pd.Timestamp) -> pd.DataFrame:
@@ -75,12 +91,16 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
 
 class SignalEngine:
     def __init__(self, db: DB, provider: Provider, strategy_key: str, sl_pips: float, tp_pips: float,
-                 display_tz: str, on_signal: OnSignal, on_close: OnClose):
+                 display_tz: str, on_signal: OnSignal, on_close: OnClose,
+                 on_late: Optional[OnLate] = None, late_pips: float = 30,
+                 on_day_closed: Optional[OnDayClosed] = None, max_sl_streak: int = 0):
         self.db, self.provider = db, provider
         self.strategy = STRATEGIES[strategy_key]
         self.sl_pips, self.tp_pips = sl_pips, tp_pips
         self.tz = display_tz
-        self.on_signal, self.on_close = on_signal, on_close
+        self.on_signal, self.on_close, self.on_late = on_signal, on_close, on_late
+        self.late_pips = late_pips
+        self.on_day_closed, self.max_sl_streak = on_day_closed, max_sl_streak
         self.last_bar: pd.Timestamp | None = None
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
@@ -102,6 +122,38 @@ class SignalEngine:
             if status:
                 await self.db.close_signal(s["id"], status)
                 await self.on_close(s, status, price)
+                if status == "sl":
+                    await self.check_day_stop()
+                continue
+            moved = d * (price - s["entry"]) / PIP  # пипсов в сторону тейка
+            key = f"late_warned:{s['id']}"
+            if self.on_late and self.late_pips > 0 and moved >= self.late_pips and not await self.db.get_kv(key):
+                await self.db.set_kv(key, "1")
+                await self.on_late(s, price, moved)
+
+    def today(self, now: pd.Timestamp | None = None) -> str:
+        now = now or pd.Timestamp.now(tz="UTC")
+        return now.tz_convert(self.tz).strftime("%Y-%m-%d")
+
+    async def day_closed(self, now: pd.Timestamp | None = None) -> bool:
+        return await self.db.get_kv("day_closed") == self.today(now)
+
+    async def check_day_stop(self, now: pd.Timestamp | None = None) -> None:
+        """N стопов подряд за сегодня — закрываем торговый день до завтра."""
+        if self.max_sl_streak <= 0 or await self.day_closed(now):
+            return
+        now = now or pd.Timestamp.now(tz="UTC")
+        start = now.tz_convert(self.tz).normalize().tz_convert("UTC").to_pydatetime()
+        statuses = await self.db.closed_since(start)
+        streak = 0
+        for st in statuses:
+            if st != "sl":
+                break
+            streak += 1
+        if streak >= self.max_sl_streak:
+            await self.db.set_kv("day_closed", self.today(now))
+            if self.on_day_closed:
+                await self.on_day_closed(streak)
 
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
@@ -134,6 +186,8 @@ class SignalEngine:
         await self.db.set_kv("last_bar", bar.isoformat())
         if first_run:
             return None  # не шлём старый сигнал при первом запуске
+        if await self.day_closed(now):
+            return None  # торговый день закрыт после серии стопов — ждём завтра
 
         sig = self.strategy.signals(df)
         d = int(sig[-1])
@@ -144,10 +198,12 @@ class SignalEngine:
         tp = entry + d * self.tp_pips * PIP
         sid = await self.db.add_signal(self.strategy.key, d, entry, sl, tp)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
-        img = render_signal(df, d, entry, sl, tp, f"XAUUSD {tf.replace('min', 'm')} · #{sid}", tz=self.tz)
+        title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
+        img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
                        per_lang(lambda lang: format_signal(self.strategy, d, entry, sl, tp,
-                                                           self.sl_pips, self.tp_pips, when, lang)))
+                                                           self.sl_pips, self.tp_pips, when, lang)),
+                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
         await self.on_signal(ns)
         return ns
 

@@ -17,6 +17,27 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Подписка",
         "btn_profile": "👤 Профиль",
         "btn_lang": "🌐 Сменить язык",
+        "btn_stats": "📈 Статистика",
+        "market_open": ("🟢 <b>Рынок золота открыт</b>\n\n"
+                        "Как только появится новый сетап, бот сразу пришлёт вам сигнал. Удачной торговли!"),
+        "market_closed": "🔴 <b>Рынок золота закрыт</b> на ежедневный перерыв.\nОткроется {when}.",
+        "market_closed_week": ("🔴 <b>Рынок золота закрыт на выходные</b>\n\n"
+                               "Откроется {when}. Отдыхайте, новые сигналы будут на следующей неделе."),
+        "btn_accept": "✅ Принять сигнал",
+        "btn_decline": "❌ Отклонить",
+        "accepted": "✅ Спасибо, что приняли наш сигнал #{id}! Мы сообщим вам о результате, когда сделка закроется.",
+        "declined": "❌ Вы отклонили сигнал #{id}. Когда будет новый сигнал, мы вам сообщим. Спасибо!",
+        "sig_already_closed": "Этот сигнал уже закрыт",
+        "stats_head": ("📈 <b>Статистика сигналов</b>\n\n"
+                       "Всего: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ в работе: {open}\n"
+                       "🎯 Винрейт: <b>{wr}</b>\n💰 Итог: <b>{pips} пипсов</b>\n\n"
+                       "<b>Последние сигналы:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Вход {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: выход {exit}, <b>+{pips} пипсов</b>",
+        "stats_sl": "❌ Stop Loss: выход {exit}, −{pips} пипсов",
+        "stats_open": "⏳ В работе",
+        "stats_empty": "📈 Сигналов пока не было.",
         "hello": ("👋 Привет, {name}!\n\n"
                   "Я бот сигналов по <b>золоту (XAUUSD)</b>.\n"
                   "• 📊 <b>Сигнал</b> — анализ рынка и ожидаемый сетап; подтверждённые сигналы приходят сами\n"
@@ -41,6 +62,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Не удалось загрузить новости, попробуйте позже.",
         "sub_price": "Подписка: <b>{price} ⭐</b> за {days} дней.",
         "profile": "🆔 {id}\n{status}\n🌐 Язык: {language}",
+        "ask_capital": ("💰 <b>Какой у вас капитал (депозит) для торговли?</b>\n\n"
+                        "Выберите кнопку или напишите сумму в долларах, например <code>150</code>. "
+                        "По капиталу бот будет показывать в каждом сигнале ваш объём сделки (лот)."),
+        "btn_skip": "Пропустить",
+        "btn_capital": "💰 Изменить капитал",
+        "cap_set": "✅ Капитал: <b>${cap}</b>\n📦 Ваш лот в сигналах: <b>{lot}</b>",
+        "cap_skipped": "Хорошо. Капитал можно указать позже: 👤 Профиль или /capital",
+        "cap_bad": "Напишите сумму числом, например <code>150</code>",
+        "profile_cap": "\n💰 Капитал: ${cap} · лот {lot}",
+        "profile_nocap": "\n💰 Капитал не указан (/capital)",
+        "sig_lot": ("\n\n📦 <b>Ваш лот: {lot}</b> (капитал ${cap})\n"
+                    "🛑 Если стоп: −${loss} ({loss_pct}%) · 🎯 Если тейк: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Капитал маленький: даже минимальный лот 0.01 — это риск {loss_pct}%, больше {pct}%.",
+        "sig_nocap": "\n\n💰 Укажите свой капитал, и бот покажет ваш лот: /capital",
+        "sig_rules": ("\n\n❗️ <b>Работайте строго так, как рекомендует бот</b>: этот лот, этот стоп и этот тейк. "
+                      "Бывает 2–3 стопа подряд, это нормально. После {n} стопов подряд за день бот закрывает торговый день."),
+        "day_closed": ("🛑 <b>Торговый день закрыт</b>\n\n"
+                       "Мы взяли {n} стопа подряд. Сегодня больше не торгуем, чтобы сберечь депозит. Продолжим завтра 💪"),
+        "day_closed_cap": "\n\n💰 Ваш капитал сейчас: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Входить, только пока цена не выше <b>{limit}</b>. Выше: вы опоздали, сделку не открывайте.",
+        "late_hint_sell": "\n⏱ Входить, только пока цена не ниже <b>{limit}</b>. Ниже: вы опоздали, сделку не открывайте.",
+        "late": ("⚠️ <b>Сигнал #{id} {side}: вход уже неактуален</b>\n\n"
+                 "Цена ушла от входа {entry} на {pips} пипсов и сейчас {price}.\n"
+                 "Если вы ещё не открыли сделку, <b>не входите</b>: вы опоздали, риск стал больше, а прибыль меньше.\n"
+                 "Кто уже в сделке, держите по плану: стоп и тейк те же."),
+        "close_balance": ("\n\n💼 Ваш лот {lot}: <b>{pnl}</b>\n💰 Ваш баланс теперь: <b>${bal}</b>\n"
+                          "<i>Если вы не открывали эту сделку, обновите капитал: /capital</i>"),
         "paid_ok": "✅ Спасибо! Подписка активна до {until}.",
         "cancelled": "Отменено",
         "granted": "🎁 Вам выдана подписка до {until}",
@@ -128,6 +176,27 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Subscription",
         "btn_profile": "👤 Profile",
         "btn_lang": "🌐 Change language",
+        "btn_stats": "📈 Statistics",
+        "market_open": ("🟢 <b>The gold market is open</b>\n\n"
+                        "As soon as there is a new setup, the bot will send you a signal. Good trading!"),
+        "market_closed": "🔴 <b>The gold market is closed</b> for the daily break.\nIt opens {when}.",
+        "market_closed_week": ("🔴 <b>The gold market is closed for the weekend</b>\n\n"
+                               "It opens {when}. Have a rest, new signals next week."),
+        "btn_accept": "✅ Accept signal",
+        "btn_decline": "❌ Decline",
+        "accepted": "✅ Thank you for accepting our signal #{id}! We'll let you know the result when the trade closes.",
+        "declined": "❌ You declined signal #{id}. We'll let you know when there is a new signal. Thank you!",
+        "sig_already_closed": "This signal is already closed",
+        "stats_head": ("📈 <b>Signal statistics</b>\n\n"
+                       "Total: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ open: {open}\n"
+                       "🎯 Win rate: <b>{wr}</b>\n💰 Result: <b>{pips} pips</b>\n\n"
+                       "<b>Latest signals:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Entry {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: exit {exit}, <b>+{pips} pips</b>",
+        "stats_sl": "❌ Stop Loss: exit {exit}, −{pips} pips",
+        "stats_open": "⏳ Open",
+        "stats_empty": "📈 No signals yet.",
         "hello": ("👋 Hi, {name}!\n\n"
                   "I'm a <b>gold (XAUUSD)</b> signals bot.\n"
                   "• 📊 <b>Signal</b> — market analysis and the expected setup; confirmed signals arrive automatically\n"
@@ -152,6 +221,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Couldn't load the news, please try later.",
         "sub_price": "Subscription: <b>{price} ⭐</b> for {days} days.",
         "profile": "🆔 {id}\n{status}\n🌐 Language: {language}",
+        "ask_capital": ("💰 <b>What is your trading capital (deposit)?</b>\n\n"
+                        "Tap a button or type the amount in dollars, e.g. <code>150</code>. "
+                        "The bot will use it to show your trade size (lot) in every signal."),
+        "btn_skip": "Skip",
+        "btn_capital": "💰 Change capital",
+        "cap_set": "✅ Capital: <b>${cap}</b>\n📦 Your lot in signals: <b>{lot}</b>",
+        "cap_skipped": "OK. You can set your capital later: 👤 Profile or /capital",
+        "cap_bad": "Please type the amount as a number, e.g. <code>150</code>",
+        "profile_cap": "\n💰 Capital: ${cap} · lot {lot}",
+        "profile_nocap": "\n💰 Capital not set (/capital)",
+        "sig_lot": ("\n\n📦 <b>Your lot: {lot}</b> (capital ${cap})\n"
+                    "🛑 If stop: −${loss} ({loss_pct}%) · 🎯 If take: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Small capital: even the minimum lot 0.01 risks {loss_pct}%, more than {pct}%.",
+        "sig_nocap": "\n\n💰 Set your capital and the bot will show your lot: /capital",
+        "sig_rules": ("\n\n❗️ <b>Trade exactly as the bot recommends</b>: this lot, this stop and this take profit. "
+                      "2–3 losses in a row can happen, that's normal. After {n} stops in a row in a day the bot closes the trading day."),
+        "day_closed": ("🛑 <b>Trading day closed</b>\n\n"
+                       "We took {n} stops in a row. No more trading today, to protect the deposit. We'll continue tomorrow 💪"),
+        "day_closed_cap": "\n\n💰 Your capital now: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Enter only while the price is not above <b>{limit}</b>. Above it you're late, don't open the trade.",
+        "late_hint_sell": "\n⏱ Enter only while the price is not below <b>{limit}</b>. Below it you're late, don't open the trade.",
+        "late": ("⚠️ <b>Signal #{id} {side}: entry is no longer valid</b>\n\n"
+                 "Price has moved {pips} pips from the entry {entry} and is now {price}.\n"
+                 "If you haven't opened the trade yet, <b>don't enter</b>: you're late, the risk is bigger and the profit smaller.\n"
+                 "If you're already in, keep to the plan: same stop and take profit."),
+        "close_balance": ("\n\n💼 Your lot {lot}: <b>{pnl}</b>\n💰 Your balance now: <b>${bal}</b>\n"
+                          "<i>If you didn't open this trade, update your capital: /capital</i>"),
         "paid_ok": "✅ Thank you! Subscription active until {until}.",
         "cancelled": "Cancelled",
         "granted": "🎁 You've been given a subscription until {until}",
@@ -240,6 +336,27 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Obuna",
         "btn_profile": "👤 Profil",
         "btn_lang": "🌐 Tilni oʻzgartirish",
+        "btn_stats": "📈 Statistika",
+        "market_open": ("🟢 <b>Oltin bozori ochildi</b>\n\n"
+                        "Yangi setap paydo boʻlishi bilan bot sizga darhol signal yuboradi. Omadli savdo!"),
+        "market_closed": "🔴 <b>Oltin bozori yopildi</b> (kunlik tanaffus).\nOchiladi: {when}.",
+        "market_closed_week": ("🔴 <b>Oltin bozori dam olish kunlariga yopildi</b>\n\n"
+                               "Ochiladi: {when}. Dam oling, yangi signallar keyingi haftada."),
+        "btn_accept": "✅ Signalni qabul qilish",
+        "btn_decline": "❌ Rad etish",
+        "accepted": "✅ Signalimiz #{id} ni qabul qilganingiz uchun rahmat! Savdo yopilganda natija haqida xabar beramiz.",
+        "declined": "❌ Siz #{id} signalni rad etdingiz. Yangi signal boʻlganda sizga xabar beramiz. Rahmat!",
+        "sig_already_closed": "Bu signal allaqachon yopilgan",
+        "stats_head": ("📈 <b>Signallar statistikasi</b>\n\n"
+                       "Jami: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ ochiq: {open}\n"
+                       "🎯 Winrate: <b>{wr}</b>\n💰 Natija: <b>{pips} pips</b>\n\n"
+                       "<b>Oxirgi signallar:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Kirish {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: chiqish {exit}, <b>+{pips} pips</b>",
+        "stats_sl": "❌ Stop Loss: chiqish {exit}, −{pips} pips",
+        "stats_open": "⏳ Ochiq",
+        "stats_empty": "📈 Hali signallar boʻlmagan.",
         "hello": ("👋 Salom, {name}!\n\n"
                   "Men <b>oltin (XAUUSD)</b> boʻyicha signallar botiman.\n"
                   "• 📊 <b>Signal</b> — bozor tahlili va kutilayotgan setap; tasdiqlangan signallar oʻzi keladi\n"
@@ -264,6 +381,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Yangiliklarni yuklab boʻlmadi, keyinroq urinib koʻring.",
         "sub_price": "Obuna: {days} kun uchun <b>{price} ⭐</b>.",
         "profile": "🆔 {id}\n{status}\n🌐 Til: {language}",
+        "ask_capital": ("💰 <b>Savdo uchun kapitalingiz (depozit) qancha?</b>\n\n"
+                        "Tugmani tanlang yoki summani dollarda yozing, masalan <code>150</code>. "
+                        "Shu boʻyicha bot har bir signalda sizning savdo hajmingizni (lot) koʻrsatadi."),
+        "btn_skip": "Oʻtkazib yuborish",
+        "btn_capital": "💰 Kapitalni oʻzgartirish",
+        "cap_set": "✅ Kapital: <b>${cap}</b>\n📦 Signallardagi lotingiz: <b>{lot}</b>",
+        "cap_skipped": "Yaxshi. Kapitalni keyin koʻrsatish mumkin: 👤 Profil yoki /capital",
+        "cap_bad": "Summani raqam bilan yozing, masalan <code>150</code>",
+        "profile_cap": "\n💰 Kapital: ${cap} · lot {lot}",
+        "profile_nocap": "\n💰 Kapital koʻrsatilmagan (/capital)",
+        "sig_lot": ("\n\n📦 <b>Sizning lotingiz: {lot}</b> (kapital ${cap})\n"
+                    "🛑 Stop boʻlsa: −${loss} ({loss_pct}%) · 🎯 Teyk boʻlsa: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Kapital kichik: hatto minimal lot 0.01 ham {loss_pct}% risk, bu {pct}% dan koʻp.",
+        "sig_nocap": "\n\n💰 Kapitalingizni koʻrsating, bot lotingizni koʻrsatadi: /capital",
+        "sig_rules": ("\n\n❗️ <b>Aynan bot tavsiya qilgandek savdo qiling</b>: shu lot, shu stop va shu teyk. "
+                      "Ketma-ket 2–3 ta stop boʻlishi mumkin, bu normal. Kun davomida ketma-ket {n} ta stopdan keyin bot savdo kunini yopadi."),
+        "day_closed": ("🛑 <b>Savdo kuni yopildi</b>\n\n"
+                       "Ketma-ket {n} ta stop oldik. Depozitni asrash uchun bugun boshqa savdo qilmaymiz. Ertaga davom etamiz 💪"),
+        "day_closed_cap": "\n\n💰 Hozirgi kapitalingiz: <b>${cap}</b>",
+        "late_hint_buy": "\n⏱ Narx <b>{limit}</b> dan yuqori boʻlmaguncha kiring. Yuqori boʻlsa, kech qoldingiz, savdoni ochmang.",
+        "late_hint_sell": "\n⏱ Narx <b>{limit}</b> dan past boʻlmaguncha kiring. Past boʻlsa, kech qoldingiz, savdoni ochmang.",
+        "late": ("⚠️ <b>Signal #{id} {side}: kirish endi dolzarb emas</b>\n\n"
+                 "Narx kirish {entry} dan {pips} pips uzoqlashdi va hozir {price}.\n"
+                 "Agar savdoni hali ochmagan boʻlsangiz, <b>kirmang</b>: kech qoldingiz, risk kattaroq, foyda kamroq.\n"
+                 "Savdoda boʻlsangiz, reja boʻyicha ushlab turing: stop va teyk oʻsha."),
+        "close_balance": ("\n\n💼 Lotingiz {lot}: <b>{pnl}</b>\n💰 Balansingiz endi: <b>${bal}</b>\n"
+                          "<i>Agar bu savdoni ochmagan boʻlsangiz, kapitalni yangilang: /capital</i>"),
         "paid_ok": "✅ Rahmat! Obuna {until} gacha faol.",
         "cancelled": "Bekor qilindi",
         "granted": "🎁 Sizga {until} gacha obuna berildi",
