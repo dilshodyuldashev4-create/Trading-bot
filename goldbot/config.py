@@ -49,7 +49,11 @@ class Config:
     news_feeds: tuple[str, ...] = tuple(
         u.strip() for u in os.getenv(
             "NEWS_FEEDS",
-            "https://www.fxstreet.com/rss/news,"
+            # Google News отдаёт свежие заголовки и серверам в дата-центрах (FXStreet отвечает 403)
+            "https://news.google.com/rss/search?q=gold+price+OR+XAUUSD+OR+bullion+when:1d"
+            "&hl=en-US&gl=US&ceid=US:en,"
+            "https://news.google.com/rss/search?q=%22Federal+Reserve%22+OR+Fed+OR+dollar+OR+inflation"
+            "+OR+%22Treasury+yields%22+when:1d&hl=en-US&gl=US&ceid=US:en,"
             "https://www.investing.com/rss/news_11.rss,"
             "https://www.investing.com/rss/news_95.rss",
         ).split(",") if u.strip()
