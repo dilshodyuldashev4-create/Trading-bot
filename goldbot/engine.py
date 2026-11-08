@@ -37,6 +37,22 @@ OnSignal = Callable[[NewSignal], Awaitable[None]]
 OnClose = Callable[[dict, str, float], Awaitable[None]]
 
 
+def market_open(now: pd.Timestamp) -> bool:
+    """Рынок золота: с вс 18:00 до пт 17:00 по Нью-Йорку, ежедневный перерыв 17:00–18:00.
+
+    Пока рынок закрыт (выходные, перерыв), котировки не запрашиваем — экономим лимит API.
+    """
+    ny = (now if now.tzinfo else now.tz_localize("UTC")).tz_convert("America/New_York")
+    wd, h = ny.weekday(), ny.hour  # пн=0 … вс=6
+    if wd == 5:                      # суббота
+        return False
+    if wd == 6:                      # воскресенье — открытие в 18:00
+        return h >= 18
+    if wd == 4 and h >= 17:          # пятница после 17:00
+        return False
+    return h != 17                   # ежедневный перерыв 17:00–18:00
+
+
 def closed_bars(df: pd.DataFrame, tf: str, now: pd.Timestamp) -> pd.DataFrame:
     """Отбрасывает незакрытую последнюю свечу."""
     step = pd.Timedelta(minutes=TF_MINUTES[tf])
@@ -90,6 +106,8 @@ class SignalEngine:
 
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
+        if not market_open(now):
+            return None
         await self._load_last_bar()
         price = await self.provider.price()
         self.last_price = price
