@@ -500,8 +500,8 @@ class App:
             await c.answer()
             await c.message.answer(t(lang, "declined" if choice == "dec" else "accepted", id=sid))
             try:
-                await c.message.edit_reply_markup(reply_markup=decision_kb(lang, sid, choice))
-            except Exception:  # noqa: BLE001 — та же разметка уже стоит
+                await c.message.edit_reply_markup(reply_markup=None)  # кнопки исчезают после выбора
+            except Exception:  # noqa: BLE001 — кнопки уже убраны
                 pass
 
         @r.message(F.text.in_(variants("btn_stats")))
