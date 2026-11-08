@@ -7,6 +7,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
+from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
 from .strategies.sessions import asian_range_breakout, silver_bullet
 
@@ -40,16 +41,14 @@ def _utc(ts: pd.Timestamp) -> pd.Timestamp:
     return ts.tz_localize("UTC") if ts.tzinfo is None else ts
 
 
-def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str) -> str:
+def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str, lang: str = "ru") -> str:
     """Текст «что бот ждёт» по закрытым свечам df (UTC)."""
     now = _utc(now)
-    fmt = lambda t: t.tz_convert(tz).strftime("%H:%M")  # noqa: E731
+    fmt = lambda x: x.tz_convert(tz).strftime("%H:%M")  # noqa: E731
     if strategy_key == "fvg":
         last = df.iloc[-1]
-        trend = "вверх (ищем только BUY)" if last.close > df.close.ewm(span=200, adjust=False).mean().iloc[-1] \
-            else "вниз (ищем только SELL)"
-        return (f"Тренд по EMA200 на H1: {trend}.\n"
-                "Сигнал появится, когда цена пробьёт последний свинг (BOS) и рядом будет FVG того же направления.")
+        up = last.close > df.close.ewm(span=200, adjust=False).mean().iloc[-1]
+        return t(lang, "exp_fvg", trend=t(lang, "exp_trend_up" if up else "exp_trend_down"))
 
     parts = []
     idx = df.index.tz_localize("UTC") if df.index.tz is None else df.index
@@ -62,19 +61,18 @@ def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: s
     if lmask.any():
         hi, lo = df.high[lmask].max(), df.low[lmask].min()
         if ldn < win_start:
-            parts.append(f"🌏 Азиатский диапазон формируется: {lo:.2f} – {hi:.2f}. "
-                         f"Окно пробоя {fmt(win_start)}–{fmt(win_end)}.")
+            parts.append(t(lang, "exp_asia_forming", lo=f"{lo:.2f}", hi=f"{hi:.2f}",
+                           start=fmt(win_start), end=fmt(win_end)))
         elif ldn < win_end:
             after = df[(idx.tz_convert("Europe/London") >= win_start)]
             broke = ((after.close > hi) | (after.close < lo)).any()
             if broke:
-                parts.append("🌏 Пробой азиатского диапазона сегодня уже был.")
+                parts.append(t(lang, "exp_asia_broken"))
             else:
-                parts.append(f"🌏 Ожидаемый сетап: если свеча M15 закроется выше {hi:.2f} — BUY, "
-                             f"ниже {lo:.2f} — SELL (до {fmt(win_end)}).")
+                parts.append(t(lang, "exp_asia_setup", hi=f"{hi:.2f}", lo=f"{lo:.2f}", end=fmt(win_end)))
     if not parts or ldn >= win_end:
         nxt = win_start if ldn < win_start else win_start + pd.Timedelta(days=1)
-        parts.append(f"🌏 Следующее окно пробоя азиатского диапазона: {nxt.tz_convert(tz):%d.%m %H:%M}.")
+        parts.append(t(lang, "exp_asia_next", when=f"{nxt.tz_convert(tz):%d.%m %H:%M}"))
 
     # Silver Bullet
     ny = now.tz_convert("America/New_York")
@@ -84,10 +82,10 @@ def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: s
     day_open = df.open[nymask].iloc[0] if nymask.any() else None
     if ny < e and day_open is not None:
         side = "BUY" if df.close.iloc[-1] > day_open else "SELL"
-        parts.append(f"🎯 Silver Bullet: окно {fmt(s)}–{fmt(e)}. Открытие дня {day_open:.2f}, цена "
-                     f"{'выше' if side == 'BUY' else 'ниже'} — ждём FVG на {side}.")
+        parts.append(t(lang, "exp_sb_window", start=fmt(s), end=fmt(e), open=f"{day_open:.2f}",
+                       pos=t(lang, "exp_above" if side == "BUY" else "exp_below"), side=side))
     else:
         nxt = s if ny < s else s + pd.Timedelta(days=1)
-        parts.append(f"🎯 Следующее окно Silver Bullet: {nxt.tz_convert(tz):%d.%m %H:%M}.")
-    parts.append("Как только сетап подтвердится, бот сам пришлёт сигнал.")
+        parts.append(t(lang, "exp_sb_next", when=f"{nxt.tz_convert(tz):%d.%m %H:%M}"))
+    parts.append(t(lang, "exp_confirm"))
     return "\n".join(parts)
