@@ -116,6 +116,21 @@ class FinnhubPrice(_Http):
         return p
 
 
+class GoldApiPrice(_Http):
+    """https://gold-api.com — бесплатная цена XAU/USD без ключа (проверено с сервера бота)."""
+    URL = "https://api.gold-api.com/price/XAU"
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        raise NotImplementedError("gold-api.com используется только для цены")
+
+    async def price(self) -> float:
+        j = await self._get(self.URL)
+        p = float(j.get("price") or 0)
+        if p <= 0:
+            raise RuntimeError(f"gold-api.com: нет цены: {j}")
+        return p
+
+
 class Hybrid(Provider):
     """Свечи от одного источника (например, бесплатный Twelve Data: запрос только при закрытии свечи),
     цена каждые CHECK_INTERVAL секунд от другого (например, Finnhub)."""
@@ -162,6 +177,8 @@ def make_provider(cfg) -> Provider:
         if not cfg.twelvedata_key:
             raise RuntimeError("TWELVEDATA_API_KEY не задан")
         base = TwelveData(cfg.twelvedata_key)
+    if cfg.price_provider == "goldapi":
+        return Hybrid(base, GoldApiPrice())
     if cfg.price_provider == "finnhub":
         if not cfg.finnhub_key:
             raise RuntimeError("FINNHUB_API_KEY не задан")

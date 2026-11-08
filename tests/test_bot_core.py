@@ -257,3 +257,30 @@ class HybridProviderTests(unittest.TestCase):
         self.assertEqual(run(h.candles("5min", 10)), "df")
         self.assertEqual(a.calls, [("candles", "5min")])
         self.assertEqual(b.calls, [("price",)])
+
+
+class GoldApiTests(unittest.TestCase):
+    def test_parses_price(self):
+        from goldbot.market import GoldApiPrice
+
+        g = GoldApiPrice()
+
+        async def fake_get(url, **kw):
+            return {"name": "Gold", "price": 4062.899902, "symbol": "XAU"}
+        g._get = fake_get
+        self.assertAlmostEqual(run(g.price()), 4062.899902)
+
+        async def empty(url, **kw):
+            return {"error": "x"}
+        g._get = empty
+        with self.assertRaises(RuntimeError):
+            run(g.price())
+
+    def test_make_provider_goldapi(self):
+        from types import SimpleNamespace
+        from goldbot.market import GoldApiPrice, Hybrid, make_provider
+        cfg = SimpleNamespace(data_provider="twelvedata", twelvedata_key="k", price_provider="goldapi",
+                              finnhub_key="", finnhub_symbol="")
+        p = make_provider(cfg)
+        self.assertIsInstance(p, Hybrid)
+        self.assertIsInstance(p.p, GoldApiPrice)
