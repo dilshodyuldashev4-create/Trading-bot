@@ -19,9 +19,10 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
                            InlineKeyboardMarkup, KeyboardButton, LabeledPrice, Message,
                            PreCheckoutQuery, ReplyKeyboardMarkup)
 
-from . import econ_calendar
+from . import econ_calendar, news_alerts
 from .config import config
 from .db import DB
+from .chart import render_signal
 from .engine import NewSignal, SignalEngine
 from .market import make_provider
 from .news import NewsService
@@ -109,12 +110,41 @@ class App:
         log.info("signal #%s sent to %s users", s.id, n)
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
+        """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
         side = "BUY" if s["direction"] == 1 else "SELL"
         if status == "tp":
-            text = f"✅ <b>Сигнал #{s['id']} {side} закрыт по Take Profit</b> ({s['tp']:.2f}). +{config.tp_pips:.0f} пипсов"
+            head = f"✅ <b>Сигнал #{s['id']} {side} закрыт по Take Profit</b>\n💰 Результат: <b>+{config.tp_pips:.0f} пипсов</b>"
+            level = s["tp"]
         else:
-            text = f"❌ Сигнал #{s['id']} {side} закрыт по Stop Loss ({s['sl']:.2f}). −{config.sl_pips:.0f} пипсов"
-        await self.broadcast(await self.db.active_user_ids(), lambda u: self.bot.send_message(u, text))
+            head = f"❌ <b>Сигнал #{s['id']} {side} закрыт по Stop Loss</b>\n📉 Результат: −{config.sl_pips:.0f} пипсов"
+            level = s["sl"]
+        st = await self.db.stats()
+        closed = st["tp"] + st["sl"]
+        text = (f"{head}\n\n📍 Вход: {s['entry']:.2f}\n🏁 Выход: {level:.2f}\n"
+                f"🛑 SL {s['sl']:.2f} · 🎯 TP {s['tp']:.2f}\n\n"
+                f"📊 Статистика бота: {st['tp']} TP / {st['sl']} SL"
+                + (f" (винрейт {100 * st['tp'] / closed:.0f}%)" if closed else ""))
+        cta = "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe"
+        image = None
+        if self.engine.last_df is not None:
+            try:
+                image = render_signal(self.engine.last_df, s["direction"], s["entry"], s["sl"], s["tp"],
+                                      f"XAUUSD · сигнал #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
+                                      tz=config.display_tz)
+            except Exception:  # noqa: BLE001
+                log.exception("close chart")
+        active = set(await self.db.active_user_ids())
+
+        def make(u: int):
+            body = text if u in active else text + cta
+            if image:
+                return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body)
+            return self.bot.send_message(u, body)
+
+        await self.broadcast(await self.db.all_user_ids(), make)
+
+    async def broadcast_text_all(self, text: str) -> None:
+        await self.broadcast(await self.db.all_user_ids(), lambda u: self.bot.send_message(u, text))
 
     def is_admin(self, uid: int) -> bool:
         return uid in config.admin_ids
@@ -315,6 +345,17 @@ class App:
                 log.exception("calendar refresh")
             await asyncio.sleep(1800)
 
+    async def news_alert_loop(self) -> None:
+        async def fetch(e: dict):
+            return await news_alerts.claude_fetch_actual(e, config.anthropic_model)
+
+        while True:
+            try:
+                await news_alerts.process(self.db, config.display_tz, self.broadcast_text_all, fetch)
+            except Exception:  # noqa: BLE001
+                log.exception("news alerts")
+            await asyncio.sleep(30)
+
     async def trial_reminder_loop(self) -> None:
         while True:
             try:
@@ -336,6 +377,7 @@ class App:
             asyncio.create_task(self.engine.run_forever(config.check_interval)),
             asyncio.create_task(self.calendar_loop()),
             asyncio.create_task(self.trial_reminder_loop()),
+            asyncio.create_task(self.news_alert_loop()),
         ]
         try:
             await self.dp.start_polling(self.bot)
