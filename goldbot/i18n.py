@@ -41,6 +41,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Не удалось загрузить новости, попробуйте позже.",
         "sub_price": "Подписка: <b>{price} ⭐</b> за {days} дней.",
         "profile": "🆔 {id}\n{status}\n🌐 Язык: {language}",
+        "ask_capital": ("💰 <b>Какой у вас капитал (депозит) для торговли?</b>\n\n"
+                        "Выберите кнопку или напишите сумму в долларах, например <code>150</code>. "
+                        "По капиталу бот будет показывать в каждом сигнале ваш объём сделки (лот)."),
+        "btn_skip": "Пропустить",
+        "btn_capital": "💰 Изменить капитал",
+        "cap_set": "✅ Капитал: <b>${cap}</b>\n📦 Ваш лот в сигналах: <b>{lot}</b>",
+        "cap_skipped": "Хорошо. Капитал можно указать позже: 👤 Профиль или /capital",
+        "cap_bad": "Напишите сумму числом, например <code>150</code>",
+        "profile_cap": "\n💰 Капитал: ${cap} · лот {lot}",
+        "profile_nocap": "\n💰 Капитал не указан (/capital)",
+        "sig_lot": ("\n\n📦 <b>Ваш лот: {lot}</b> (капитал ${cap})\n"
+                    "🛑 Если стоп: −${loss} ({loss_pct}%) · 🎯 Если тейк: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Капитал маленький: даже минимальный лот 0.01 — это риск {loss_pct}%, больше {pct}%.",
+        "sig_nocap": "\n\n💰 Укажите свой капитал, и бот покажет ваш лот: /capital",
+        "close_balance": ("\n\n💼 Ваш лот {lot}: <b>{pnl}</b>\n💰 Ваш баланс теперь: <b>${bal}</b>\n"
+                          "<i>Если вы не открывали эту сделку, обновите капитал: /capital</i>"),
         "paid_ok": "✅ Спасибо! Подписка активна до {until}.",
         "cancelled": "Отменено",
         "granted": "🎁 Вам выдана подписка до {until}",
@@ -152,6 +168,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Couldn't load the news, please try later.",
         "sub_price": "Subscription: <b>{price} ⭐</b> for {days} days.",
         "profile": "🆔 {id}\n{status}\n🌐 Language: {language}",
+        "ask_capital": ("💰 <b>What is your trading capital (deposit)?</b>\n\n"
+                        "Tap a button or type the amount in dollars, e.g. <code>150</code>. "
+                        "The bot will use it to show your trade size (lot) in every signal."),
+        "btn_skip": "Skip",
+        "btn_capital": "💰 Change capital",
+        "cap_set": "✅ Capital: <b>${cap}</b>\n📦 Your lot in signals: <b>{lot}</b>",
+        "cap_skipped": "OK. You can set your capital later: 👤 Profile or /capital",
+        "cap_bad": "Please type the amount as a number, e.g. <code>150</code>",
+        "profile_cap": "\n💰 Capital: ${cap} · lot {lot}",
+        "profile_nocap": "\n💰 Capital not set (/capital)",
+        "sig_lot": ("\n\n📦 <b>Your lot: {lot}</b> (capital ${cap})\n"
+                    "🛑 If stop: −${loss} ({loss_pct}%) · 🎯 If take: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Small capital: even the minimum lot 0.01 risks {loss_pct}%, more than {pct}%.",
+        "sig_nocap": "\n\n💰 Set your capital and the bot will show your lot: /capital",
+        "close_balance": ("\n\n💼 Your lot {lot}: <b>{pnl}</b>\n💰 Your balance now: <b>${bal}</b>\n"
+                          "<i>If you didn't open this trade, update your capital: /capital</i>"),
         "paid_ok": "✅ Thank you! Subscription active until {until}.",
         "cancelled": "Cancelled",
         "granted": "🎁 You've been given a subscription until {until}",
@@ -264,6 +296,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "news_fail": "Yangiliklarni yuklab boʻlmadi, keyinroq urinib koʻring.",
         "sub_price": "Obuna: {days} kun uchun <b>{price} ⭐</b>.",
         "profile": "🆔 {id}\n{status}\n🌐 Til: {language}",
+        "ask_capital": ("💰 <b>Savdo uchun kapitalingiz (depozit) qancha?</b>\n\n"
+                        "Tugmani tanlang yoki summani dollarda yozing, masalan <code>150</code>. "
+                        "Shu boʻyicha bot har bir signalda sizning savdo hajmingizni (lot) koʻrsatadi."),
+        "btn_skip": "Oʻtkazib yuborish",
+        "btn_capital": "💰 Kapitalni oʻzgartirish",
+        "cap_set": "✅ Kapital: <b>${cap}</b>\n📦 Signallardagi lotingiz: <b>{lot}</b>",
+        "cap_skipped": "Yaxshi. Kapitalni keyin koʻrsatish mumkin: 👤 Profil yoki /capital",
+        "cap_bad": "Summani raqam bilan yozing, masalan <code>150</code>",
+        "profile_cap": "\n💰 Kapital: ${cap} · lot {lot}",
+        "profile_nocap": "\n💰 Kapital koʻrsatilmagan (/capital)",
+        "sig_lot": ("\n\n📦 <b>Sizning lotingiz: {lot}</b> (kapital ${cap})\n"
+                    "🛑 Stop boʻlsa: −${loss} ({loss_pct}%) · 🎯 Teyk boʻlsa: +${profit}"),
+        "sig_lot_warn": "\n⚠️ Kapital kichik: hatto minimal lot 0.01 ham {loss_pct}% risk, bu {pct}% dan koʻp.",
+        "sig_nocap": "\n\n💰 Kapitalingizni koʻrsating, bot lotingizni koʻrsatadi: /capital",
+        "close_balance": ("\n\n💼 Lotingiz {lot}: <b>{pnl}</b>\n💰 Balansingiz endi: <b>${bal}</b>\n"
+                          "<i>Agar bu savdoni ochmagan boʻlsangiz, kapitalni yangilang: /capital</i>"),
         "paid_ok": "✅ Rahmat! Obuna {until} gacha faol.",
         "cancelled": "Bekor qilindi",
         "granted": "🎁 Sizga {until} gacha obuna berildi",

@@ -38,6 +38,10 @@ class Config:
     strategy: str = os.getenv("STRATEGY", "combo")                   # combo | fvg
     sl_pips: float = float(os.getenv("SL_PIPS", "100"))
     tp_pips: float = float(os.getenv("TP_PIPS", "200"))
+    # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
+    # risk — стоп забирает не больше LOT_RISK_PCT % капитала
+    lot_mode: str = os.getenv("LOT_MODE", "risk")
+    lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "2"))
 
     # подписка
     trial_days: int = int(os.getenv("TRIAL_DAYS", "3"))

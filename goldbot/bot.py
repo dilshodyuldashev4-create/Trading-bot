@@ -26,6 +26,7 @@ from .db import DB
 from .chart import render_signal
 from .engine import NewSignal, SignalEngine
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
+from .lots import fmt_usd, lot_for, money, parse_capital
 from .market import make_provider
 from .news import NewsService
 
@@ -55,6 +56,47 @@ ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
 
 class AdminStates(StatesGroup):
     broadcast = State()
+
+
+class CapitalStates(StatesGroup):
+    waiting = State()
+
+
+CAPITAL_PRESETS = (50, 100, 200, 300, 500, 1000, 2000, 5000)
+
+
+def capital_kb(lang: str) -> InlineKeyboardMarkup:
+    btn = lambda v: InlineKeyboardButton(text=f"${v:,}".replace(",", " "), callback_data=f"cap:{v}")  # noqa: E731
+    rows = [[btn(v) for v in CAPITAL_PRESETS[i:i + 4]] for i in range(0, len(CAPITAL_PRESETS), 4)]
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_skip"), callback_data="cap:skip")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def lot_plan(capital: float) -> dict:
+    """Лот подписчика и что он теряет/зарабатывает по стопу/тейку."""
+    lot = lot_for(capital, config.lot_mode, config.lot_risk_pct, config.sl_pips)
+    loss, profit = money(lot, config.sl_pips), money(lot, config.tp_pips)
+    return {"lot": lot, "loss": loss, "profit": profit, "loss_pct": 100 * loss / capital}
+
+
+def lot_text(lang: str, capital: float | None) -> str:
+    """Блок «Ваш лот» для подписи сигнала."""
+    if not capital:
+        return t(lang, "sig_nocap")
+    p = lot_plan(capital)
+    pct = f"{p['loss_pct']:.1f}".rstrip("0").rstrip(".")
+    text = t(lang, "sig_lot", lot=f"{p['lot']:.2f}", cap=fmt_usd(capital), loss=fmt_usd(p["loss"]),
+             loss_pct=pct, profit=fmt_usd(p["profit"]))
+    limit = config.lot_risk_pct if config.lot_mode == "risk" else None
+    if limit and p["loss_pct"] > limit + 1e-9:
+        text += t(lang, "sig_lot_warn", loss_pct=pct, pct=f"{limit:g}")
+    return text
+
+
+def with_lot(caption: str, block: str) -> str:
+    """Вставляет блок лота перед курсивной припиской внизу сигнала."""
+    mark = "\n\n<i>"
+    return caption.replace(mark, block + mark, 1) if mark in caption else caption + block
 
 
 class App:
@@ -107,11 +149,38 @@ class App:
         return ok
 
     async def broadcast_signal(self, s: NewSignal) -> None:
+        """Каждому подписчику — картинка и текст с его лотом (по его капиталу)."""
         uids = await self.db.active_user_ids()
         langs = await self.db.user_langs()
-        photo = BufferedInputFile(s.image, filename=f"signal_{s.id}.png")
-        n = await self.broadcast(uids, lambda u: self.bot.send_photo(u, photo, caption=s.texts[norm(langs.get(u))]))
-        log.info("signal #%s sent to %s users", s.id, n)
+        caps = await self.db.user_capitals()
+        images: dict[float, bytes] = {}  # лот → картинка (рисуем один раз на каждый разный лот)
+
+        async def image_for(capital: float | None) -> bytes:
+            if not capital or s.render is None:
+                return s.image
+            p = lot_plan(capital)
+            if p["lot"] not in images:
+                try:
+                    images[p["lot"]] = await asyncio.to_thread(
+                        s.render, lot=f"LOT {p['lot']:.2f}",
+                        sl_note=f"−${fmt_usd(p['loss'])}", tp_note=f"+${fmt_usd(p['profit'])}")
+                except Exception:  # noqa: BLE001
+                    log.exception("lot chart")
+                    images[p["lot"]] = s.image
+            return images[p["lot"]]
+
+        ok = 0
+        for u in uids:
+            lang, capital = norm(langs.get(u)), caps.get(u)
+            img = await image_for(capital)
+            caption = with_lot(s.texts[lang], lot_text(lang, capital))
+            sent = await self._send(u, lambda u=u, img=img, caption=caption: self.bot.send_photo(
+                u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption))
+            if sent and capital:
+                await self.db.add_signal_lot(s.id, u, lot_plan(capital)["lot"])
+            ok += sent
+            await asyncio.sleep(0.04)
+        log.info("signal #%s sent to %s users", s.id, ok)
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
@@ -140,9 +209,25 @@ class App:
         active = set(await self.db.active_user_ids())
         langs = await self.db.user_langs()
 
+        # у кого был лот в этом сигнале — пересчитываем баланс и пишем результат в $
+        results: dict[int, str] = {}
+        for u, lot in (await self.db.signal_lots(s["id"])).items():
+            pnl = money(lot, pips) * (1 if status == "tp" else -1)
+            bal = await self.db.add_capital(u, pnl)
+            results[u] = (lot, pnl, bal)
+
+        def balance_text(lang: str, u: int) -> str:
+            if u not in results:
+                return ""
+            lot, pnl, bal = results[u]
+            sign = "+" if pnl >= 0 else "−"
+            return t(lang, "close_balance", lot=f"{lot:.2f}", pnl=f"{sign}${fmt_usd(abs(pnl))}", bal=fmt_usd(bal))
+
         def make(u: int):
             lang = norm(langs.get(u))
-            body = text(lang) if u in active else text(lang) + t(lang, "close_cta")
+            body = text(lang) + balance_text(lang, u)
+            if u not in active:
+                body += t(lang, "close_cta")
             if image:
                 return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body)
             return self.bot.send_message(u, body)
@@ -194,6 +279,26 @@ class App:
             hello += await self.sub_status(uid, lang)
         await self.bot.send_message(chat_id, hello, reply_markup=menu(lang))
 
+    async def ask_capital(self, chat_id: int, lang: str, state: FSMContext, onboard: bool = False,
+                          new_user: bool = False) -> None:
+        await state.set_state(CapitalStates.waiting)
+        await state.update_data(onboard=onboard, new_user=new_user)
+        await self.bot.send_message(chat_id, t(lang, "ask_capital"), reply_markup=capital_kb(lang))
+
+    async def capital_done(self, chat_id: int, user, state: FSMContext, capital: float) -> None:
+        """Сохраняет капитал (0 — пропустил) и продолжает: приветствие для новых или подтверждение."""
+        data = await state.get_data()
+        await state.clear()
+        await self.db.set_capital(user.id, capital)
+        lang = await self.lang_of(user.id)
+        text = (t(lang, "cap_set", cap=fmt_usd(capital), lot=f"{lot_plan(capital)['lot']:.2f}") if capital
+                else t(lang, "cap_skipped"))
+        if data.get("onboard"):  # новый пользователь: дальше приветствие с меню
+            await self.bot.send_message(chat_id, text)
+            await self.send_hello(chat_id, user.id, user.first_name, lang, bool(data.get("new_user")))
+        else:
+            await self.bot.send_message(chat_id, text, reply_markup=menu(lang))
+
     # ── handlers ─────────────────────────────────────────────────────────────
     def _register(self) -> None:
         r = self.router
@@ -206,6 +311,9 @@ class App:
             if not u.get("lang"):  # сначала просим выбрать язык
                 await state.update_data(new_user=new)
                 await m.answer(CHOOSE, reply_markup=LANG_KB)
+                return
+            if u.get("capital") is None:  # потом капитал (один раз; 0 — пропустил)
+                await self.ask_capital(m.chat.id, norm(u["lang"]), state, onboard=True, new_user=new)
                 return
             await self.send_hello(m.chat.id, m.from_user.id, m.from_user.first_name, norm(u["lang"]), new)
 
@@ -232,11 +340,35 @@ class App:
                 pass
             if first:
                 data = await state.get_data()
-                await state.update_data(new_user=False)
-                await self.send_hello(c.message.chat.id, uid, c.from_user.first_name, lang,
-                                      new or bool(data.get("new_user")))
+                new_user = new or bool(data.get("new_user"))
+                if (await self.db.get_user(uid)).get("capital") is None:
+                    await self.ask_capital(c.message.chat.id, lang, state, onboard=True, new_user=new_user)
+                else:
+                    await state.update_data(new_user=False)
+                    await self.send_hello(c.message.chat.id, uid, c.from_user.first_name, lang, new_user)
             else:
                 await c.message.answer(t(lang, "lang_set"), reply_markup=menu(lang))
+
+        @r.message(Command("capital"))
+        async def capital_cmd(m: Message, state: FSMContext):
+            await self.ask_capital(m.chat.id, await self.lang_of(m.from_user.id), state)
+
+        @r.callback_query(F.data.startswith("cap:"))
+        async def capital_cb(c: CallbackQuery, state: FSMContext):
+            v = c.data.split(":", 1)[1]
+            await c.answer()
+            if v == "menu":
+                await self.ask_capital(c.message.chat.id, await self.lang_of(c.from_user.id), state)
+                return
+            try:
+                await c.message.edit_reply_markup(reply_markup=None)
+            except Exception:  # noqa: BLE001
+                pass
+            await self.capital_done(c.message.chat.id, c.from_user, state, 0 if v == "skip" else float(v))
+
+        @r.message(CapitalStates.waiting, F.text.func(lambda s: parse_capital(s) is not None))
+        async def capital_typed(m: Message, state: FSMContext):
+            await self.capital_done(m.chat.id, m.from_user, state, parse_capital(m.text))
 
         @r.message(F.text.in_(variants("btn_signal")))
         @r.message(Command("signal"))
@@ -294,11 +426,16 @@ class App:
         @r.message(F.text.in_(variants("btn_profile")))
         @r.message(Command("profile"))
         async def profile(m: Message):
-            lang = await self.lang_of(m.from_user.id)
+            u = await self.db.get_user(m.from_user.id) or {}
+            lang = norm(u.get("lang"))
             kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_capital"), callback_data="cap:menu")],
                 [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")]])
+            cap = u.get("capital")
+            cap_line = (t(lang, "profile_cap", cap=fmt_usd(cap), lot=f"{lot_plan(cap)['lot']:.2f}") if cap
+                        else t(lang, "profile_nocap"))
             await m.answer(t(lang, "profile", id=m.from_user.id, status=await self.sub_status(m.from_user.id, lang),
-                             language=t(lang, "lang_name")), reply_markup=kb)
+                             language=t(lang, "lang_name")) + cap_line, reply_markup=kb)
 
         @r.pre_checkout_query()
         async def pre_checkout(q: PreCheckoutQuery):
@@ -398,6 +535,10 @@ class App:
                 return
             await self.db.revoke(uid)
             await m.answer(f"⛔️ Доступ {uid} закрыт")
+
+        @r.message(CapitalStates.waiting, F.text, ~F.text.startswith("/"))
+        async def capital_bad(m: Message):  # ждём капитал, а прислали не число и не кнопку меню
+            await m.answer(t(await self.lang_of(m.from_user.id), "cap_bad"))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
     async def calendar_loop(self) -> None:

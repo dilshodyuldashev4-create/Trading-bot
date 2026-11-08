@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional
 
 import pandas as pd
 
@@ -32,6 +32,7 @@ class NewSignal:
     tp: float
     image: bytes
     texts: dict[str, str]  # язык → текст сигнала
+    render: Optional[Callable[..., bytes]] = None  # картинка с подписями для конкретного подписчика
 
     @property
     def text(self) -> str:
@@ -144,10 +145,12 @@ class SignalEngine:
         tp = entry + d * self.tp_pips * PIP
         sid = await self.db.add_signal(self.strategy.key, d, entry, sl, tp)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
-        img = render_signal(df, d, entry, sl, tp, f"XAUUSD {tf.replace('min', 'm')} · #{sid}", tz=self.tz)
+        title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
+        img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
                        per_lang(lambda lang: format_signal(self.strategy, d, entry, sl, tp,
-                                                           self.sl_pips, self.tp_pips, when, lang)))
+                                                           self.sl_pips, self.tp_pips, when, lang)),
+                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
         await self.on_signal(ns)
         return ns
 
