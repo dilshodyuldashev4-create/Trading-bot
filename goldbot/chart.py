@@ -17,7 +17,7 @@ GREEN, RED, GOLD, CYAN = "#26c281", "#f23645", "#ffd600", "#00bcd4"
 def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp: float,
                   title: str, bars: int = 70, tz: str | None = None, lot: str | None = None,
                   sl_note: str = "", tp_note: str = "") -> bytes:
-    """lot — подпись «LOT 0.02» для конкретного подписчика; sl_note/tp_note — суммы в $ у линий."""
+    """lot — «LOT 0.02» у линии входа для конкретного подписчика; sl_note/tp_note — суммы в $ у линий."""
     data = df.iloc[-bars:].copy()
     if tz:
         idx = data.index.tz_localize("UTC") if data.index.tz is None else data.index
@@ -35,7 +35,7 @@ def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp:
     x0, x1 = len(data) - 1, len(data) + pad - 1
     ax.fill_between([x0, x1], entry, tp, color=GREEN, alpha=0.18)
     ax.fill_between([x0, x1], entry, sl, color=RED, alpha=0.18)
-    for y, c, label, note in ((tp, CYAN, "TP", tp_note), (entry, GOLD, "ВХОД", ""), (sl, RED, "SL", sl_note)):
+    for y, c, label, note in ((tp, CYAN, "TP", tp_note), (entry, GOLD, "ВХОД", lot or ""), (sl, RED, "SL", sl_note)):
         ax.hlines(y, x0, x1, colors=c, linewidth=1.6)
         ax.text(x1, y, f" {label} {y:.2f}" + (f"  {note}" if note else ""), color="black", fontsize=10, fontweight="bold", va="center",
                 ha="left", bbox=dict(boxstyle="round,pad=0.3", fc=c, ec="none"))
@@ -44,9 +44,6 @@ def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp:
                 color=GREEN if direction == 1 else RED, fontsize=14, fontweight="bold",
                 arrowprops=dict(arrowstyle="->", color=GREEN if direction == 1 else RED, lw=1.5))
     ax.set_title(title, color=TXT, fontsize=13, loc="left")
-    if lot:
-        ax.text(0.01, 0.97, lot, transform=ax.transAxes, color="black", fontsize=15, fontweight="bold",
-                va="top", ha="left", bbox=dict(boxstyle="round,pad=0.4", fc=GOLD, ec="none"))
     ax.set_ylabel("")
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, facecolor=BG, bbox_inches="tight")
