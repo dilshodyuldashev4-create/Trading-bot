@@ -37,18 +37,12 @@ OnSignal = Callable[[NewSignal], Awaitable[None]]
 OnClose = Callable[[dict, str, float], Awaitable[None]]
 
 
-def market_open(now: pd.Timestamp, local_tz: str = "Asia/Tashkent", weekend_stop: str = "02:00") -> bool:
+def market_open(now: pd.Timestamp) -> bool:
     """Рынок золота: с вс 18:00 до пт 17:00 по Нью-Йорку, ежедневный перерыв 17:00–18:00.
-    Дополнительно запросы прекращаются в субботу в ``weekend_stop`` по местному времени.
 
     Пока рынок закрыт (выходные, перерыв), котировки не запрашиваем — экономим лимит API.
     """
-    now = now if now.tzinfo else now.tz_localize("UTC")
-    loc = now.tz_convert(local_tz)
-    hh, mm = (int(x) for x in weekend_stop.split(":"))
-    if loc.weekday() == 5 and (loc.hour, loc.minute) >= (hh, mm):
-        return False
-    ny = now.tz_convert("America/New_York")
+    ny = (now if now.tzinfo else now.tz_localize("UTC")).tz_convert("America/New_York")
     wd, h = ny.weekday(), ny.hour  # пн=0 … вс=6
     if wd == 5:                      # суббота
         return False
@@ -82,12 +76,11 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
 
 class SignalEngine:
     def __init__(self, db: DB, provider: Provider, strategy_key: str, sl_pips: float, tp_pips: float,
-                 display_tz: str, on_signal: OnSignal, on_close: OnClose, weekend_stop: str = "02:00"):
+                 display_tz: str, on_signal: OnSignal, on_close: OnClose):
         self.db, self.provider = db, provider
         self.strategy = STRATEGIES[strategy_key]
         self.sl_pips, self.tp_pips = sl_pips, tp_pips
         self.tz = display_tz
-        self.weekend_stop = weekend_stop
         self.on_signal, self.on_close = on_signal, on_close
         self.last_bar: pd.Timestamp | None = None
         self.last_df: pd.DataFrame | None = None
@@ -113,7 +106,7 @@ class SignalEngine:
 
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
-        if not market_open(now, self.tz, self.weekend_stop):
+        if not market_open(now):
             return None
         await self._load_last_bar()
         price = await self.provider.price()

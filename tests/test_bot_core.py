@@ -100,17 +100,13 @@ class MarketHoursTests(unittest.TestCase):
         from goldbot.engine import market_open
         ts = lambda s: pd.Timestamp(s, tz="UTC")  # noqa: E731
         # ноябрь: Нью-Йорк = UTC-5
-        self.assertTrue(market_open(ts("2026-11-06 20:59")))   # сб 01:59 Ташкент
-        self.assertFalse(market_open(ts("2026-11-06 21:01")))  # сб 02:01 Ташкент (рынок ещё открыт, но стоп)
+        self.assertTrue(market_open(ts("2026-11-06 21:59")))   # пт 16:59 NY
         self.assertFalse(market_open(ts("2026-11-06 22:30")))  # пт 17:30 NY
         self.assertFalse(market_open(ts("2026-11-07 12:00")))  # суббота
         self.assertFalse(market_open(ts("2026-11-08 22:59")))  # вс 17:59 NY
         self.assertTrue(market_open(ts("2026-11-08 23:00")))   # вс 18:00 NY — открытие
         self.assertFalse(market_open(ts("2026-11-10 22:30")))  # вт 17:30 NY — перерыв
         self.assertTrue(market_open(ts("2026-11-10 15:00")))   # вт день
-        # суббота 02:00 по Ташкенту (UTC+5) = пт 21:00 UTC; летом рынок ещё открыт
-        self.assertTrue(market_open(ts("2026-07-10 20:59")))   # сб 01:59 Ташкент
-        self.assertFalse(market_open(ts("2026-07-10 21:01")))  # сб 02:01 Ташкент
 
     def test_tick_makes_no_requests_on_weekend(self):
         class Boom(Replay):

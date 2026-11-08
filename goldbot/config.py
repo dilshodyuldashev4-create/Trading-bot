@@ -55,8 +55,6 @@ class Config:
         ).split(",") if u.strip()
     )
     display_tz: str = os.getenv("DISPLAY_TZ", "Asia/Tashkent")
-    # в субботу после этого времени (по DISPLAY_TZ) котировки не запрашиваются до открытия рынка
-    weekend_stop: str = os.getenv("WEEKEND_STOP", "02:00")
 
 
 config = Config()
