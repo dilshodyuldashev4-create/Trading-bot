@@ -93,3 +93,35 @@ class MiscTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MarketHoursTests(unittest.TestCase):
+    def test_market_open(self):
+        from goldbot.engine import market_open
+        ts = lambda s: pd.Timestamp(s, tz="UTC")  # noqa: E731
+        # ноябрь: Нью-Йорк = UTC-5
+        self.assertTrue(market_open(ts("2026-11-06 21:59")))   # пт 16:59 NY
+        self.assertFalse(market_open(ts("2026-11-06 22:30")))  # пт 17:30 NY
+        self.assertFalse(market_open(ts("2026-11-07 12:00")))  # суббота
+        self.assertFalse(market_open(ts("2026-11-08 22:59")))  # вс 17:59 NY
+        self.assertTrue(market_open(ts("2026-11-08 23:00")))   # вс 18:00 NY — открытие
+        self.assertFalse(market_open(ts("2026-11-10 22:30")))  # вт 17:30 NY — перерыв
+        self.assertTrue(market_open(ts("2026-11-10 15:00")))   # вт день
+
+    def test_tick_makes_no_requests_on_weekend(self):
+        class Boom(Replay):
+            async def price(self):
+                raise AssertionError("запрос в выходные")
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+
+                async def noop(*a):
+                    pass
+
+                eng = SignalEngine(db, Boom(m5_frame()), "combo", 30, 60, "UTC", noop, noop)
+                self.assertIsNone(await eng.tick(now=pd.Timestamp("2026-11-07 12:00", tz="UTC")))
+                await db.close()
+        run(go())
