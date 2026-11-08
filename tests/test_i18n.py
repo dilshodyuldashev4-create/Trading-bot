@@ -66,3 +66,14 @@ class LangDBTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewsSelectTests(unittest.TestCase):
+    def test_weekend_falls_back_to_three_days(self):
+        import time
+        from goldbot.news import NewsService
+        now = time.time()
+        items = [{"title": "Gold rises as Fed pauses", "summary": "", "ts": now - 50 * 3600},
+                 {"title": "Football results", "summary": "", "ts": now}]
+        self.assertEqual(NewsService._select(items, 24, 5), [])
+        self.assertEqual([i["title"] for i in NewsService._select(items, 72, 5)], ["Gold rises as Fed pauses"])

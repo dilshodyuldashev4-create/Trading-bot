@@ -21,6 +21,8 @@ KEYWORDS = re.compile(
     r"payroll|nfp|jobs|unemployment|rate cut|rate hike|tariff|geopolit|war|sanction|recession|gdp)\b",
     re.I)
 
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
 PROMPT = """Ты аналитик рынка золота. Ниже свежие новостные заголовки (с кратким текстом).
 Выбери до 7 самых важных для золота (XAUUSD) и доллара США. Для каждой напиши одну-две
 короткие строки в формате:
@@ -40,7 +42,7 @@ class NewsService:
 
     async def _fetch_feed(self, s: aiohttp.ClientSession, url: str) -> list[dict]:
         try:
-            async with s.get(url, headers={"User-Agent": "Mozilla/5.0 goldbot"}) as r:
+            async with s.get(url, headers={"User-Agent": UA}) as r:
                 raw = await r.read()
         except Exception as e:  # noqa: BLE001
             log.warning("feed %s: %s", url, e)
@@ -58,15 +60,21 @@ class NewsService:
     async def headlines(self, hours: int = 24, limit: int = 25) -> list[dict]:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as s:
             groups = await asyncio.gather(*(self._fetch_feed(s, u) for u in self.feeds))
+        everything = sorted((x for g in groups for x in g), key=lambda x: -x["ts"])
+        # в выходные свежих новостей мало — тогда берём последние 3 дня
+        return self._select(everything, hours, limit) or self._select(everything, 72, limit)
+
+    @staticmethod
+    def _select(items: list[dict], hours: int, limit: int) -> list[dict]:
         cutoff = time.time() - hours * 3600
-        seen, items = set(), []
-        for it in sorted((x for g in groups for x in g), key=lambda x: -x["ts"]):
+        seen, out = set(), []
+        for it in items:
             key = it["title"].lower()
             if it["ts"] < cutoff or key in seen or not KEYWORDS.search(it["title"] + " " + it["summary"]):
                 continue
             seen.add(key)
-            items.append(it)
-        return items[:limit]
+            out.append(it)
+        return out[:limit]
 
     async def _summarize(self, items: list[dict], lang: str = "ru") -> str | None:
         if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
