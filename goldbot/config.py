@@ -34,7 +34,8 @@ class Config:
     twelvedata_key: str = os.getenv("TWELVEDATA_API_KEY", "")
     oanda_token: str = os.getenv("OANDA_TOKEN", "")
     oanda_live: bool = os.getenv("OANDA_LIVE", "0") == "1"
-    # откуда брать текущую цену каждые CHECK_INTERVAL секунд: пусто — тот же источник, finnhub — Finnhub
+    # откуда брать текущую цену каждые CHECK_INTERVAL секунд: пусто — тот же источник,
+    # goldapi — gold-api.com (бесплатно, без ключа), finnhub — Finnhub (золото только в платном тарифе)
     price_provider: str = os.getenv("PRICE_PROVIDER", "")
     finnhub_key: str = os.getenv("FINNHUB_API_KEY", "")
     finnhub_symbol: str = os.getenv("FINNHUB_SYMBOL", "OANDA:XAU_USD")
