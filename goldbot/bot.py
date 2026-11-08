@@ -248,9 +248,6 @@ class App:
             await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
             until = await self.db.extend_paid(m.from_user.id, config.sub_days)
             await m.answer(f"✅ Спасибо! Подписка активна до {self.fmt_dt(until)}.", reply_markup=MENU)
-            for a in config.admin_ids:
-                await self._send(a, lambda a=a: self.bot.send_message(
-                    a, f"💰 Оплата {p.total_amount} {p.currency} от {m.from_user.id} @{m.from_user.username}"))
 
         # ── админ-панель ─────────────────────────────────────────────────────
         @r.message(Command("admin"))
