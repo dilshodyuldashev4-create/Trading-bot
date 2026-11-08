@@ -1,0 +1,9 @@
+pandas>=2.2
+numpy>=1.26
+aiogram>=3.13
+aiosqlite>=0.20
+aiohttp>=3.9
+feedparser>=6.0
+matplotlib>=3.8
+mplfinance>=0.12.10b0
+anthropic>=2.6
