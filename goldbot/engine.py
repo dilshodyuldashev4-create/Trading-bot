@@ -61,6 +61,19 @@ def market_open(now: pd.Timestamp) -> bool:
     return h != 17                   # ежедневный перерыв 17:00–18:00
 
 
+def next_open(now: pd.Timestamp) -> pd.Timestamp:
+    """Когда рынок откроется снова (вызывать, когда он закрыт): 18:00 по Нью-Йорку сегодня или в воскресенье."""
+    ny = (now if now.tzinfo else now.tz_localize("UTC")).tz_convert("America/New_York")
+    day = ny.normalize()
+    if ny.weekday() == 4 and ny.hour >= 17:
+        day += pd.Timedelta(days=2)          # пятница вечером → воскресенье
+    elif ny.weekday() == 5:
+        day += pd.Timedelta(days=1)          # суббота → воскресенье
+    elif ny.hour >= 18:
+        day += pd.Timedelta(days=1)
+    return day.replace(hour=18).tz_convert("UTC")
+
+
 def closed_bars(df: pd.DataFrame, tf: str, now: pd.Timestamp) -> pd.DataFrame:
     """Отбрасывает незакрытую последнюю свечу."""
     step = pd.Timedelta(minutes=TF_MINUTES[tf])

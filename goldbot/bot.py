@@ -24,7 +24,7 @@ from . import econ_calendar, news_alerts
 from .config import config
 from .db import DB
 from .chart import render_signal, render_stats
-from .engine import NewSignal, SignalEngine
+from .engine import NewSignal, SignalEngine, market_open, next_open
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
 from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
@@ -679,6 +679,42 @@ class App:
                 log.exception("news alerts")
             await asyncio.sleep(30)
 
+    async def market_status(self, now=None) -> None:
+        """Рынок открылся или закрылся — сообщаем всем. Ночью по местному времени — без звука."""
+        import pandas as pd
+        now = now or pd.Timestamp.now(tz="UTC")
+        state = "open" if market_open(now) else "closed"
+        prev = await self.db.get_kv("market_state")
+        if prev == state:
+            return
+        await self.db.set_kv("market_state", state)
+        if prev is None:
+            return  # первый запуск: только запоминаем
+        local = now.tz_convert(config.display_tz)
+        silent = local.hour < 8 or local.hour >= 23
+        if state == "open":
+            make_text = lambda lang: t(lang, "market_open")  # noqa: E731
+        else:
+            nxt = next_open(now).tz_convert(config.display_tz)
+            weekend = (nxt - now).total_seconds() > 6 * 3600
+            when = nxt.strftime("%d.%m %H:%M")
+            make_text = lambda lang: t(lang, "market_closed_week" if weekend else "market_closed", when=when)  # noqa: E731
+        langs = await self.db.user_langs()
+
+        def make(u: int):
+            return self.bot.send_message(u, make_text(norm(langs.get(u))), disable_notification=silent)
+
+        n = await self.broadcast(await self.db.all_user_ids(), make)
+        log.info("market %s: sent to %s users", state, n)
+
+    async def market_status_loop(self) -> None:
+        while True:
+            try:
+                await self.market_status()
+            except Exception:  # noqa: BLE001
+                log.exception("market status")
+            await asyncio.sleep(60)
+
     async def trial_reminder_loop(self) -> None:
         while True:
             try:
@@ -700,6 +736,7 @@ class App:
             asyncio.create_task(self.calendar_loop()),
             asyncio.create_task(self.trial_reminder_loop()),
             asyncio.create_task(self.news_alert_loop()),
+            asyncio.create_task(self.market_status_loop()),
         ]
         try:
             await self.dp.start_polling(self.bot)

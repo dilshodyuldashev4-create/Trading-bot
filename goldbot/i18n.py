@@ -18,6 +18,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_profile": "👤 Профиль",
         "btn_lang": "🌐 Сменить язык",
         "btn_stats": "📈 Статистика",
+        "market_open": ("🟢 <b>Рынок золота открыт</b>\n\n"
+                        "Как только появится новый сетап, бот сразу пришлёт вам сигнал. Удачной торговли!"),
+        "market_closed": "🔴 <b>Рынок золота закрыт</b> на ежедневный перерыв.\nОткроется {when}.",
+        "market_closed_week": ("🔴 <b>Рынок золота закрыт на выходные</b>\n\n"
+                               "Откроется {when}. Отдыхайте, новые сигналы будут на следующей неделе."),
         "btn_accept": "✅ Принять сигнал",
         "btn_decline": "❌ Отклонить",
         "accepted": "✅ Спасибо, что приняли наш сигнал #{id}! Мы сообщим вам о результате, когда сделка закроется.",
@@ -172,6 +177,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_profile": "👤 Profile",
         "btn_lang": "🌐 Change language",
         "btn_stats": "📈 Statistics",
+        "market_open": ("🟢 <b>The gold market is open</b>\n\n"
+                        "As soon as there is a new setup, the bot will send you a signal. Good trading!"),
+        "market_closed": "🔴 <b>The gold market is closed</b> for the daily break.\nIt opens {when}.",
+        "market_closed_week": ("🔴 <b>The gold market is closed for the weekend</b>\n\n"
+                               "It opens {when}. Have a rest, new signals next week."),
         "btn_accept": "✅ Accept signal",
         "btn_decline": "❌ Decline",
         "accepted": "✅ Thank you for accepting our signal #{id}! We'll let you know the result when the trade closes.",
@@ -327,6 +337,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_profile": "👤 Profil",
         "btn_lang": "🌐 Tilni oʻzgartirish",
         "btn_stats": "📈 Statistika",
+        "market_open": ("🟢 <b>Oltin bozori ochildi</b>\n\n"
+                        "Yangi setap paydo boʻlishi bilan bot sizga darhol signal yuboradi. Omadli savdo!"),
+        "market_closed": "🔴 <b>Oltin bozori yopildi</b> (kunlik tanaffus).\nOchiladi: {when}.",
+        "market_closed_week": ("🔴 <b>Oltin bozori dam olish kunlariga yopildi</b>\n\n"
+                               "Ochiladi: {when}. Dam oling, yangi signallar keyingi haftada."),
         "btn_accept": "✅ Signalni qabul qilish",
         "btn_decline": "❌ Rad etish",
         "accepted": "✅ Signalimiz #{id} ni qabul qilganingiz uchun rahmat! Savdo yopilganda natija haqida xabar beramiz.",

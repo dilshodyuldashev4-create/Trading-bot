@@ -212,6 +212,34 @@ class FlowTests(unittest.TestCase):
                 await db.close()
         asyncio.run(go())
 
+    def test_market_open_and_close_messages(self):
+        import pandas as pd
+        from goldbot.engine import next_open
+        ts = lambda s: pd.Timestamp(s, tz="UTC")  # noqa: E731
+        self.assertEqual(next_open(ts("2026-11-10 22:30")), ts("2026-11-10 23:00"))  # вт перерыв → через час
+        self.assertEqual(next_open(ts("2026-11-06 22:30")), ts("2026-11-08 23:00"))  # пт вечер → вс 18:00 NY
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                await db.add_user(1, None, None, 3)
+                app = botmod.App.__new__(botmod.App)
+                app.db, app.bot = db, FakeBot()
+                await app.market_status(ts("2026-11-06 21:00"))   # первый запуск — молчим
+                await app.market_status(ts("2026-11-06 21:30"))
+                self.assertEqual(app.bot.sent, [])
+                await app.market_status(ts("2026-11-06 22:01"))   # пятница 17:01 NY — закрыт на выходные
+                await app.market_status(ts("2026-11-08 23:01"))   # воскресенье 18:01 NY — открыт
+                await app.market_status(ts("2026-11-10 22:01"))   # вт перерыв
+                texts = [x[1] for x in app.bot.sent]
+                self.assertIn("на выходные", texts[0])
+                self.assertIn("09.11 04:00", texts[0])           # по Ташкенту
+                self.assertIn("открыт", texts[1])
+                self.assertIn("ежедневный перерыв", texts[2])
+                await db.close()
+        asyncio.run(go())
+
     def test_old_database_gets_capital_column(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:
