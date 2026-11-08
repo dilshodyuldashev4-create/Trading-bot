@@ -16,6 +16,7 @@ import pandas as pd
 from .chart import render_signal
 from .data import PIP
 from .db import DB
+from .i18n import DEFAULT, per_lang, t
 from .live_strategy import STRATEGIES, LiveStrategy, expected_setup
 from .market import TF_MINUTES, Provider
 
@@ -30,7 +31,11 @@ class NewSignal:
     sl: float
     tp: float
     image: bytes
-    text: str
+    texts: dict[str, str]  # язык → текст сигнала
+
+    @property
+    def text(self) -> str:
+        return self.texts[DEFAULT]
 
 
 OnSignal = Callable[[NewSignal], Awaitable[None]]
@@ -61,17 +66,11 @@ def closed_bars(df: pd.DataFrame, tf: str, now: pd.Timestamp) -> pd.DataFrame:
 
 
 def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: float,
-                  sl_pips: float, tp_pips: float, when: str) -> str:
-    side = "🟢 BUY" if d == 1 else "🔴 SELL"
-    return (f"<b>{side} XAUUSD</b>\n\n"
-            f"📍 Вход: <b>{entry:.2f}</b>\n"
-            f"🛑 Stop Loss: <b>{sl:.2f}</b> ({sl_pips:.0f} пипсов)\n"
-            f"🎯 Take Profit: <b>{tp:.2f}</b> ({tp_pips:.0f} пипсов)\n"
-            f"⚖️ Риск/прибыль 1:{tp_pips / sl_pips:.0f}\n\n"
-            f"📊 Стратегия: {strategy.title}\n"
-            f"🕒 {when}\n\n"
-            f"<i>{strategy.backtest_note}. Прошлые результаты не гарантируют будущих. "
-            f"Рискуйте не больше 1–2% депозита на сделку.</i>")
+                  sl_pips: float, tp_pips: float, when: str, lang: str = "ru") -> str:
+    return t(lang, "signal", side="🟢 BUY" if d == 1 else "🔴 SELL", entry=f"{entry:.2f}",
+             sl=f"{sl:.2f}", tp=f"{tp:.2f}", sl_pips=f"{sl_pips:.0f}", tp_pips=f"{tp_pips:.0f}",
+             rr=f"{tp_pips / sl_pips:.0f}", strategy=t(lang, f"strat_{strategy.key}"), when=when,
+             note=t(lang, f"note_{strategy.key}"))
 
 
 class SignalEngine:
@@ -145,20 +144,21 @@ class SignalEngine:
         tp = entry + d * self.tp_pips * PIP
         sid = await self.db.add_signal(self.strategy.key, d, entry, sl, tp)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
-        img = render_signal(df, d, entry, sl, tp, f"XAUUSD {tf.replace('min', 'm')} · сигнал #{sid}", tz=self.tz)
+        img = render_signal(df, d, entry, sl, tp, f"XAUUSD {tf.replace('min', 'm')} · #{sid}", tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
-                       format_signal(self.strategy, d, entry, sl, tp, self.sl_pips, self.tp_pips, when))
+                       per_lang(lambda lang: format_signal(self.strategy, d, entry, sl, tp,
+                                                           self.sl_pips, self.tp_pips, when, lang)))
         await self.on_signal(ns)
         return ns
 
-    async def expected(self) -> str:
+    async def expected(self, lang: str = "ru") -> str:
         now = pd.Timestamp.now(tz="UTC")
         tf = self.strategy.timeframe
         df = self.last_df
         if df is None or df.empty:
             df = closed_bars(await self.provider.candles(tf, 400), tf, now)
             self.last_df = df
-        return expected_setup(df, self.strategy.key, now, self.tz)
+        return expected_setup(df, self.strategy.key, now, self.tz, lang)
 
     async def run_forever(self, interval: int) -> None:
         while True:

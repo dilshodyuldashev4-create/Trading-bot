@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from .db import DB
 from .econ_calendar import impact_text
+from .i18n import t
 
 log = logging.getLogger(__name__)
 
@@ -19,31 +20,32 @@ RESULT_WINDOW = timedelta(hours=2)      # сколько ждём появлен
 RETRY_EVERY = timedelta(minutes=3)
 
 FetchActual = Callable[[dict], Awaitable[str | None]]
+SendAll = Callable[[Callable[[str], str]], Awaitable[None]]
 
 
 def _when(e: dict, tz: str) -> str:
     return datetime.fromisoformat(e["ts"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
 
 
-def pre_alert_text(e: dict, tz: str) -> str:
-    nums = " | ".join(x for x in (f"прогноз <b>{e['forecast']}</b>" if e["forecast"] else "",
-                                  f"пред. {e['previous']}" if e["previous"] else "") if x)
-    return (f"⏰ <b>Через 15 минут важная новость США</b>\n\n"
-            f"🔴 {html.escape(e['title'])} — {_when(e, tz)}\n"
+def pre_alert_text(e: dict, tz: str, lang: str = "ru") -> str:
+    nums = " | ".join(x for x in (t(lang, "pre_forecast", v=e["forecast"]) if e["forecast"] else "",
+                                  t(lang, "n_prev", v=e["previous"]) if e["previous"] else "") if x)
+    return (t(lang, "pre_head")
+            + f"🔴 {html.escape(e['title'])} — {_when(e, tz)}\n"
             f"{nums + chr(10) if nums else ''}"
-            f"💡 {impact_text(e['title'], e['forecast'], None)}\n\n"
-            f"⚠️ Возможны резкие движения золота, будьте осторожны с входами.")
+            f"💡 {impact_text(e['title'], e['forecast'], None, lang)}\n\n"
+            + t(lang, "pre_warn"))
 
 
-def result_text(e: dict, actual: str, tz: str) -> str:
-    rows = [f"📊 Факт: <b>{html.escape(actual)}</b>"]
+def result_text(e: dict, actual: str, tz: str, lang: str = "ru") -> str:
+    rows = [t(lang, "res_fact", v=html.escape(actual))]
     if e["forecast"]:
-        rows.append(f"🎯 Прогноз: {e['forecast']}")
+        rows.append(t(lang, "res_forecast", v=e["forecast"]))
     if e["previous"]:
-        rows.append(f"⏮ Предыдущее: {e['previous']}")
-    return (f"🚨 <b>Вышла новость: {html.escape(e['title'])}</b> ({_when(e, tz)})\n\n"
+        rows.append(t(lang, "res_prev", v=e["previous"]))
+    return (t(lang, "res_head", title=html.escape(e["title"]), when=_when(e, tz))
             + "\n".join(rows) + "\n\n"
-            f"💡 {impact_text(e['title'], e['forecast'], actual)}")
+            f"💡 {impact_text(e['title'], e['forecast'], actual, lang)}")
 
 
 async def claude_fetch_actual(e: dict, model: str) -> str | None:
@@ -83,9 +85,12 @@ async def claude_fetch_actual(e: dict, model: str) -> str | None:
     return m.group(1).strip().strip(".")[:20]
 
 
-async def process(db: DB, tz: str, send_all: Callable[[str], Awaitable[None]],
+async def process(db: DB, tz: str, send_all: SendAll,
                   fetch_actual: FetchActual, now: datetime | None = None) -> None:
-    """Один проход: шлёт предупреждения и результаты, которые пора отправить."""
+    """Один проход: шлёт предупреждения и результаты, которые пора отправить.
+
+    send_all получает функцию «язык → текст», чтобы каждый получил сообщение на своём языке.
+    """
     now = now or datetime.now(timezone.utc)
     events = [e for e in await db.events_between(now - RESULT_WINDOW, now + PRE_ALERT)
               if e["impact"] == "High"]
@@ -95,7 +100,7 @@ async def process(db: DB, tz: str, send_all: Callable[[str], Awaitable[None]],
             key = f"alert_pre:{e['key']}"
             if not await db.get_kv(key):
                 await db.set_kv(key, "1")
-                await send_all(pre_alert_text(e, tz))
+                await send_all(lambda lang, e=e: pre_alert_text(e, tz, lang))
             continue
         key = f"alert_res:{e['key']}"
         if await db.get_kv(key):
@@ -114,4 +119,4 @@ async def process(db: DB, tz: str, send_all: Callable[[str], Awaitable[None]],
                 continue
             await db.upsert_events([{**e, "actual": actual}])
         await db.set_kv(key, "1")
-        await send_all(result_text(e, actual, tz))
+        await send_all(lambda lang, e=e, a=actual: result_text(e, a, tz, lang))

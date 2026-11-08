@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     joined_at TEXT NOT NULL,
     trial_until TEXT NOT NULL,
     paid_until TEXT,
-    blocked INTEGER NOT NULL DEFAULT 0
+    blocked INTEGER NOT NULL DEFAULT 0,
+    lang TEXT
 );
 CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +70,9 @@ class DB:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
+        cur = await self.conn.execute("PRAGMA table_info(users)")
+        if "lang" not in [r[1] for r in await cur.fetchall()]:  # старая база — добавляем колонку
+            await self.conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -123,6 +127,19 @@ class DB:
         await self.conn.execute("UPDATE users SET paid_until=NULL, trial_until=? WHERE id=?",
                                 (_iso(now()), uid))
         await self.conn.commit()
+
+    async def set_lang(self, uid: int, lang: str) -> None:
+        await self.conn.execute("UPDATE users SET lang=? WHERE id=?", (lang, uid))
+        await self.conn.commit()
+
+    async def user_langs(self) -> dict[int, str | None]:
+        """id → выбранный язык (None, если ещё не выбирал)."""
+        cur = await self.conn.execute("SELECT id, lang FROM users")
+        return {r[0]: r[1] for r in await cur.fetchall()}
+
+    async def lang_stats(self) -> dict[str, int]:
+        cur = await self.conn.execute("SELECT COALESCE(lang, '—'), COUNT(*) FROM users GROUP BY 1")
+        return {r[0]: r[1] for r in await cur.fetchall()}
 
     async def set_blocked(self, uid: int, blocked: bool = True) -> None:
         await self.conn.execute("UPDATE users SET blocked=? WHERE id=?", (int(blocked), uid))

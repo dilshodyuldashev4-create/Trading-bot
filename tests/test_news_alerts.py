@@ -21,10 +21,11 @@ class NewsAlertTests(unittest.TestCase):
                 await db.connect()
                 release = datetime(2026, 11, 12, 13, 30, tzinfo=timezone.utc)
                 await db.upsert_events([event(release)])
-                sent, calls = [], []
+                sent, sent_en, calls = [], [], []
 
-                async def send_all(text):
-                    sent.append(text)
+                async def send_all(make):
+                    sent.append(make("ru"))
+                    sent_en.append(make("en"))
 
                 async def fetch(e):
                     calls.append(e["title"])
@@ -37,6 +38,7 @@ class NewsAlertTests(unittest.TestCase):
                 self.assertEqual(len(sent), 1)
                 self.assertIn("Через 15 минут", sent[0])
                 self.assertIn("0.3%", sent[0])
+                self.assertIn("in 15 minutes", sent_en[0])
                 # после выхода: первая попытка без цифры, повтор через 3 минуты находит факт
                 await news_alerts.process(db, tz, send_all, fetch, release + timedelta(minutes=2))
                 await news_alerts.process(db, tz, send_all, fetch, release + timedelta(minutes=3))
@@ -45,6 +47,7 @@ class NewsAlertTests(unittest.TestCase):
                 self.assertEqual(len(sent), 2)
                 self.assertIn("Факт: <b>0.5%</b>", sent[1])
                 self.assertIn("золото ⬇️", sent[1])  # инфляция выше прогноза
+                self.assertIn("gold ⬇️", sent_en[1])
                 await news_alerts.process(db, tz, send_all, fetch, release + timedelta(minutes=10))
                 self.assertEqual(len(sent), 2)
                 await db.close()
@@ -57,10 +60,11 @@ class NewsAlertTests(unittest.TestCase):
                 await db.connect()
                 release = datetime(2026, 11, 12, 13, 30, tzinfo=timezone.utc)
                 await db.upsert_events([event(release, actual="0.1%")])
-                sent = []
+                sent, sent_en = [], []
 
-                async def send_all(text):
-                    sent.append(text)
+                async def send_all(make):
+                    sent.append(make("ru"))
+                    sent_en.append(make("en"))
 
                 async def fetch(e):
                     raise AssertionError("не должен искать")

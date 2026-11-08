@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import html
 import io
 import logging
 from datetime import timedelta
@@ -24,22 +25,24 @@ from .config import config
 from .db import DB
 from .chart import render_signal
 from .engine import NewSignal, SignalEngine
+from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
 from .market import make_provider
 from .news import NewsService
 
 log = logging.getLogger(__name__)
 
-BTN_SIGNAL = "📊 Сигнал"
-BTN_FUND = "📰 Фундаментальные новости"
-BTN_CAL = "🗓 Календарь новостей"
-BTN_SUB = "💎 Подписка"
-BTN_PROFILE = "👤 Профиль"
 
-MENU = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-    [KeyboardButton(text=BTN_SIGNAL)],
-    [KeyboardButton(text=BTN_FUND), KeyboardButton(text=BTN_CAL)],
-    [KeyboardButton(text=BTN_SUB), KeyboardButton(text=BTN_PROFILE)],
-])
+def menu(lang: str) -> ReplyKeyboardMarkup:
+    b = lambda key: KeyboardButton(text=t(lang, key))  # noqa: E731
+    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+        [b("btn_signal")],
+        [b("btn_fund"), b("btn_cal")],
+        [b("btn_sub"), b("btn_profile")],
+    ])
+
+
+LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text=label, callback_data=f"lang:{code}")] for code, label in LANG_BUTTONS])
 
 ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📈 Статистика", callback_data="adm:stats"),
@@ -105,87 +108,137 @@ class App:
 
     async def broadcast_signal(self, s: NewSignal) -> None:
         uids = await self.db.active_user_ids()
+        langs = await self.db.user_langs()
         photo = BufferedInputFile(s.image, filename=f"signal_{s.id}.png")
-        n = await self.broadcast(uids, lambda u: self.bot.send_photo(u, photo, caption=s.text))
+        n = await self.broadcast(uids, lambda u: self.bot.send_photo(u, photo, caption=s.texts[norm(langs.get(u))]))
         log.info("signal #%s sent to %s users", s.id, n)
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
         side = "BUY" if s["direction"] == 1 else "SELL"
         if status == "tp":
-            head = f"✅ <b>Сигнал #{s['id']} {side} закрыт по Take Profit</b>\n💰 Результат: <b>+{config.tp_pips:.0f} пипсов</b>"
-            level = s["tp"]
+            pips, level = config.tp_pips, s["tp"]
         else:
-            head = f"❌ <b>Сигнал #{s['id']} {side} закрыт по Stop Loss</b>\n📉 Результат: −{config.sl_pips:.0f} пипсов"
-            level = s["sl"]
+            pips, level = config.sl_pips, s["sl"]
         st = await self.db.stats()
         closed = st["tp"] + st["sl"]
-        text = (f"{head}\n\n📍 Вход: {s['entry']:.2f}\n🏁 Выход: {level:.2f}\n"
-                f"🛑 SL {s['sl']:.2f} · 🎯 TP {s['tp']:.2f}\n\n"
-                f"📊 Статистика бота: {st['tp']} TP / {st['sl']} SL"
-                + (f" (винрейт {100 * st['tp'] / closed:.0f}%)" if closed else ""))
-        cta = "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe"
+
+        def text(lang: str) -> str:
+            return (t(lang, "close_tp" if status == "tp" else "close_sl", id=s["id"], side=side, pips=f"{pips:.0f}")
+                    + "\n\n" + t(lang, "close_body", entry=f"{s['entry']:.2f}", exit=f"{level:.2f}",
+                                  sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}", tp_n=st["tp"], sl_n=st["sl"])
+                    + (t(lang, "winrate", wr=f"{100 * st['tp'] / closed:.0f}") if closed else ""))
+
         image = None
         if self.engine.last_df is not None:
             try:
                 image = render_signal(self.engine.last_df, s["direction"], s["entry"], s["sl"], s["tp"],
-                                      f"XAUUSD · сигнал #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
+                                      f"XAUUSD · #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
                                       tz=config.display_tz)
             except Exception:  # noqa: BLE001
                 log.exception("close chart")
         active = set(await self.db.active_user_ids())
+        langs = await self.db.user_langs()
 
         def make(u: int):
-            body = text if u in active else text + cta
+            lang = norm(langs.get(u))
+            body = text(lang) if u in active else text(lang) + t(lang, "close_cta")
             if image:
                 return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body)
             return self.bot.send_message(u, body)
 
         await self.broadcast(await self.db.all_user_ids(), make)
 
-    async def broadcast_text_all(self, text: str) -> None:
-        await self.broadcast(await self.db.all_user_ids(), lambda u: self.bot.send_message(u, text))
+    async def broadcast_all(self, make_text) -> None:
+        """Всем пользователям, каждому на его языке: make_text(lang) → текст."""
+        langs = await self.db.user_langs()
+        texts: dict[str, str] = {}
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            if lang not in texts:
+                texts[lang] = make_text(lang)
+            return self.bot.send_message(u, texts[lang])
+
+        await self.broadcast(await self.db.all_user_ids(), make)
+
+    async def lang_of(self, uid: int) -> str:
+        u = await self.db.get_user(uid)
+        return norm(u.get("lang") if u else None)
 
     def is_admin(self, uid: int) -> bool:
         return uid in config.admin_ids
 
-    async def sub_status(self, uid: int) -> str:
+    async def sub_status(self, uid: int, lang: str) -> str:
         u = await self.db.get_user(uid)
         if not u:
-            return "Нажмите /start"
+            return t(lang, "st_start")
         if self.db.is_paid(u):
-            return f"💎 Подписка активна до {self.fmt_dt(u['paid_until'])}"
+            return t(lang, "st_paid", until=self.fmt_dt(u["paid_until"]))
         if self.db.has_access(u):
-            return f"🎁 Бесплатный период до {self.fmt_dt(u['trial_until'])}"
-        return "⛔️ Бесплатный период закончился. Оформите подписку, чтобы получать сигналы."
+            return t(lang, "st_trial", until=self.fmt_dt(u["trial_until"]))
+        return t(lang, "st_expired")
 
-    async def send_invoice(self, chat_id: int) -> None:
+    async def send_invoice(self, chat_id: int, lang: str) -> None:
         await self.bot.send_invoice(
-            chat_id, title=f"Подписка на сигналы XAUUSD — {config.sub_days} дней",
-            description="Автоматические сигналы по золоту с графиком, входом, SL и TP.",
+            chat_id, title=t(lang, "inv_title", days=config.sub_days),
+            description=t(lang, "inv_desc"),
             payload="sub", currency="XTR", provider_token="",
-            prices=[LabeledPrice(label=f"{config.sub_days} дней", amount=config.sub_price_stars)])
+            prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days), amount=config.sub_price_stars)])
+
+    async def send_hello(self, chat_id: int, uid: int, first_name: str | None, lang: str, new: bool) -> None:
+        hello = t(lang, "hello", name=html.escape(first_name or t(lang, "trader")))
+        if new:
+            hello += t(lang, "trial_new", days=config.trial_days)
+        else:
+            hello += await self.sub_status(uid, lang)
+        await self.bot.send_message(chat_id, hello, reply_markup=menu(lang))
 
     # ── handlers ─────────────────────────────────────────────────────────────
     def _register(self) -> None:
         r = self.router
 
         @r.message(CommandStart())
-        async def start(m: Message):
+        async def start(m: Message, state: FSMContext):
             new = await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name,
                                          config.trial_days)
-            hello = (f"👋 Привет, {m.from_user.first_name or 'трейдер'}!\n\n"
-                     "Я бот сигналов по <b>золоту (XAUUSD)</b>.\n"
-                     "• 📊 <b>Сигнал</b> — анализ рынка и ожидаемый сетап; подтверждённые сигналы приходят сами\n"
-                     "• 📰 <b>Фундаментальные новости</b> — коротко, как новости влияют на золото и доллар\n"
-                     "• 🗓 <b>Календарь новостей</b> — CPI, NFP, FOMC: время и влияние\n\n")
-            if new:
-                hello += f"🎁 Вам открыт <b>бесплатный доступ на {config.trial_days} дня</b>: сигналы будут приходить автоматически."
-            else:
-                hello += await self.sub_status(m.from_user.id)
-            await m.answer(hello, reply_markup=MENU)
+            u = await self.db.get_user(m.from_user.id)
+            if not u.get("lang"):  # сначала просим выбрать язык
+                await state.update_data(new_user=new)
+                await m.answer(CHOOSE, reply_markup=LANG_KB)
+                return
+            await self.send_hello(m.chat.id, m.from_user.id, m.from_user.first_name, norm(u["lang"]), new)
 
-        @r.message(F.text == BTN_SIGNAL)
+        @r.message(Command("language", "lang"))
+        async def language(m: Message):
+            await m.answer(CHOOSE, reply_markup=LANG_KB)
+
+        @r.callback_query(F.data.startswith("lang:"))
+        async def choose_lang(c: CallbackQuery, state: FSMContext):
+            code = c.data.split(":", 1)[1]
+            if code == "menu":
+                await c.message.answer(CHOOSE, reply_markup=LANG_KB)
+                await c.answer()
+                return
+            lang = norm(code)
+            uid = c.from_user.id
+            new = await self.db.add_user(uid, c.from_user.username, c.from_user.first_name, config.trial_days)
+            first = new or not (await self.db.get_user(uid)).get("lang")
+            await self.db.set_lang(uid, lang)
+            await c.answer(t(lang, "lang_set"))
+            try:
+                await c.message.delete()
+            except Exception:  # noqa: BLE001 — старое сообщение могло уже не удаляться
+                pass
+            if first:
+                data = await state.get_data()
+                await state.update_data(new_user=False)
+                await self.send_hello(c.message.chat.id, uid, c.from_user.first_name, lang,
+                                      new or bool(data.get("new_user")))
+            else:
+                await c.message.answer(t(lang, "lang_set"), reply_markup=menu(lang))
+
+        @r.message(F.text.in_(variants("btn_signal")))
         @r.message(Command("signal"))
         async def signal(m: Message):
             u = await self.db.get_user(m.from_user.id)
@@ -193,50 +246,59 @@ class App:
                 await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name,
                                        config.trial_days)
                 u = await self.db.get_user(m.from_user.id)
+            lang = norm(u.get("lang"))
             if not self.db.has_access(u):
-                await m.answer("⛔️ Бесплатный период закончился. Сигналы доступны по подписке.")
-                await self.send_invoice(m.chat.id)
+                await m.answer(t(lang, "sig_expired"))
+                await self.send_invoice(m.chat.id, lang)
                 return
-            await m.answer("🔎 Анализирую рынок…")
+            await m.answer(t(lang, "analyzing"))
             try:
-                text = await self.engine.expected()
+                text = await self.engine.expected(lang)
             except Exception:  # noqa: BLE001
                 log.exception("expected setup")
-                text = "Не удалось получить котировки, попробуйте через минуту."
-            price = f"\n\n💰 Цена сейчас: <b>{self.engine.last_price:.2f}</b>" if self.engine.last_price else ""
+                text = t(lang, "quotes_fail")
+            price = t(lang, "price_now", price=f"{self.engine.last_price:.2f}") if self.engine.last_price else ""
             opened = await self.db.open_signals()
             active = ""
             if opened:
                 s = opened[-1]
-                active = (f"\n\n📌 Открытый сигнал #{s['id']}: {'BUY' if s['direction'] == 1 else 'SELL'} "
-                          f"от {s['entry']:.2f}, SL {s['sl']:.2f}, TP {s['tp']:.2f}")
-            await m.answer(f"📊 <b>Анализ XAUUSD</b>\n\n{text}{price}{active}")
+                active = t(lang, "open_signal", id=s["id"], side="BUY" if s["direction"] == 1 else "SELL",
+                           entry=f"{s['entry']:.2f}", sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}")
+            await m.answer(f"{t(lang, 'analysis_head')}\n\n{text}{price}{active}")
 
-        @r.message(F.text == BTN_FUND)
+        @r.message(F.text.in_(variants("btn_fund")))
         @r.message(Command("news"))
         async def fundamental(m: Message):
-            await m.answer("⏳ Собираю свежие новости…")
+            lang = await self.lang_of(m.from_user.id)
+            await m.answer(t(lang, "news_wait"))
             try:
-                await self.send_long(m.chat.id, await self.news.digest())
+                await self.send_long(m.chat.id, await self.news.digest(lang))
             except Exception:  # noqa: BLE001
                 log.exception("news")
-                await m.answer("Не удалось загрузить новости, попробуйте позже.")
+                await m.answer(t(lang, "news_fail"))
 
-        @r.message(F.text == BTN_CAL)
+        @r.message(F.text.in_(variants("btn_cal")))
         @r.message(Command("calendar"))
         async def calendar(m: Message):
-            await self.send_long(m.chat.id, await econ_calendar.render(self.db, config.display_tz))
+            lang = await self.lang_of(m.from_user.id)
+            await self.send_long(m.chat.id, await econ_calendar.render(self.db, config.display_tz, lang=lang))
 
-        @r.message(F.text == BTN_SUB)
+        @r.message(F.text.in_(variants("btn_sub")))
         @r.message(Command("subscribe"))
         async def subscribe(m: Message):
-            await m.answer(f"{await self.sub_status(m.from_user.id)}\n\n"
-                           f"Подписка: <b>{config.sub_price_stars} ⭐</b> за {config.sub_days} дней.")
-            await self.send_invoice(m.chat.id)
+            lang = await self.lang_of(m.from_user.id)
+            await m.answer(f"{await self.sub_status(m.from_user.id, lang)}\n\n"
+                           + t(lang, "sub_price", price=config.sub_price_stars, days=config.sub_days))
+            await self.send_invoice(m.chat.id, lang)
 
-        @r.message(F.text == BTN_PROFILE)
+        @r.message(F.text.in_(variants("btn_profile")))
+        @r.message(Command("profile"))
         async def profile(m: Message):
-            await m.answer(f"🆔 {m.from_user.id}\n{await self.sub_status(m.from_user.id)}")
+            lang = await self.lang_of(m.from_user.id)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")]])
+            await m.answer(t(lang, "profile", id=m.from_user.id, status=await self.sub_status(m.from_user.id, lang),
+                             language=t(lang, "lang_name")), reply_markup=kb)
 
         @r.pre_checkout_query()
         async def pre_checkout(q: PreCheckoutQuery):
@@ -247,7 +309,8 @@ class App:
             p = m.successful_payment
             await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
             until = await self.db.extend_paid(m.from_user.id, config.sub_days)
-            await m.answer(f"✅ Спасибо! Подписка активна до {self.fmt_dt(until)}.", reply_markup=MENU)
+            lang = await self.lang_of(m.from_user.id)
+            await m.answer(t(lang, "paid_ok", until=self.fmt_dt(until)), reply_markup=menu(lang))
 
         # ── админ-панель ─────────────────────────────────────────────────────
         @r.message(Command("admin"))
@@ -265,11 +328,13 @@ class App:
                 s = await self.db.stats()
                 closed = s["tp"] + s["sl"]
                 wr = f"{100 * s['tp'] / closed:.1f}%" if closed else "—"
+                langs = ", ".join(f"{k}: {v}" for k, v in sorted((await self.db.lang_stats()).items()))
                 await c.message.answer(
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
                     f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
                     f"⭐ Выручка: {s['revenue']}\n\n"
-                    f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}")
+                    f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}\n"
+                    f"🌐 Языки: {langs or '—'}")
             elif action == "broadcast":
                 await state.set_state(AdminStates.broadcast)
                 await c.message.answer("Отправьте сообщение для рассылки всем (текст или фото). /cancel — отмена.")
@@ -294,7 +359,8 @@ class App:
         @r.message(Command("cancel"))
         async def cancel(m: Message, state: FSMContext):
             await state.clear()
-            await m.answer("Отменено", reply_markup=MENU)
+            lang = await self.lang_of(m.from_user.id)
+            await m.answer(t(lang, "cancelled"), reply_markup=menu(lang))
 
         @r.message(AdminStates.broadcast)
         async def do_broadcast(m: Message, state: FSMContext):
@@ -317,8 +383,9 @@ class App:
                 return
             until = await self.db.extend_paid(uid, days)
             await m.answer(f"✅ {uid}: подписка до {self.fmt_dt(until)}")
+            ulang = await self.lang_of(uid)
             await self._send(uid, lambda: self.bot.send_message(
-                uid, f"🎁 Вам выдана подписка до {self.fmt_dt(until)}"))
+                uid, t(ulang, "granted", until=self.fmt_dt(until))))
 
         @r.message(Command("revoke"))
         async def revoke(m: Message, command: CommandObject):
@@ -348,7 +415,7 @@ class App:
 
         while True:
             try:
-                await news_alerts.process(self.db, config.display_tz, self.broadcast_text_all, fetch)
+                await news_alerts.process(self.db, config.display_tz, self.broadcast_all, fetch)
             except Exception:  # noqa: BLE001
                 log.exception("news alerts")
             await asyncio.sleep(30)
@@ -361,9 +428,8 @@ class App:
                     if await self.db.get_kv(key):
                         continue
                     await self.db.set_kv(key, "1")
-                    await self._send(uid, lambda u=uid: self.bot.send_message(
-                        u, "⏳ Бесплатный период заканчивается через час. "
-                           "Чтобы и дальше получать сигналы, оформите подписку: 💎 Подписка"))
+                    lang = await self.lang_of(uid)
+                    await self._send(uid, lambda u=uid, lg=lang: self.bot.send_message(u, t(lg, "trial_reminder")))
             except Exception:  # noqa: BLE001
                 log.exception("trial reminder")
             await asyncio.sleep(600)
@@ -379,7 +445,7 @@ class App:
         try:
             await self.dp.start_polling(self.bot)
         finally:
-            for t in tasks:
-                t.cancel()
+            for task in tasks:
+                task.cancel()
             await self.provider.close()
             await self.db.close()

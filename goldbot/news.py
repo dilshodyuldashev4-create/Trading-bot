@@ -12,6 +12,8 @@ from calendar import timegm
 import aiohttp
 import feedparser
 
+from .i18n import t
+
 log = logging.getLogger(__name__)
 
 KEYWORDS = re.compile(
@@ -20,19 +22,20 @@ KEYWORDS = re.compile(
     re.I)
 
 PROMPT = """Ты аналитик рынка золота. Ниже свежие новостные заголовки (с кратким текстом).
-Выбери до 7 самых важных для золота (XAUUSD) и доллара США. Для каждой напиши по-русски одну-две
+Выбери до 7 самых важных для золота (XAUUSD) и доллара США. Для каждой напиши одну-две
 короткие строки в формате:
 
 • <суть новости простыми словами> — Золото: ⬆️/⬇️/➡️, Доллар: ⬆️/⬇️/➡️. <почему, коротко>
 
 В конце одной строкой общий вывод: куда, скорее всего, давит фон на золото сегодня.
-Без вступлений, без markdown-заголовков. Не выдумывай факты, которых нет в заголовках."""
+Без вступлений, без markdown-заголовков. Не выдумывай факты, которых нет в заголовках.
+Пиши весь ответ на языке: {language} (подписи «Золото» и «Доллар» тоже переведи)."""
 
 
 class NewsService:
     def __init__(self, feeds: tuple[str, ...], model: str, cache_seconds: int = 1200):
         self.feeds, self.model, self.cache_seconds = feeds, model, cache_seconds
-        self._cache: tuple[float, str] | None = None
+        self._cache: dict[str, tuple[float, str]] = {}
         self._lock = asyncio.Lock()
 
     async def _fetch_feed(self, s: aiohttp.ClientSession, url: str) -> list[dict]:
@@ -65,7 +68,7 @@ class NewsService:
             items.append(it)
         return items[:limit]
 
-    async def _summarize(self, items: list[dict]) -> str | None:
+    async def _summarize(self, items: list[dict], lang: str = "ru") -> str | None:
         if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
             return None
         import anthropic
@@ -79,7 +82,7 @@ class NewsService:
                 output_config={"effort": "low"},
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
-                system=PROMPT,
+                system=PROMPT.format(language=t(lang, "news_lang")),
                 messages=[{"role": "user", "content": text}],
             )
         except anthropic.APIStatusError as e:
@@ -92,17 +95,18 @@ class NewsService:
             return None
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
 
-    async def digest(self) -> str:
+    async def digest(self, lang: str = "ru") -> str:
         async with self._lock:
-            if self._cache and time.time() - self._cache[0] < self.cache_seconds:
-                return self._cache[1]
+            cached = self._cache.get(lang)
+            if cached and time.time() - cached[0] < self.cache_seconds:
+                return cached[1]
             items = await self.headlines()
             if not items:
-                return "Свежих новостей по золоту и доллару за последние сутки не найдено."
-            summary = await self._summarize(items)
+                return t(lang, "news_none")
+            summary = await self._summarize(items, lang)
             if not summary:  # без ключа Claude — просто заголовки
                 summary = "\n".join(f"• {i['title']}" for i in items[:10])
             summary = html.escape(summary, quote=False)
-            out = "📰 <b>Фундаментальные новости: золото и доллар</b>\n\n" + summary
-            self._cache = (time.time(), out)
+            out = t(lang, "news_head") + summary
+            self._cache[lang] = (time.time(), out)
             return out

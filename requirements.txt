@@ -7,3 +7,4 @@ feedparser>=6.0
 matplotlib>=3.8
 mplfinance>=0.12.10b0
 anthropic>=2.6
+six>=1.16
