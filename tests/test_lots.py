@@ -57,7 +57,7 @@ class FakeBot:
     def __init__(self):
         self.sent = []
 
-    async def send_photo(self, uid, photo, caption=None):
+    async def send_photo(self, uid, photo, caption=None, **kw):
         self.sent.append((uid, caption))
 
     async def send_message(self, uid, text, **kw):
@@ -169,6 +169,46 @@ class FlowTests(unittest.TestCase):
                 self.assertIn("Торговый день закрыт", msgs[1])
                 self.assertIn("$980", msgs[1])
                 self.assertNotIn("💰", msgs[2])
+                await db.close()
+        asyncio.run(go())
+
+    def test_decline_skips_result_and_stats(self):
+        from goldbot.chart import render_stats
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                for uid in (1, 2):
+                    await db.add_user(uid, None, None, 3)
+                    await db.set_capital(uid, 1000)
+                sid = await db.add_signal("combo", 1, 2900, 2890, 2920)
+                await db.add_signal_lot(sid, 1, 0.02)
+                await db.add_signal_lot(sid, 2, 0.02)
+                await db.set_decision(sid, 2, True)        # 2 нажал «Отклонить»
+                await db.set_decision(sid, 1, False)
+                self.assertEqual(await db.signal_lots(sid), {1: 0.02})
+                app = botmod.App.__new__(botmod.App)
+                app.db, app.bot = db, FakeBot()
+
+                class Eng:
+                    last_df = None
+                app.engine = Eng()
+                sig = await db.get_signal(sid)
+                await db.close_signal(sid, "sl")
+                await app.broadcast_close(sig, "sl", 2889)
+                msgs = dict(app.bot.sent)
+                self.assertIn("$980", msgs[1])
+                self.assertNotIn(2, msgs)                  # отклонившему результат не шлём
+                self.assertEqual((await db.user_capitals())[2], 1000)
+
+                await db.add_signal("combo", -1, 2950, 2960, 2930)
+                rows = await db.last_signals(100)
+                text = botmod.stats_text("ru", rows, "Asia/Tashkent")
+                self.assertIn("Винрейт: <b>0%</b>", text)
+                self.assertIn("Stop Loss: выход 2890.00", text)
+                self.assertIn("В работе", text)
+                self.assertTrue(render_stats(rows, "uz", "Asia/Tashkent").startswith(b"\x89PNG"))
                 await db.close()
         asyncio.run(go())
 

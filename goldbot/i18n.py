@@ -17,6 +17,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Подписка",
         "btn_profile": "👤 Профиль",
         "btn_lang": "🌐 Сменить язык",
+        "btn_stats": "📈 Статистика",
+        "btn_accept": "✅ Принять сигнал",
+        "btn_decline": "❌ Отклонить",
+        "accepted": "✅ Спасибо, что приняли наш сигнал #{id}! Мы сообщим вам о результате, когда сделка закроется.",
+        "declined": "❌ Вы отклонили сигнал #{id}. Когда будет новый сигнал, мы вам сообщим. Спасибо!",
+        "sig_already_closed": "Этот сигнал уже закрыт",
+        "stats_head": ("📈 <b>Статистика сигналов</b>\n\n"
+                       "Всего: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ в работе: {open}\n"
+                       "🎯 Винрейт: <b>{wr}</b>\n💰 Итог: <b>{pips} пипсов</b>\n\n"
+                       "<b>Последние сигналы:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Вход {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: выход {exit}, <b>+{pips} пипсов</b>",
+        "stats_sl": "❌ Stop Loss: выход {exit}, −{pips} пипсов",
+        "stats_open": "⏳ В работе",
+        "stats_empty": "📈 Сигналов пока не было.",
         "hello": ("👋 Привет, {name}!\n\n"
                   "Я бот сигналов по <b>золоту (XAUUSD)</b>.\n"
                   "• 📊 <b>Сигнал</b> — анализ рынка и ожидаемый сетап; подтверждённые сигналы приходят сами\n"
@@ -155,6 +171,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Subscription",
         "btn_profile": "👤 Profile",
         "btn_lang": "🌐 Change language",
+        "btn_stats": "📈 Statistics",
+        "btn_accept": "✅ Accept signal",
+        "btn_decline": "❌ Decline",
+        "accepted": "✅ Thank you for accepting our signal #{id}! We'll let you know the result when the trade closes.",
+        "declined": "❌ You declined signal #{id}. We'll let you know when there is a new signal. Thank you!",
+        "sig_already_closed": "This signal is already closed",
+        "stats_head": ("📈 <b>Signal statistics</b>\n\n"
+                       "Total: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ open: {open}\n"
+                       "🎯 Win rate: <b>{wr}</b>\n💰 Result: <b>{pips} pips</b>\n\n"
+                       "<b>Latest signals:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Entry {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: exit {exit}, <b>+{pips} pips</b>",
+        "stats_sl": "❌ Stop Loss: exit {exit}, −{pips} pips",
+        "stats_open": "⏳ Open",
+        "stats_empty": "📈 No signals yet.",
         "hello": ("👋 Hi, {name}!\n\n"
                   "I'm a <b>gold (XAUUSD)</b> signals bot.\n"
                   "• 📊 <b>Signal</b> — market analysis and the expected setup; confirmed signals arrive automatically\n"
@@ -294,6 +326,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_sub": "💎 Obuna",
         "btn_profile": "👤 Profil",
         "btn_lang": "🌐 Tilni oʻzgartirish",
+        "btn_stats": "📈 Statistika",
+        "btn_accept": "✅ Signalni qabul qilish",
+        "btn_decline": "❌ Rad etish",
+        "accepted": "✅ Signalimiz #{id} ni qabul qilganingiz uchun rahmat! Savdo yopilganda natija haqida xabar beramiz.",
+        "declined": "❌ Siz #{id} signalni rad etdingiz. Yangi signal boʻlganda sizga xabar beramiz. Rahmat!",
+        "sig_already_closed": "Bu signal allaqachon yopilgan",
+        "stats_head": ("📈 <b>Signallar statistikasi</b>\n\n"
+                       "Jami: {total} · ✅ TP: {tp} · ❌ SL: {sl} · ⏳ ochiq: {open}\n"
+                       "🎯 Winrate: <b>{wr}</b>\n💰 Natija: <b>{pips} pips</b>\n\n"
+                       "<b>Oxirgi signallar:</b>"),
+        "stats_row": ("\n\n<b>#{id}</b> {when} {side}\n"
+                      "📍 Kirish {entry} · 🛑 SL {sl} · 🎯 TP {tp}\n{result}"),
+        "stats_tp": "✅ Take Profit: chiqish {exit}, <b>+{pips} pips</b>",
+        "stats_sl": "❌ Stop Loss: chiqish {exit}, −{pips} pips",
+        "stats_open": "⏳ Ochiq",
+        "stats_empty": "📈 Hali signallar boʻlmagan.",
         "hello": ("👋 Salom, {name}!\n\n"
                   "Men <b>oltin (XAUUSD)</b> boʻyicha signallar botiman.\n"
                   "• 📊 <b>Signal</b> — bozor tahlili va kutilayotgan setap; tasdiqlangan signallar oʻzi keladi\n"

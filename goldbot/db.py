@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS signal_lots (
     signal_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
     lot REAL NOT NULL,
+    declined INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (signal_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
@@ -245,8 +246,27 @@ class DB:
         await self.conn.commit()
 
     async def signal_lots(self, sid: int) -> dict[int, float]:
-        cur = await self.conn.execute("SELECT user_id, lot FROM signal_lots WHERE signal_id=?", (sid,))
+        """Кто получил сигнал и с каким лотом — без тех, кто нажал «Отклонить»."""
+        cur = await self.conn.execute("SELECT user_id, lot FROM signal_lots WHERE signal_id=? AND declined=0",
+                                      (sid,))
         return {r[0]: r[1] for r in await cur.fetchall()}
+
+    async def set_decision(self, sid: int, uid: int, declined: bool, lot: float = 0) -> None:
+        """«Принять» / «Отклонить» под сигналом."""
+        await self.conn.execute(
+            "INSERT INTO signal_lots (signal_id, user_id, lot, declined) VALUES (?,?,?,?) "
+            "ON CONFLICT(signal_id, user_id) DO UPDATE SET declined=excluded.declined",
+            (sid, uid, lot, int(declined)))
+        await self.conn.commit()
+
+    async def declined_users(self, sid: int) -> set[int]:
+        cur = await self.conn.execute("SELECT user_id FROM signal_lots WHERE signal_id=? AND declined=1", (sid,))
+        return {r[0] for r in await cur.fetchall()}
+
+    async def get_signal(self, sid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM signals WHERE id=?", (sid,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
 
     async def closed_since(self, since: datetime) -> list[str]:
         """Статусы сигналов, созданных после since и уже закрытых, от последнего к первому."""

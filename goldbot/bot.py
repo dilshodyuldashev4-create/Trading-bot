@@ -23,7 +23,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
 from . import econ_calendar, news_alerts
 from .config import config
 from .db import DB
-from .chart import render_signal
+from .chart import render_signal, render_stats
 from .engine import NewSignal, SignalEngine
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
 from .data import PIP
@@ -39,6 +39,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
+        [b("btn_stats")],
         [b("btn_sub"), b("btn_profile")],
     ])
 
@@ -100,6 +101,39 @@ def late_hint(lang: str, direction: int, entry: float) -> str:
         return ""
     limit = entry + direction * config.late_pips * PIP
     return t(lang, "late_hint_buy" if direction == 1 else "late_hint_sell", limit=f"{limit:.2f}")
+
+
+def decision_kb(lang: str, sid: int, choice: str | None = None) -> InlineKeyboardMarkup:
+    """Кнопки под сигналом; выбранная помечена «•»."""
+    mark = lambda key, c: ("• " if choice == c else "") + t(lang, key)  # noqa: E731
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=mark("btn_accept", "acc"), callback_data=f"sig:acc:{sid}"),
+        InlineKeyboardButton(text=mark("btn_decline", "dec"), callback_data=f"sig:dec:{sid}")]])
+
+
+def stats_text(lang: str, rows: list[dict], tz: str) -> str:
+    """Статистика для подписчиков: итоги и последние сигналы со входом, выходом и результатом."""
+    from datetime import datetime
+    if not rows:
+        return t(lang, "stats_empty")
+    tp = [r for r in rows if r["status"] == "tp"]
+    sl = [r for r in rows if r["status"] == "sl"]
+    pips = lambda a, b: abs(a - b) / PIP  # noqa: E731
+    total = sum(pips(r["tp"], r["entry"]) for r in tp) - sum(pips(r["sl"], r["entry"]) for r in sl)
+    closed = len(tp) + len(sl)
+    out = t(lang, "stats_head", total=len(rows), tp=len(tp), sl=len(sl), open=len(rows) - closed,
+            wr=f"{100 * len(tp) / closed:.0f}%" if closed else "—", pips=f"{total:+.0f}")
+    for r in rows[:15]:
+        if r["status"] == "tp":
+            res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{pips(r['tp'], r['entry']):.0f}")
+        elif r["status"] == "sl":
+            res = t(lang, "stats_sl", exit=f"{r['sl']:.2f}", pips=f"{pips(r['sl'], r['entry']):.0f}")
+        else:
+            res = t(lang, "stats_open")
+        when = datetime.fromisoformat(r["created_at"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
+        out += t(lang, "stats_row", id=r["id"], when=when, side="🟢 BUY" if r["direction"] == 1 else "🔴 SELL",
+                 entry=f"{r['entry']:.2f}", sl=f"{r['sl']:.2f}", tp=f"{r['tp']:.2f}", result=res)
+    return out
 
 
 def signal_caption(lang: str, text: str, capital: float | None, direction: int, entry: float) -> str:
@@ -191,8 +225,9 @@ class App:
             lang, capital = norm(langs.get(u)), caps.get(u)
             img = await image_for(capital)
             caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry)
-            sent = await self._send(u, lambda u=u, img=img, caption=caption: self.bot.send_photo(
-                u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption))
+            sent = await self._send(u, lambda u=u, img=img, caption=caption, lang=lang: self.bot.send_photo(
+                u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption,
+                reply_markup=decision_kb(lang, s.id)))
             if sent:  # запоминаем, кто получил сигнал и с каким лотом (0 — капитал не указан)
                 await self.db.add_signal_lot(s.id, u, lot_plan(capital)["lot"] if capital else 0)
             ok += sent
@@ -242,6 +277,8 @@ class App:
             sign = "+" if pnl >= 0 else "−"
             return t(lang, "close_balance", lot=f"{lot:.2f}", pnl=f"{sign}${fmt_usd(abs(pnl))}", bal=fmt_usd(bal))
 
+        declined = await self.db.declined_users(s["id"])
+
         def make(u: int):
             lang = norm(langs.get(u))
             body = text(lang) + balance_text(lang, u)
@@ -251,7 +288,8 @@ class App:
                 return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body)
             return self.bot.send_message(u, body)
 
-        await self.broadcast(await self.db.all_user_ids(), make)
+        # кто нажал «Отклонить» под этим сигналом — результат по нему не присылаем
+        await self.broadcast([u for u in await self.db.all_user_ids() if u not in declined], make)
 
     async def broadcast_late(self, s: dict, price: float, moved: float) -> None:
         """Цена уже ушла от входа к тейку — тем, кто получил сигнал: не входите, вы опоздали."""
@@ -445,6 +483,38 @@ class App:
                 active = t(lang, "open_signal", id=s["id"], side="BUY" if s["direction"] == 1 else "SELL",
                            entry=f"{s['entry']:.2f}", sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}")
             await m.answer(f"{t(lang, 'analysis_head')}\n\n{text}{price}{active}")
+
+        @r.callback_query(F.data.startswith("sig:"))
+        async def signal_decision(c: CallbackQuery):
+            _, choice, sid = c.data.split(":")
+            sid, uid = int(sid), c.from_user.id
+            lang = await self.lang_of(uid)
+            sig = await self.db.get_signal(sid)
+            if not sig or sig["status"] != "open":
+                await c.answer(t(lang, "sig_already_closed"), show_alert=True)
+                return
+            u = await self.db.get_user(uid) or {}
+            lot = lot_plan(u["capital"])["lot"] if u.get("capital") else 0
+            await self.db.set_decision(sid, uid, choice == "dec", lot)
+            await c.answer()
+            await c.message.answer(t(lang, "declined" if choice == "dec" else "accepted", id=sid))
+            try:
+                await c.message.edit_reply_markup(reply_markup=decision_kb(lang, sid, choice))
+            except Exception:  # noqa: BLE001 — та же разметка уже стоит
+                pass
+
+        @r.message(F.text.in_(variants("btn_stats")))
+        @r.message(Command("stats"))
+        async def statistics(m: Message):
+            lang = await self.lang_of(m.from_user.id)
+            rows = await self.db.last_signals(1000)
+            if rows:  # сначала картинка-отчёт, потом подробности текстом
+                try:
+                    png = await asyncio.to_thread(render_stats, rows, lang, config.display_tz, PIP)
+                    await m.answer_photo(BufferedInputFile(png, "stats.png"))
+                except Exception:  # noqa: BLE001
+                    log.exception("stats chart")
+            await self.send_long(m.chat.id, stats_text(lang, rows, config.display_tz))
 
         @r.message(F.text.in_(variants("btn_fund")))
         @r.message(Command("news"))

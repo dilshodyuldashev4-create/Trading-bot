@@ -22,7 +22,7 @@ class I18nTests(unittest.TestCase):
                 self.assertEqual(fields(i18n.TEXTS[lang][k]), fields(v), f"{lang}:{k}")
 
     def test_menu_buttons_unique_per_language(self):
-        keys = ["btn_signal", "btn_fund", "btn_cal", "btn_sub", "btn_profile"]
+        keys = ["btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_sub", "btn_profile"]
         for lang in i18n.LANGS:
             labels = [i18n.t(lang, k) for k in keys]
             self.assertEqual(len(set(labels)), len(labels))
