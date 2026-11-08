@@ -1,0 +1,6 @@
+data/
+reports/
+tests/
+.git
+.env
+botdata/

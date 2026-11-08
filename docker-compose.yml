@@ -1,0 +1,7 @@
+services:
+  goldbot:
+    build: .
+    env_file: .env
+    restart: always          # перезапуск при падении и после перезагрузки сервера
+    volumes:
+      - ./botdata:/data      # база пользователей и сигналов
