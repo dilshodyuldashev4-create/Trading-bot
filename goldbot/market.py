@@ -73,7 +73,7 @@ class TwelveData(_Http):
 
 class Oanda(_Http):
     """OANDA v20 (бесплатный демо-счёт подходит), инструмент XAU_USD."""
-    GRAN = {"5min": "M5", "15min": "M15", "1h": "H1"}
+    GRAN = {"5min": "M5", "15min": "M15", "1h": "H1", "1day": "D"}
 
     def __init__(self, token: str, live: bool = False):
         super().__init__()
@@ -108,7 +108,7 @@ class Replay(Provider):
     async def candles(self, tf: str, count: int) -> pd.DataFrame:
         from .data import resample
         part = self.df.iloc[: self.pos]
-        return resample(part, tf).iloc[-count:]
+        return resample(part, "1D" if tf == "1day" else tf).iloc[-count:]
 
     async def price(self) -> float:
         return float(self.df["close"].iloc[self.pos - 1])

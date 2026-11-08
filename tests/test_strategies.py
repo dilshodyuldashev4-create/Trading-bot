@@ -63,3 +63,29 @@ class StrategyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyTrendTests(unittest.TestCase):
+    def test_daily_trend_side_uses_closed_days_only(self):
+        from goldbot.live_strategy import daily_trend_side
+        idx = pd.date_range("2025-01-01", periods=80, freq="1D")
+        up = pd.DataFrame({"close": np.linspace(2000, 2800, 80)}, index=idx)
+        now = pd.Timestamp("2025-03-21 10:00", tz="UTC")       # 80-й день ещё не закрыт
+        self.assertEqual(daily_trend_side(up, now), 1)
+        down = up.copy()
+        down["close"] = down["close"].to_numpy()[::-1]
+        self.assertEqual(daily_trend_side(down, now), -1)
+        # резкий провал в текущий (незакрытый) день тренд не меняет
+        spike = up.copy()
+        spike.iloc[-1, 0] = 100
+        self.assertEqual(daily_trend_side(spike, now), 1)
+
+    def test_research_trend_filter(self):
+        from goldbot.strategies.research import htf_trend, with_trend
+        df = make_df(np.linspace(100, 300, 96 * 70), start="2025-01-01 00:00")
+        tr = htf_trend(df, "1D", 50)
+        self.assertEqual(int(tr[-1]), 1)
+        sig = np.zeros(len(df), dtype=np.int8)
+        sig[-10], sig[-5] = 1, -1
+        out = with_trend(lambda _: sig)(df)
+        self.assertEqual((int(out[-10]), int(out[-5])), (1, 0))

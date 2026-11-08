@@ -125,3 +125,36 @@ class MarketHoursTests(unittest.TestCase):
                 self.assertIsNone(await eng.tick(now=pd.Timestamp("2026-11-07 12:00", tz="UTC")))
                 await db.close()
         run(go())
+
+
+class ComboTrendTests(unittest.TestCase):
+    def test_signals_only_with_daily_trend(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                df = m5_frame(days=20, start="2025-03-03 00:00")
+                prov = Replay(df, start=300)
+                eng = SignalEngine(db, prov, "combo_trend", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                trends = []
+                while prov.pos < len(df):
+                    prov.step()
+                    t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                    n = len(sent)
+                    await eng.tick(now=t)
+                    if len(sent) > n:
+                        trends.append((sent[-1].direction, await eng.daily_trend(t)))
+                self.assertTrue(trends, "ожидали хотя бы один сигнал")
+                self.assertTrue(all(a == b for a, b in trends))
+                text = await eng.expected()
+                self.assertIn("EMA50", text)
+                await db.close()
+        run(go())

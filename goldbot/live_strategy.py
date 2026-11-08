@@ -19,6 +19,7 @@ class LiveStrategy:
     timeframe: str
     signals: Callable[[pd.DataFrame], np.ndarray]
     backtest_note: str
+    daily_trend: bool = False   # сигналы только по дневному тренду (close последнего закрытого дня vs EMA50)
 
 
 def _combo(df: pd.DataFrame) -> np.ndarray:
@@ -30,6 +31,10 @@ STRATEGIES = {
     "combo": LiveStrategy(
         "combo", "ICT Silver Bullet + пробой азиатского диапазона", "15min", _combo,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 632 сделки, винрейт 36.6%, +6100 пипсов"),
+    "combo_trend": LiveStrategy(
+        "combo_trend", "ICT Silver Bullet + пробой азиатского диапазона по дневному тренду", "15min", _combo,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 352 сделки, винрейт 38.4%, +5300 пипсов",
+        daily_trend=True),
     "fvg": LiveStrategy(
         "fvg", "OB + FVG + BOS по тренду EMA200", "1h",
         lambda df: fvg_bos_signals(df, trend_filter=True),
@@ -37,12 +42,27 @@ STRATEGIES = {
 }
 
 
+DAILY_EMA = 50
+
+
+def daily_trend_side(daily: pd.DataFrame, now: pd.Timestamp) -> int:
+    """+1 / -1 / 0: close последней ЗАКРЫТОЙ дневной свечи (UTC) выше / ниже EMA50 дневных close."""
+    today = _utc(now).tz_convert(None).normalize()
+    idx = daily.index.tz_convert(None) if daily.index.tz is not None else daily.index
+    closed = daily.close[idx < today]
+    if len(closed) < 2:
+        return 0
+    e = closed.ewm(span=DAILY_EMA, adjust=False).mean().iloc[-1]
+    return int(np.sign(closed.iloc[-1] - e))
+
+
 def _utc(ts: pd.Timestamp) -> pd.Timestamp:
     return ts.tz_localize("UTC") if ts.tzinfo is None else ts
 
 
-def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str, lang: str = "ru") -> str:
-    """Текст «что бот ждёт» по закрытым свечам df (UTC)."""
+def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: str, lang: str = "ru",
+                   trend: int = 0) -> str:
+    """Текст «что бот ждёт» по закрытым свечам df (UTC); trend — дневной тренд для combo_trend."""
     now = _utc(now)
     fmt = lambda x: x.tz_convert(tz).strftime("%H:%M")  # noqa: E731
     if strategy_key == "fvg":
@@ -51,6 +71,8 @@ def expected_setup(df: pd.DataFrame, strategy_key: str, now: pd.Timestamp, tz: s
         return t(lang, "exp_fvg", trend=t(lang, "exp_trend_up" if up else "exp_trend_down"))
 
     parts = []
+    if strategy_key == "combo_trend":
+        parts.append(t(lang, "exp_daily_trend", trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down")))
     idx = df.index.tz_localize("UTC") if df.index.tz is None else df.index
     # пробой азиатского диапазона
     ldn = now.tz_convert("Europe/London")

@@ -17,7 +17,7 @@ from .chart import render_signal
 from .data import PIP
 from .db import DB
 from .i18n import DEFAULT, per_lang, t
-from .live_strategy import STRATEGIES, LiveStrategy, expected_setup
+from .live_strategy import STRATEGIES, LiveStrategy, daily_trend_side, expected_setup
 from .market import TF_MINUTES, Provider
 
 log = logging.getLogger(__name__)
@@ -193,6 +193,8 @@ class SignalEngine:
         d = int(sig[-1])
         if d == 0:
             return None
+        if self.strategy.daily_trend and d != await self.daily_trend(now):
+            return None  # сигнал против дневного тренда — пропускаем
         entry = price
         sl = entry - d * self.sl_pips * PIP
         tp = entry + d * self.tp_pips * PIP
@@ -207,6 +209,10 @@ class SignalEngine:
         await self.on_signal(ns)
         return ns
 
+    async def daily_trend(self, now: pd.Timestamp) -> int:
+        """Дневной тренд по EMA50 (запрашиваем дневные свечи только когда он нужен)."""
+        return daily_trend_side(await self.provider.candles("1day", 150), now)
+
     async def expected(self, lang: str = "ru") -> str:
         now = pd.Timestamp.now(tz="UTC")
         tf = self.strategy.timeframe
@@ -214,7 +220,8 @@ class SignalEngine:
         if df is None or df.empty:
             df = closed_bars(await self.provider.candles(tf, 400), tf, now)
             self.last_df = df
-        return expected_setup(df, self.strategy.key, now, self.tz, lang)
+        trend = await self.daily_trend(now) if self.strategy.daily_trend else 0
+        return expected_setup(df, self.strategy.key, now, self.tz, lang, trend)
 
     async def run_forever(self, interval: int) -> None:
         while True:
