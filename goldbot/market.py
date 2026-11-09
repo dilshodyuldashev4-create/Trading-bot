@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 import aiohttp
 import pandas as pd
 
-TF_MINUTES = {"5min": 5, "15min": 15, "1h": 60}
+TF_MINUTES = {"5min": 5, "15min": 15, "30min": 30, "1h": 60, "4h": 240}
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
@@ -73,7 +73,7 @@ class TwelveData(_Http):
 
 class Oanda(_Http):
     """OANDA v20 (бесплатный демо-счёт подходит), инструмент XAU_USD."""
-    GRAN = {"5min": "M5", "15min": "M15", "1h": "H1", "1day": "D"}
+    GRAN = {"5min": "M5", "15min": "M15", "30min": "M30", "1h": "H1", "4h": "H4", "1day": "D"}
 
     def __init__(self, token: str, live: bool = False):
         super().__init__()

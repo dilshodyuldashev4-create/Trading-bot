@@ -99,6 +99,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Вход: {entry}\n🏁 Выход: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Статистика бота: {tp_n} TP / {sl_n} SL"),
         "winrate": " (винрейт {wr}%)",
+        "news_close": ("⚠️ <b>Закройте сделку #{id} ({side} от {entry}) прямо сейчас</b>\n\n"
+                       "Через {mins} мин выходит важная новость США: <b>{title}</b> (🔴 высокая важность). "
+                       "В такие минуты золото может резко прыгнуть на $10–30 и выбить стоп.\n\n"
+                       "💰 Цена сейчас {price}, результат сделки: <b>{pips} пипсов</b>. "
+                       "Закройте её по рынку, не дожидаясь новости. Бот больше не ведёт эту сделку."),
+        "stats_news": "⚠️ закрыт перед новостью {exit} ({pips} п.)",
+        "mr_head": "🌅 <b>Утренний разбор XAUUSD — {date}</b>\n",
+        "mr_price": "💰 Цена сейчас: <b>{price}</b> ({ch} пипсов с открытия сессии {open})",
+        "mr_night": "🌙 За ночь (азиатская сессия): хай {hi}, лой {lo}, диапазон {rng} пипсов",
+        "mr_prev": "📏 Прошлый день: хай {hi}, лой {lo}",
+        "mr_swept_hi": "⚡️ Ночью сняли ликвидность над хаем прошлого дня",
+        "mr_swept_lo": "⚡️ Ночью сняли ликвидность под лоем прошлого дня",
+        "mr_news": "📰 Фон новостей для золота: {arrow} {strength}",
+        "mr_tfs": "🕒 Тренд по таймфреймам (EMA50): {tfs}",
+        "mr_up": "🧭 Основной сценарий: <b>рост</b>. Покупатели контролируют рынок, тренд вверх. Пока цена выше ночного лоя {lo}, приоритет у BUY; пробой {hi} откроет продолжение.",
+        "mr_down": "🧭 Основной сценарий: <b>снижение</b>. Продавцы контролируют рынок, тренд вниз. Пока цена ниже ночного хая {hi}, приоритет у SELL; пробой {lo} откроет продолжение.",
+        "mr_mixed": "🧭 Сценарий: <b>неопределённость</b>. Ночное движение против дневного тренда. Ждём выхода из диапазона {lo}–{hi}; бот даст сигнал, когда сетап подтвердится.",
+        "mr_start": "\n✅ С этого момента бот начинает давать сигналы.",
+        "mr_nodata": "🌅 Утренний разбор: пока нет данных за сессию.",
         "news_bg": "📰 Фон новостей и геополитики для золота: {arrow} {strength} — {rel}",
         "news_strong": "сильный", "news_moderate": "умеренный", "news_weak": "слабый",
         "news_with": "<b>в пользу сделки</b>", "news_against": "<b>против сделки, будьте осторожны</b>",
@@ -290,6 +309,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Entry: {entry}\n🏁 Exit: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot stats: {tp_n} TP / {sl_n} SL"),
         "winrate": " (win rate {wr}%)",
+        "news_close": ("⚠️ <b>Close trade #{id} ({side} from {entry}) now</b>\n\n"
+                       "In {mins} min a major US release is due: <b>{title}</b> (🔴 high impact). "
+                       "Gold can jump $10–30 in those minutes and hit the stop.\n\n"
+                       "💰 Price now {price}, trade result: <b>{pips} pips</b>. "
+                       "Close it at market before the news. The bot no longer tracks this trade."),
+        "stats_news": "⚠️ closed before news {exit} ({pips} p.)",
+        "mr_head": "🌅 <b>Morning XAUUSD review — {date}</b>\n",
+        "mr_price": "💰 Price now: <b>{price}</b> ({ch} pips since the session open at {open})",
+        "mr_night": "🌙 Overnight (Asian session): high {hi}, low {lo}, range {rng} pips",
+        "mr_prev": "📏 Previous day: high {hi}, low {lo}",
+        "mr_swept_hi": "⚡️ Overnight, liquidity above the previous day's high was taken",
+        "mr_swept_lo": "⚡️ Overnight, liquidity below the previous day's low was taken",
+        "mr_news": "📰 News background for gold: {arrow} {strength}",
+        "mr_tfs": "🕒 Trend by timeframe (EMA50): {tfs}",
+        "mr_up": "🧭 Main scenario: <b>up</b>. Buyers are in control, the trend is up. While price holds above the overnight low {lo}, BUY has priority; a break of {hi} opens continuation.",
+        "mr_down": "🧭 Main scenario: <b>down</b>. Sellers are in control, the trend is down. While price stays below the overnight high {hi}, SELL has priority; a break of {lo} opens continuation.",
+        "mr_mixed": "🧭 Scenario: <b>unclear</b>. The overnight move is against the daily trend. Waiting for a break of the {lo}–{hi} range; the bot will signal once a setup is confirmed.",
+        "mr_start": "\n✅ From now on the bot starts sending signals.",
+        "mr_nodata": "🌅 Morning review: no session data yet.",
         "news_bg": "📰 News and geopolitics for gold: {arrow} {strength} — {rel}",
         "news_strong": "strong", "news_moderate": "moderate", "news_weak": "weak",
         "news_with": "<b>supports the trade</b>", "news_against": "<b>against the trade, be careful</b>",
@@ -482,6 +520,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Kirish: {entry}\n🏁 Chiqish: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot statistikasi: {tp_n} TP / {sl_n} SL"),
         "winrate": " (winrate {wr}%)",
+        "news_close": ("⚠️ <b>#{id} savdoni ({side}, {entry} dan) hozir yoping</b>\n\n"
+                       "{mins} daqiqadan soʻng AQShning muhim yangiligi chiqadi: <b>{title}</b> (🔴 yuqori muhimlik). "
+                       "Bunday daqiqalarda oltin $10–30 ga keskin sakrab, stopni urib ketishi mumkin.\n\n"
+                       "💰 Hozirgi narx {price}, savdo natijasi: <b>{pips} pips</b>. "
+                       "Yangilikni kutmasdan bozor narxida yoping. Bot bu savdoni endi kuzatmaydi."),
+        "stats_news": "⚠️ yangilikdan oldin yopildi {exit} ({pips} p.)",
+        "mr_head": "🌅 <b>XAUUSD ertalabki tahlil — {date}</b>\n",
+        "mr_price": "💰 Hozirgi narx: <b>{price}</b> (sessiya ochilishidan {open} beri {ch} pips)",
+        "mr_night": "🌙 Tunda (Osiyo sessiyasi): maksimum {hi}, minimum {lo}, diapazon {rng} pips",
+        "mr_prev": "📏 Oldingi kun: maksimum {hi}, minimum {lo}",
+        "mr_swept_hi": "⚡️ Tunda oldingi kun maksimumidan yuqoridagi likvidlik olindi",
+        "mr_swept_lo": "⚡️ Tunda oldingi kun minimumidan pastdagi likvidlik olindi",
+        "mr_news": "📰 Oltin uchun yangiliklar foni: {arrow} {strength}",
+        "mr_tfs": "🕒 Taymfreymlar boʻyicha trend (EMA50): {tfs}",
+        "mr_up": "🧭 Asosiy ssenariy: <b>oʻsish</b>. Bozorni xaridorlar boshqarmoqda, trend yuqoriga. Narx tungi minimum {lo} dan yuqori ekan, BUY ustuvor; {hi} yorib oʻtilsa davomi ochiladi.",
+        "mr_down": "🧭 Asosiy ssenariy: <b>pasayish</b>. Bozorni sotuvchilar boshqarmoqda, trend pastga. Narx tungi maksimum {hi} dan past ekan, SELL ustuvor; {lo} yorib oʻtilsa davomi ochiladi.",
+        "mr_mixed": "🧭 Ssenariy: <b>noaniq</b>. Tungi harakat kunlik trendga qarshi. {lo}–{hi} diapazonidan chiqishni kutamiz; setap tasdiqlanganda bot signal beradi.",
+        "mr_start": "\n✅ Shu paytdan boshlab bot signal bera boshlaydi.",
+        "mr_nodata": "🌅 Ertalabki tahlil: sessiya boʻyicha hali maʼlumot yoʻq.",
         "news_bg": "📰 Oltin uchun yangiliklar va geosiyosat foni: {arrow} {strength} — {rel}",
         "news_strong": "kuchli", "news_moderate": "oʻrtacha", "news_weak": "kuchsiz",
         "news_with": "<b>savdo foydasiga</b>", "news_against": "<b>savdoga qarshi, ehtiyot boʻling</b>",

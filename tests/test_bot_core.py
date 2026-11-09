@@ -415,3 +415,64 @@ class NewsLineTests(unittest.TestCase):
         self.assertEqual(news_line(None, 1), "")
         self.assertIn("против сделки", news_line({"bias": "bearish", "strength": "strong"}, 1))
         self.assertIn("➡️", news_line({"bias": "neutral", "strength": "weak"}, -1, "en"))
+
+
+class TradeStartTests(unittest.TestCase):
+    def test_no_signals_before_start_and_morning_review(self):
+        from goldbot.engine import parse_hhmm, session_open
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                df = m5_frame(days=6, start="2025-03-09 00:00")
+                prov = Replay(df, start=len(df))
+                eng = SignalEngine(db, prov, "combo", 100, 200, "Asia/Tashkent", None, None)
+                ts = lambda s: pd.Timestamp(s, tz="Asia/Tashkent").tz_convert("UTC")
+                self.assertFalse(eng.before_trade_start(ts("2025-03-12 05:00")))   # без настройки — всегда можно
+                eng.trade_start = parse_hhmm("08:00")
+                # летом в США сессия открывается в 03:00 по Ташкенту
+                self.assertEqual(session_open(ts("2025-03-12 05:00")).tz_convert("Asia/Tashkent").hour, 3)
+                self.assertTrue(eng.before_trade_start(ts("2025-03-12 05:00")))
+                self.assertFalse(eng.before_trade_start(ts("2025-03-12 08:05")))
+                self.assertFalse(eng.before_trade_start(ts("2025-03-12 23:00")))
+                self.assertFalse(eng.before_trade_start(ts("2025-03-13 01:00")))   # ночь до закрытия сессии
+                eng._trend = (ts("2025-03-14 08:00").normalize(), 1)
+                text = await eng.morning_review("ru", ts("2025-03-14 08:00"),
+                                                {"bias": "bullish", "strength": "strong"})
+                for part in ("Утренний разбор", "Прошлый день", "Цена сейчас", "ценарий", "начинает давать"):
+                    self.assertIn(part, text)
+                await db.close()
+        run(go())
+
+
+class NewsCloseTests(unittest.TestCase):
+    def test_open_trades_closed_before_high_news(self):
+        from goldbot.bot import stats_text
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                t0 = pd.Timestamp("2026-11-06 13:30", tz="UTC")
+                await db.upsert_events([{"key": "nfp", "ts": t0.isoformat(), "country": "USD",
+                                         "title": "Non-Farm Employment Change", "impact": "High",
+                                         "forecast": "", "previous": "", "actual": ""}])
+                got = []
+
+                async def on_news_close(s, price, ev, mins):
+                    got.append((s["id"], price, ev["title"], mins))
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, None)
+                eng.on_news_close = on_news_close
+                sid = await db.add_signal("combo", -1, 4070.0, 4080.0, 4050.0)
+                self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=29), 4065.0), 0)  # выключено
+                eng.news_close_min = 30
+                self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=45), 4065.0), 0)  # рано
+                self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=29), 4065.0), 1)
+                self.assertEqual(got, [(sid, 4065.0, "Non-Farm Employment Change", 29)])
+                self.assertEqual(await db.open_signals(), [])
+                rows = await db.last_signals(10)
+                self.assertEqual(rows[0]["status"], "news")
+                self.assertIn("+50", stats_text("ru", rows, "UTC"))
+                await db.close()
+        run(go())

@@ -76,6 +76,24 @@ def next_open(now: pd.Timestamp) -> pd.Timestamp:
     return day.replace(hour=18).tz_convert("UTC")
 
 
+def session_open(now: pd.Timestamp) -> pd.Timestamp:
+    """Начало текущей торговой сессии золота: последние 18:00 по Нью-Йорку (в UTC)."""
+    ny = (now if now.tzinfo else now.tz_localize("UTC")).tz_convert("America/New_York")
+    start = ny.normalize() + pd.Timedelta(hours=18)
+    if ny < start:
+        start -= pd.Timedelta(days=1)
+    return start.tz_convert("UTC")
+
+
+def parse_hhmm(s: str) -> pd.Timedelta | None:
+    """«08:00» → 8 часов от полуночи; пусто или ошибка — None."""
+    try:
+        h, m = (int(x) for x in s.strip().split(":"))
+        return pd.Timedelta(hours=h, minutes=m)
+    except (ValueError, AttributeError):
+        return None
+
+
 def closed_bars(df: pd.DataFrame, tf: str, now: pd.Timestamp) -> pd.DataFrame:
     """Отбрасывает незакрытую последнюю свечу."""
     step = pd.Timedelta(minutes=TF_MINUTES[tf])
@@ -127,6 +145,10 @@ class SignalEngine:
         # оценка фона новостей: (данные рынка) → {"bias", "strength", ...} или None; строка в сигнале
         self.news_bias: Optional[Callable[[str], Awaitable[dict | None]]] = None
         self.news_block = False  # True — не давать сигнал против сильного фона
+        # за сколько минут до важной новости США закрывать открытые сделки (0 — не закрывать)
+        self.news_close_min = 0
+        self.on_news_close: Optional[Callable[[dict, float, dict, int], Awaitable[None]]] = None
+        self.trade_start: pd.Timedelta | None = None  # местное время начала сигналов после открытия сессии
 
     @property
     def multi(self) -> bool:
@@ -208,6 +230,91 @@ class SignalEngine:
         return next((e for e in events if e.get("country") == "USD"
                      and e.get("impact") in self.news_pause_impact), None)
 
+    async def news_close_check(self, now: pd.Timestamp, price: float) -> int:
+        """За news_close_min минут до важной новости США закрывает открытые сделки по рынку и сообщает всем."""
+        if self.news_close_min <= 0 or self.on_news_close is None:
+            return 0
+        opened = await self.db.open_signals()
+        if not opened:
+            return 0
+        events = await self.db.events_between(now.to_pydatetime(),
+                                              (now + pd.Timedelta(minutes=self.news_close_min)).to_pydatetime())
+        ev = next((e for e in events if e.get("country") == "USD" and e.get("impact") in self.news_pause_impact), None)
+        if ev is None:
+            return 0
+        mins = max(1, int((pd.Timestamp(ev["ts"]) - now).total_seconds() // 60))
+        for s in opened:
+            await self.db.close_signal(s["id"], "news", price)
+            log.info("signal #%s closed before news %s at %.2f", s["id"], ev.get("title"), price)
+            await self.on_news_close(s, price, ev, mins)
+        return len(opened)
+
+    def before_trade_start(self, now: pd.Timestamp) -> bool:
+        """True — сессия уже открылась, но местное время начала сигналов (TRADE_START) ещё не наступило."""
+        if self.trade_start is None:
+            return False
+        local = now.tz_convert(self.tz)
+        start = local.normalize() + self.trade_start
+        opened = session_open(now).tz_convert(self.tz)
+        return opened <= local < start and opened.normalize() == local.normalize()
+
+    async def morning_review(self, lang: str = "ru", now: pd.Timestamp | None = None,
+                             news: dict | None = None) -> str:
+        """Утренний разбор: что было с открытия сессии, хай/лой прошлого дня, тренд и основной сценарий."""
+        now = now or pd.Timestamp.now(tz="UTC")
+        df = closed_bars(await self.provider.candles("5min", 500), "5min", now)
+        so = session_open(now).tz_convert(None)
+        night, prev = df[df.index >= so], df[(df.index >= so - pd.Timedelta(days=1)) & (df.index < so)]
+        if night.empty:
+            return t(lang, "mr_nodata")
+        if prev.empty and so.weekday() == 6:  # понедельник: прошлый день — пятница
+            prev = df[df.index < so].tail(276)
+        price = self.last_price or float(night.close.iloc[-1])
+        o, hi, lo = float(night.open.iloc[0]), float(night.high.max()), float(night.low.min())
+        ch = (price - o) / PIP
+        trend = await self.daily_trend(now)
+        score = (1 if trend > 0 else -1 if trend < 0 else 0) + (1 if ch > 30 else -1 if ch < -30 else 0)
+        lines = [t(lang, "mr_head", date=now.tz_convert(self.tz).strftime("%d.%m.%Y")),
+                 t(lang, "mr_price", price=f"{price:.2f}", ch=f"{ch:+.0f}", open=f"{o:.2f}"),
+                 t(lang, "mr_night", hi=f"{hi:.2f}", lo=f"{lo:.2f}", rng=f"{(hi - lo) / PIP:.0f}")]
+        if not prev.empty:
+            pdh, pdl = float(prev.high.max()), float(prev.low.min())
+            lines.append(t(lang, "mr_prev", hi=f"{pdh:.2f}", lo=f"{pdl:.2f}"))
+            if hi > pdh:
+                lines.append(t(lang, "mr_swept_hi"))
+            if lo < pdl:
+                lines.append(t(lang, "mr_swept_lo"))
+        lines.append(t(lang, "exp_daily_trend", trend=t(lang, "exp_trend_up" if trend >= 0 else "exp_trend_down")))
+        tfs = await self.tf_trends(df, now)
+        if tfs:
+            lines.append(t(lang, "mr_tfs", tfs="  ".join(f"{k} {'⬆️' if v > 0 else '⬇️'}" for k, v in tfs.items())))
+        if news and news.get("bias") in ("bullish", "bearish", "neutral"):
+            arrow = {"bullish": "⬆️", "bearish": "⬇️", "neutral": "➡️"}[news["bias"]]
+            lines.append(t(lang, "mr_news", arrow=arrow, strength=t(lang, f"news_{news.get('strength', 'weak')}")))
+        key = "mr_up" if score >= 2 else "mr_down" if score <= -2 else "mr_mixed"
+        lines.append("\n" + t(lang, key, hi=f"{hi:.2f}", lo=f"{lo:.2f}"))
+        if self.trade_start is not None:
+            lines.append(t(lang, "mr_start"))
+        return "\n".join(lines)
+
+    async def tf_trends(self, m5: pd.DataFrame, now: pd.Timestamp) -> dict[str, int]:
+        """Тренд по EMA50 на M15, M30, H1, H4 (close последней закрытой свечи выше/ниже EMA50)."""
+        from .data import resample
+        from .indicators import ema
+        out: dict[str, int] = {}
+        for label, rule in (("M15", "15min"), ("M30", "30min")):
+            d = resample(m5, rule)
+            if len(d) >= 60:
+                out[label] = 1 if d.close.iloc[-1] > ema(d.close, 50).iloc[-1] else -1
+        for label, tf in (("H1", "1h"), ("H4", "4h")):
+            try:
+                d = closed_bars(await self.provider.candles(tf, 200), tf, now)
+            except Exception:  # noqa: BLE001 — нет данных по ТФ: просто не показываем
+                continue
+            if len(d) >= 60:
+                out[label] = 1 if d.close.iloc[-1] > ema(d.close, 50).iloc[-1] else -1
+        return out
+
     async def market_text(self, now: pd.Timestamp | None = None) -> str:
         """Цена и дневной тренд — контекст для разбора новостей."""
         now = now or pd.Timestamp.now(tz="UTC")
@@ -227,6 +334,7 @@ class SignalEngine:
         price = await self.provider.price()
         self.last_price = price
         await self.check_open(price)
+        await self.news_close_check(now, price)
 
         open_keys = {s["strategy"] for s in await self.db.open_signals()}
         cache: dict[str, pd.DataFrame] = {}
@@ -269,6 +377,8 @@ class SignalEngine:
             return None  # не шлём старый сигнал при первом запуске
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
+        if self.before_trade_start(now):
+            return None  # с открытия сессии до TRADE_START сигналы не даём
         if st.key in open_keys:
             return None  # у этой стратегии уже есть открытая сделка (как в бэктесте)
         ev = await self.news_pause(now)

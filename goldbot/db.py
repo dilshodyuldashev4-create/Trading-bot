@@ -86,6 +86,8 @@ class DB:
             await self.conn.execute("ALTER TABLE users ADD COLUMN capital REAL")
         cur = await self.conn.execute("PRAGMA table_info(signals)")
         scols = [r[1] for r in await cur.fetchall()]
+        if "exit_price" not in scols:  # цена закрытия вручную (перед важной новостью)
+            await self.conn.execute("ALTER TABLE signals ADD COLUMN exit_price REAL")
         for c in ("mfe", "mae"):  # макс. ход в плюс / в минус по сделке, пипсы
             if c not in scols:
                 await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} REAL DEFAULT 0")
@@ -243,9 +245,9 @@ class DB:
         await self.conn.execute("UPDATE signals SET mfe=?, mae=? WHERE id=?", (mfe, mae, sid))
         await self.conn.commit()
 
-    async def close_signal(self, sid: int, status: str) -> None:
-        await self.conn.execute("UPDATE signals SET status=?, closed_at=? WHERE id=?",
-                                (status, _iso(now()), sid))
+    async def close_signal(self, sid: int, status: str, exit_price: float | None = None) -> None:
+        await self.conn.execute("UPDATE signals SET status=?, closed_at=?, exit_price=? WHERE id=?",
+                                (status, _iso(now()), exit_price, sid))
         await self.conn.commit()
 
     async def add_signal_lot(self, sid: int, uid: int, lot: float) -> None:
