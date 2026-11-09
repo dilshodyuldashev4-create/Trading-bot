@@ -159,6 +159,8 @@ class App:
                                    config.display_tz, self.broadcast_signal, self.broadcast_close,
                                    self.broadcast_late, config.late_pips,
                                    self.broadcast_day_closed, config.max_sl_streak)
+        self.engine.news_pause_min = config.news_pause_min
+        self.engine.news_pause_impact = config.news_pause_impact
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)

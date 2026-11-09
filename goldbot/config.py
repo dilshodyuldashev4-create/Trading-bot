@@ -57,6 +57,11 @@ class Config:
     sub_days: int = int(os.getenv("SUB_DAYS", "30"))
     sub_price_stars: int = int(os.getenv("SUB_PRICE_STARS", "500"))
 
+    # пауза сигналов вокруг важных новостей США (минуты до и после; 0 — выключено)
+    news_pause_min: int = int(os.getenv("NEWS_PAUSE_MIN", "30"))
+    news_pause_impact: tuple[str, ...] = tuple(
+        x.strip() for x in os.getenv("NEWS_PAUSE_IMPACT", "High").split(",") if x.strip())
+
     # новости
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
     news_feeds: tuple[str, ...] = tuple(
