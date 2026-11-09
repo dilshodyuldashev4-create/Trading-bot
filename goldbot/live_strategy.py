@@ -10,7 +10,8 @@ import pandas as pd
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
 from .strategies.popular import donchian_breakout
-from .strategies.research import rsi_pullback_raw, squeeze_breakout, trendline_breakout
+from .strategies.research import (equal_levels_sweep, rsi_pullback_raw, squeeze_breakout, swing_sweep,
+                                  trendline_breakout)
 from .strategies.sessions import asian_range_breakout, silver_bullet
 
 
@@ -37,7 +38,7 @@ def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
 
 
 # Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
-GENERIC = {"rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5"}
+GENERIC = {"rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5", "liq_m5", "eqliq_m5"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -67,12 +68,20 @@ STRATEGIES = {
         "trendline_m5", "Пробой трендовой линии по дневному тренду", "5min", trendline_breakout,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1812 сделок, винрейт 35.2%, +9900 пипсов",
         daily_trend=True),
+    "liq_m5": LiveStrategy(
+        "liq_m5", "Снятие ликвидности за свингом по дневному тренду", "5min", swing_sweep,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1917 сделок, винрейт 34.3%, +5700 пипсов",
+        daily_trend=True),
+    "eqliq_m5": LiveStrategy(
+        "eqliq_m5", "Снятие ликвидности за равными хаями/лоями по дневному тренду", "5min", equal_levels_sweep,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 437 сделок, винрейт 38.9%, +7300 пипсов",
+        daily_trend=True),
 }
 
 
-# STRATEGY=all — 5 самых прибыльных стратегий 2026 года на M5–H4 (по одной на сетап, чтобы один и тот же
-# сигнал не приходил дважды). Каждая работает сама по себе: не больше одной открытой сделки.
-PORTFOLIO = ("rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5")
+# STRATEGY=all — самые прибыльные стратегии 2026 года на M5–H4 (по одной на сетап, чтобы один и тот же
+# сигнал не приходил дважды) + 2 стратегии ликвидности. Каждая сама по себе: не больше одной открытой сделки.
+PORTFOLIO = ("rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5", "liq_m5", "eqliq_m5")
 
 
 def resolve_keys(spec: str) -> list[str]:
