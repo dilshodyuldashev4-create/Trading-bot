@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Gold Signals Promo</title>
+<style>
+  :root { --gold:#f5c542; --gold2:#c8901c; --bg:#0b0f17; --card:#151b27; --txt:#e8ecf3; --mut:#8b95a7; --green:#1fc77e; --red:#ef3b4f; --cyan:#22b8d6; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:1080px; height:1920px; overflow:hidden; background:var(--bg); }
+  body { font-family:'Inter', 'DejaVu Sans', sans-serif; color:var(--txt); }
+  #stage { position:relative; width:1080px; height:1920px; overflow:hidden;
+    background: radial-gradient(1200px 1000px at 50% 35%, #1a2233 0%, #0b0f17 60%, #06080d 100%); }
+  .scene { position:absolute; inset:0; opacity:0; visibility:hidden; display:flex; flex-direction:column; align-items:center; }
+  .emoji { font-family:'Noto Color Emoji'; }
+  .h1 { font-size:96px; font-weight:800; letter-spacing:-1px; text-align:center; line-height:1.05; }
+  .h2 { font-size:66px; font-weight:800; text-align:center; line-height:1.12; }
+  .sub { font-size:42px; color:var(--mut); text-align:center; line-height:1.3; }
+  .gold { background:linear-gradient(180deg,#ffe28a,#f5c542 45%,#c8901c); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .card { background:var(--card); border:1px solid #232b3b; border-radius:36px; }
+  #particles { position:absolute; inset:0; }
+  #bar { position:absolute; left:0; bottom:0; height:10px; background:linear-gradient(90deg,var(--gold2),var(--gold)); }
+  #handle { position:absolute; top:60px; left:0; right:0; text-align:center; font-size:34px; font-weight:700; color:rgba(245,197,66,.75); letter-spacing:1px; }
+
+  #intro { justify-content:center; }
+  #intro .logo { width:720px; height:720px; border-radius:50%; box-shadow:0 0 160px rgba(245,197,66,.35); }
+  #intro .h1 { margin-top:70px; }
+  #intro .sub { margin-top:24px; }
+
+  #signal { padding-top:200px; }
+  #chartWrap { margin-top:60px; width:960px; height:1100px; padding:30px; }
+  #chart { width:900px; height:1040px; }
+
+  #strats { padding-top:200px; }
+  #chips { margin-top:60px; width:920px; display:flex; flex-direction:column; gap:22px; }
+  .chip { display:flex; align-items:center; gap:28px; padding:26px 34px; font-size:42px; font-weight:600; }
+  .chip .n { width:66px; height:66px; border-radius:50%; background:linear-gradient(180deg,#ffe28a,#c8901c); color:#0b0f17; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:36px; flex:none; }
+  #hist { margin-top:50px; font-size:44px; font-weight:700; padding:22px 40px; border-radius:60px; border:2px solid var(--gold); color:var(--gold); }
+
+  #rr { justify-content:center; }
+  #rrBig { font-size:150px; font-weight:900; }
+  .rrRow { width:900px; margin-top:60px; }
+  .rrLab { font-size:44px; font-weight:700; margin-bottom:18px; display:flex; justify-content:space-between; }
+  .rrTrack { height:70px; border-radius:20px; background:#1a2130; overflow:hidden; }
+  .rrFill { height:100%; border-radius:20px; width:0; }
+
+  .shotScene { padding-top:150px; }
+  .phone { position:relative; margin-top:50px; width:784px; height:1402px; border-radius:64px; padding:12px; background:#05070b; border:3px solid #2a3346; box-shadow:0 40px 140px rgba(0,0,0,.7), 0 0 0 1px rgba(245,197,66,.15); overflow:hidden; }
+  .phone .inner { position:relative; width:760px; height:1378px; border-radius:52px; overflow:hidden; }
+  .phone img { width:760px; display:block; transform-origin:0 0; }
+  .hl { position:absolute; border:5px solid var(--gold); border-radius:22px; box-shadow:0 0 0 2000px rgba(0,0,0,.45), 0 0 60px rgba(245,197,66,.6); opacity:0; }
+
+  #features { padding-top:220px; }
+  .feat { width:940px; margin-top:44px; padding:44px 48px; display:flex; gap:40px; align-items:center; }
+  .feat .ic { font-size:110px; width:150px; text-align:center; flex:none; }
+  .feat .t { font-size:52px; font-weight:800; }
+  .feat .d { font-size:38px; color:var(--mut); margin-top:10px; line-height:1.3; }
+
+  #price { justify-content:center; }
+  #trial { font-size:84px; font-weight:800; text-align:center; }
+  #priceCard { margin-top:80px; width:900px; padding:70px 40px; text-align:center; border:3px solid var(--gold); }
+  #priceNum { font-size:170px; font-weight:900; line-height:1; }
+  #days { font-size:64px; font-weight:700; margin-top:24px; }
+  #pay { margin:50px auto 0; width:640px; padding:30px; border-radius:26px; background:#262e3f; font-size:46px; font-weight:800; }
+  #starsTxt { font-size:38px; color:var(--mut); margin-top:30px; }
+
+  #cta { justify-content:center; }
+  #cta .logo { width:500px; height:500px; border-radius:50%; box-shadow:0 0 160px rgba(245,197,66,.4); }
+  #user { margin-top:70px; font-size:92px; font-weight:900; }
+  #btn { margin-top:60px; padding:40px 80px; border-radius:100px; background:linear-gradient(180deg,#ffe28a,#f5c542 50%,#c8901c); color:#0b0f17; font-size:56px; font-weight:900; }
+  #disc { position:absolute; bottom:90px; width:920px; font-size:30px; color:#6b7588; text-align:center; line-height:1.35; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="particles" width="1080" height="1920"></canvas>
+  <div id="handle">@FOREXCFD_BOT</div>
+
+  <div class="scene" id="intro">
+    <img class="logo" src="logo.png">
+    <div class="h1"><span class="gold">XAUUSD | GOLD</span></div>
+    <div class="sub">Сигналы по золоту в Telegram</div>
+  </div>
+
+  <div class="scene" id="signal">
+    <div class="h2">Сигнал приходит<br><span class="gold">сам, с графиком</span></div>
+    <div class="sub" style="margin-top:20px">рынок проверяется каждые 15 секунд</div>
+    <div id="chartWrap" class="card"><canvas id="chart" width="900" height="1040"></canvas></div>
+  </div>
+
+  <div class="scene" id="strats">
+    <div class="h2"><span class="gold">7 стратегий</span><br>в одном боте</div>
+    <div id="chips">
+      <div class="chip card"><span class="n">1</span>RSI-откат по тренду</div>
+      <div class="chip card"><span class="n">2</span>Squeeze-пробой</div>
+      <div class="chip card"><span class="n">3</span>Канал Дончиана</div>
+      <div class="chip card"><span class="n">4</span>OB + FVG + BOS</div>
+      <div class="chip card"><span class="n">5</span>Пробой трендовой линии</div>
+      <div class="chip card"><span class="n">6</span>Снятие ликвидности</div>
+      <div class="chip card"><span class="n">7</span>Равные хаи / лои</div>
+    </div>
+    <div id="hist">Проверены на истории XAUUSD 2023–2026</div>
+  </div>
+
+  <div class="scene" id="rr">
+    <div class="sub">Риск / прибыль</div>
+    <div id="rrBig"><span class="gold">1 : 2</span></div>
+    <div class="rrRow"><div class="rrLab"><span>Stop Loss</span><span style="color:var(--red)">−100 пипсов</span></div>
+      <div class="rrTrack"><div class="rrFill" id="rrSl" style="background:linear-gradient(90deg,#a3202f,#ef3b4f)"></div></div></div>
+    <div class="rrRow"><div class="rrLab"><span>Take Profit</span><span style="color:var(--green)">+200 пипсов</span></div>
+      <div class="rrTrack"><div class="rrFill" id="rrTp" style="background:linear-gradient(90deg,#11875a,#1fc77e)"></div></div></div>
+  </div>
+
+  <div class="scene shotScene" id="lot">
+    <div class="h2">Лот <span class="gold">под твой капитал</span></div>
+    <div class="phone"><div class="inner"><img src="shot_profile.png"><div class="hl"></div></div></div>
+  </div>
+
+  <div class="scene shotScene" id="calendar">
+    <div class="h2">Новости <span class="gold">заранее</span></div>
+    <div class="phone"><div class="inner"><img src="shot_calendar.png"><div class="hl"></div></div></div>
+  </div>
+
+  <div class="scene" id="features">
+    <div class="h2">Каждый день<br><span class="gold">с тобой</span></div>
+    <div class="feat card"><div class="ic emoji">☀️</div><div><div class="t">Утренний разбор</div><div class="d">обзор рынка золота каждое утро</div></div></div>
+    <div class="feat card"><div class="ic emoji">📈</div><div><div class="t">Отчёт по сделкам</div><div class="d">итог каждой сделки и статистика с графиком</div></div></div>
+    <div class="feat card"><div class="ic emoji">🌐</div><div><div class="t">RU · UZ · EN</div><div class="d">бот говорит на твоём языке</div></div></div>
+  </div>
+
+  <div class="scene" id="price">
+    <div id="trial"><span class="emoji">🎁</span> 3 дня <span class="gold">бесплатно</span></div>
+    <div id="priceCard" class="card">
+      <div id="priceNum"><span class="gold">1000</span> <span class="emoji">⭐</span></div>
+      <div id="days">= 10 дней подписки</div>
+      <div id="pay">Заплатить ★1,000</div>
+      <div id="starsTxt">оплата Telegram Stars прямо в боте</div>
+    </div>
+  </div>
+
+  <div class="scene" id="cta">
+    <img class="logo" src="logo.png">
+    <div id="user"><span class="gold">@FOREXCFD_BOT</span></div>
+    <div id="btn">Открыть в Telegram</div>
+    <div id="disc">Не является финансовой рекомендацией. Торговля на рынке связана с риском, прошлые результаты не гарантируют будущих.</div>
+  </div>
+
+  <div id="bar"></div>
+</div>
+
+<script>
+// длительности сцен приходят из timings.json (через window.TIMINGS), иначе — запасные
+const T = window.TIMINGS || [{key:'intro',dur:4.6},{key:'signal',dur:12},{key:'strats',dur:13},{key:'rr',dur:6},{key:'lot',dur:5.2},{key:'calendar',dur:9.6},{key:'features',dur:9},{key:'price',dur:7.2},{key:'cta',dur:6.2}];
+const S = {}; let acc = 0; for (const s of T) { S[s.key] = [acc, acc + s.dur]; acc += s.dur; }
+const DURATION = acc;
+const clamp = (x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const prog = (t,a,b)=>clamp((t-a)/(b-a));
+const easeOut = x=>1-Math.pow(1-x,3);
+const easeInOut = x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+const easeBack = x=>{const c=1.70158; return 1+(c+1)*Math.pow(x-1,3)+c*Math.pow(x-1,2);};
+const $ = id=>document.getElementById(id);
+const q = s=>document.querySelector(s);
+function style(el,o){ for(const k in o) el.style[k]=o[k]; }
+function rng(seed){ return ()=>{ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }; }
+
+const P = (()=>{ const r=rng(7); return Array.from({length:70},()=>({x:r()*1080,y:r()*1920,s:1+r()*3,v:20+r()*50,a:.15+r()*.4})); })();
+function drawParticles(t){
+  const c=$('particles').getContext('2d'); c.clearRect(0,0,1080,1920);
+  for(const p of P){ const y=((p.y - p.v*t)%1920+1920)%1920;
+    c.fillStyle=`rgba(245,197,66,${p.a})`; c.beginPath(); c.arc(p.x,y,p.s,0,Math.PI*2); c.fill(); }
+}
+
+const CANDLES = (()=>{ const r=rng(42); let p=100; const out=[];
+  for(let i=0;i<34;i++){ const drift = i<22 ? 0.25 : (i<28 ? -0.35 : 0.9);
+    const o=p, c=o+drift+(r()-.5)*2.4, h=Math.max(o,c)+r()*1.1, l=Math.min(o,c)-r()*1.1; out.push({o,h,l,c}); p=c; }
+  return out; })();
+function drawChart(lt){
+  const c=$('chart').getContext('2d'), W=900, H=1040; c.clearRect(0,0,W,H);
+  const lo=Math.min(...CANDLES.map(k=>k.l))-3, hi=Math.max(...CANDLES.map(k=>k.h))+9;
+  const y=v=>H-40-(v-lo)/(hi-lo)*(H-120);
+  c.strokeStyle='rgba(255,255,255,.05)'; c.lineWidth=2;
+  for(let i=1;i<8;i++){ c.beginPath(); c.moveTo(0,i*H/8); c.lineTo(W,i*H/8); c.stroke(); }
+  c.fillStyle='#c9d1df'; c.font='600 34px Inter'; c.fillText('XAUUSD · 15m', 20, 52);
+  const n = Math.floor(easeOut(prog(lt,0.3,4.0))*CANDLES.length);
+  const cw=W*0.62/CANDLES.length;
+  for(let i=0;i<n;i++){ const k=CANDLES[i], x=20+i*cw+cw/2, up=k.c>=k.o;
+    c.strokeStyle=c.fillStyle=up?'#1fc77e':'#ef3b4f'; c.lineWidth=3;
+    c.beginPath(); c.moveTo(x,y(k.h)); c.lineTo(x,y(k.l)); c.stroke();
+    const t1=y(Math.max(k.o,k.c)), b1=y(Math.min(k.o,k.c)); c.fillRect(x-cw*0.35,t1,cw*0.7,Math.max(3,b1-t1)); }
+  const entry=CANDLES[CANDLES.length-1].c, sl=entry-4, tp=entry+8;
+  // уровни появляются под голос: «точка входа, стоп-лосс и тейк-профит»
+  const lp=easeOut(prog(lt,4.6,5.6)); if(lp<=0) return;
+  const x0=20+CANDLES.length*cw, x1=x0+(W-x0-10)*lp;
+  c.fillStyle='rgba(31,199,126,.16)'; c.fillRect(x0,y(tp),x1-x0,y(entry)-y(tp));
+  c.fillStyle='rgba(239,59,79,.18)'; c.fillRect(x0,y(entry),x1-x0,y(sl)-y(entry));
+  const line=(v,col)=>{ c.strokeStyle=col; c.lineWidth=4; c.beginPath(); c.moveTo(x0-40,y(v)); c.lineTo(x1,y(v)); c.stroke(); };
+  line(tp,'#22b8d6'); line(entry,'#f5c542'); line(sl,'#ef3b4f');
+  const lab=(v,txt,col,dl)=>{ const a=prog(lt,dl,dl+0.35); if(!a) return; c.globalAlpha=a;
+    c.font='800 34px Inter'; const w=c.measureText(txt).width+36, bx=W-w-10, by=y(v)-30;
+    c.fillStyle=col; c.beginPath(); c.roundRect(bx,by,w,60,14); c.fill(); c.fillStyle='#0b0f17'; c.fillText(txt,bx+18,by+42); c.globalAlpha=1; };
+  lab(entry,'ВХОД','#f5c542',7.6); lab(sl,'SL  −100','#ef3b4f',8.6); lab(tp,'TP  +200','#22b8d6',9.6);
+  const ba=easeBack(prog(lt,5.6,6.0)); if(ba>0){ c.save(); c.translate(x0-170,y(tp)-60); c.scale(ba,ba);
+    c.fillStyle='#1fc77e'; c.font='900 64px Inter'; c.fillText('▲ BUY',-90,20); c.restore(); }
+}
+
+// подсветка на скриншоте (координаты в пикселях исходного скрина 1320px шириной) + плавный зум к ней
+const HL = { lot:{box:[50,1130,1060,1212],from:0.6}, calendar:{box:[50,560,1160,1120],from:2.4} };
+function shotScene(id, lt, D){
+  const k=760/1320, h=HL[id], [x1,y1,x2,y2]=h.box.map(v=>v*k);
+  const ph=q(`#${id} .phone`), img=q(`#${id} img`), hl=q(`#${id} .hl`);
+  const a=easeOut(prog(lt,0,0.7)); style(ph,{transform:`translateY(${(1-a)*300}px)`});
+  const z=easeInOut(prog(lt,h.from,h.from+1.4)); const zoom=1+0.12*z;
+  const cx=(x1+x2)/2, cy=(y1+y2)/2;
+  // держим центр подсветки на месте при зуме
+  const tx=-(cx*zoom-cx)*z*0, ox=cx-(cx*zoom), oy=cy-(cy*zoom);
+  img.style.transform=`translate(${ox}px,${oy}px) scale(${zoom})`;
+  style(hl,{left:(ox+x1*zoom-10)+'px', top:(oy+y1*zoom-10)+'px', width:((x2-x1)*zoom+20)+'px', height:((y2-y1)*zoom+20)+'px', opacity:prog(lt,h.from+0.6,h.from+1.2)});
+}
+
+function sceneAlpha(t,[a,b]){ const fi=0.35, fo=0.35; if(t<a-0.001||t>b) return 0;
+  return Math.min(a===0?1:prog(t,a,a+fi), b>=DURATION-0.01?1:1-prog(t,b-fo,b)); }
+
+window.seek = function(t){
+  drawParticles(t);
+  for(const id in S){ const el=$(id), a=sceneAlpha(t,S[id]); el.style.opacity=a; el.style.visibility=a>0?'visible':'hidden'; }
+  const L = id => t - S[id][0], D = id => S[id][1]-S[id][0];
+  $('handle').style.opacity = (t > S.intro[1] && t < S.cta[0]) ? 1 : 0;
+  { const lt=L('intro'); const k=easeBack(prog(lt,0,1.0));
+    style(q('#intro .logo'),{transform:`scale(${0.6+0.4*k}) rotate(${(1-k)*-25}deg)`});
+    const tx=easeOut(prog(lt,0.6,1.3)); style(q('#intro .h1'),{opacity:tx,transform:`translateY(${(1-tx)*60}px)`});
+    const sx=easeOut(prog(lt,1.0,1.7)); style(q('#intro .sub'),{opacity:sx,transform:`translateY(${(1-sx)*60}px)`});
+    $('intro').style.transform=`scale(${1+0.03*lt})`; }
+  { const lt=L('signal'); if(lt>-0.1 && lt<D('signal')+0.1) drawChart(lt);
+    const k=easeOut(prog(lt,0,0.6)); $('chartWrap').style.transform=`translateY(${(1-k)*200}px)`; }
+  { const lt=L('strats'); document.querySelectorAll('.chip').forEach((el,i)=>{ const k=easeOut(prog(lt,0.4+i*0.55,0.85+i*0.55));
+      style(el,{opacity:k,transform:`translateX(${(1-k)*-300}px)`}); });
+    const r=easeBack(prog(lt,8.6,9.2)); style($('hist'),{opacity:clamp(r),transform:`scale(${0.6+0.4*r})`}); }
+  { const lt=L('rr'); const r=easeBack(prog(lt,0,0.7)); style($('rrBig'),{transform:`scale(${0.5+0.5*r})`});
+    $('rrSl').style.width=(easeOut(prog(lt,2.4,3.2))*45)+'%'; $('rrTp').style.width=(easeOut(prog(lt,3.3,4.3))*90)+'%'; }
+  shotScene('lot', L('lot'), D('lot'));
+  shotScene('calendar', L('calendar'), D('calendar'));
+  { const lt=L('features'); [0,2.6,5.4].forEach((s,i)=>{ const el=document.querySelectorAll('.feat')[i]; const k=easeBack(prog(lt,s,s+0.6));
+      style(el,{opacity:clamp(k),transform:`scale(${0.7+0.3*k})`}); }); }
+  { const lt=L('price'); const a=easeBack(prog(lt,0,0.6)); style($('trial'),{opacity:clamp(a),transform:`scale(${0.6+0.4*a})`});
+    const b=easeBack(prog(lt,1.8,2.4)); style($('priceCard'),{opacity:clamp(b),transform:`scale(${0.6+0.4*b})`});
+    $('priceCard').style.boxShadow=`0 0 140px rgba(245,197,66,${0.25+0.15*Math.sin(lt*5)})`; }
+  { const lt=L('cta'); const k=easeBack(prog(lt,0,0.8)); style(q('#cta .logo'),{transform:`scale(${0.5+0.5*k})`});
+    const u=easeOut(prog(lt,0.4,1.0)); style($('user'),{opacity:u,transform:`translateY(${(1-u)*60}px)`});
+    const c=easeBack(prog(lt,0.9,1.5)); const pulse=1+0.04*Math.sin(Math.max(0,lt-1.5)*6);
+    style($('btn'),{opacity:clamp(c),transform:`scale(${(0.6+0.4*c)*pulse})`});
+    style($('disc'),{opacity:prog(lt,1.4,2.0)}); }
+  $('bar').style.width = (t/DURATION*1080)+'px';
+};
+window.DURATION = DURATION;
+window.seek(0);
+</script>
+</body>
+</html>
