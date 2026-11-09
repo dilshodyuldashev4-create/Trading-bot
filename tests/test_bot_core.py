@@ -348,3 +348,70 @@ class ExcursionChartTests(unittest.TestCase):
         e = float(df.close.iloc[-1])
         png = render_signal(df, -1, e, e + 10, e - 20, "XAUUSD · #1 · STOP LOSS", mfe=60, mae=100)
         self.assertTrue(png.startswith(b"\x89PNG"))
+
+
+class NewsBiasFilterTests(unittest.TestCase):
+    def test_strong_background_blocks_opposite_signals(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent, seen = [], []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                async def bias(market):
+                    seen.append(market)
+                    return {"bias": "bullish", "strength": "strong", "reason": ""}  # SELL запрещены
+
+                df = m5_frame(days=20, start="2025-03-03 00:00")
+                prov = Replay(df, start=300)
+                eng = SignalEngine(db, prov, "fvg_m5", 30, 60, "UTC", on_signal, on_close)
+                eng.news_bias, eng.news_block = bias, True
+                while prov.pos < len(df):
+                    prov.step()
+                    await eng.tick(now=(df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC"))
+                self.assertTrue(seen, "фильтр должен был спрашиваться")
+                self.assertIn("XAUUSD", seen[0])
+                self.assertTrue(all(s.direction == 1 for s in sent))
+                self.assertIn("в пользу сделки", sent[0].texts["ru"])
+                await db.close()
+        run(go())
+
+    def test_strong_bias_mapping(self):
+        from goldbot.news import NewsService
+
+        async def go():
+            svc = NewsService((), "m")
+            old = os.environ.pop("ANTHROPIC_API_KEY", None), os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+            try:
+                self.assertEqual(await svc.strong_bias(), 0)          # без ключа — не мешаем сигналам
+                os.environ["ANTHROPIC_API_KEY"] = "x"
+
+                async def headlines():
+                    return [{"title": "Gold jumps as war escalates", "summary": ""}]
+                answers = iter([{"bias": "bullish", "strength": "strong", "reason": "war"}])
+
+                async def ask(items, market):
+                    return next(answers)
+                svc.headlines, svc._ask_bias = headlines, ask
+                self.assertEqual(await svc.strong_bias("XAUUSD 4000"), 1)
+                self.assertEqual(await svc.strong_bias(), 1)          # из кэша, второй раз не спрашиваем
+            finally:
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                for k, v in zip(("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"), old):
+                    if v is not None:
+                        os.environ[k] = v
+        run(go())
+
+
+class NewsLineTests(unittest.TestCase):
+    def test_line_only_writes(self):
+        from goldbot.engine import news_line
+        self.assertEqual(news_line(None, 1), "")
+        self.assertIn("против сделки", news_line({"bias": "bearish", "strength": "strong"}, 1))
+        self.assertIn("➡️", news_line({"bias": "neutral", "strength": "weak"}, -1, "en"))

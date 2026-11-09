@@ -99,6 +99,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Вход: {entry}\n🏁 Выход: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Статистика бота: {tp_n} TP / {sl_n} SL"),
         "winrate": " (винрейт {wr}%)",
+        "news_bg": "📰 Фон новостей и геополитики для золота: {arrow} {strength} — {rel}",
+        "news_strong": "сильный", "news_moderate": "умеренный", "news_weak": "слабый",
+        "news_with": "<b>в пользу сделки</b>", "news_against": "<b>против сделки, будьте осторожны</b>",
+        "news_neutral": "нейтрально",
         "close_mfe": "📈 Максимум в плюсе был: <b>+{pips} пипсов</b> (до {price})",
         "close_mfe_none": "📈 В плюс сделка не выходила",
         "close_mae": "📉 Максимальная просадка была: <b>−{pips} пипсов</b> (до {price})",
@@ -280,6 +284,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Entry: {entry}\n🏁 Exit: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot stats: {tp_n} TP / {sl_n} SL"),
         "winrate": " (win rate {wr}%)",
+        "news_bg": "📰 News and geopolitics for gold: {arrow} {strength} — {rel}",
+        "news_strong": "strong", "news_moderate": "moderate", "news_weak": "weak",
+        "news_with": "<b>supports the trade</b>", "news_against": "<b>against the trade, be careful</b>",
+        "news_neutral": "neutral",
         "close_mfe": "📈 Best profit during the trade: <b>+{pips} pips</b> (up to {price})",
         "close_mfe_none": "📈 The trade never went into profit",
         "close_mae": "📉 Max drawdown during the trade: <b>−{pips} pips</b> (down to {price})",
@@ -462,6 +470,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Kirish: {entry}\n🏁 Chiqish: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot statistikasi: {tp_n} TP / {sl_n} SL"),
         "winrate": " (winrate {wr}%)",
+        "news_bg": "📰 Oltin uchun yangiliklar va geosiyosat foni: {arrow} {strength} — {rel}",
+        "news_strong": "kuchli", "news_moderate": "oʻrtacha", "news_weak": "kuchsiz",
+        "news_with": "<b>savdo foydasiga</b>", "news_against": "<b>savdoga qarshi, ehtiyot boʻling</b>",
+        "news_neutral": "neytral",
         "close_mfe": "📈 Savdo davomida eng koʻp foyda: <b>+{pips} pips</b> ({price} gacha)",
         "close_mfe_none": "📈 Savdo foydaga chiqmadi",
         "close_mae": "📉 Eng katta pasayish: <b>−{pips} pips</b> ({price} gacha)",

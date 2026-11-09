@@ -173,6 +173,8 @@ class App:
                                    self.broadcast_day_closed, config.max_sl_streak)
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
+        self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
+        self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -538,7 +540,7 @@ class App:
             lang = await self.lang_of(m.from_user.id)
             await m.answer(t(lang, "news_wait"))
             try:
-                await self.send_long(m.chat.id, await self.news.digest(lang))
+                await self.send_long(m.chat.id, await self.news.digest(lang, await self.engine.market_text()))
             except Exception:  # noqa: BLE001
                 log.exception("news")
                 await m.answer(t(lang, "news_fail"))
