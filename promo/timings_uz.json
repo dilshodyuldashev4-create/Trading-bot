@@ -1,47 +1,47 @@
 [
  {
   "key": "intro",
-  "voice": 4.818,
-  "dur": 5.868
+  "voice": 4.986,
+  "dur": 6.036
  },
  {
   "key": "signal",
-  "voice": 11.369,
-  "dur": 11.919
+  "voice": 10.261,
+  "dur": 10.811
  },
  {
   "key": "strats",
-  "voice": 12.84,
-  "dur": 13.39
+  "voice": 14.901,
+  "dur": 15.451
  },
  {
   "key": "rr",
-  "voice": 5.332,
-  "dur": 5.881
+  "voice": 6.827,
+  "dur": 7.377
  },
  {
   "key": "lot",
-  "voice": 4.663,
-  "dur": 5.213
+  "voice": 4.834,
+  "dur": 5.384
  },
  {
   "key": "calendar",
-  "voice": 9.059,
-  "dur": 9.609
+  "voice": 10.543,
+  "dur": 11.093
  },
  {
   "key": "features",
-  "voice": 8.399,
-  "dur": 8.949
+  "voice": 7.95,
+  "dur": 8.5
  },
  {
   "key": "price",
-  "voice": 6.669,
-  "dur": 7.219
+  "voice": 6.581,
+  "dur": 7.131
  },
  {
   "key": "cta",
-  "voice": 5.659,
-  "dur": 6.209
+  "voice": 6.424,
+  "dur": 6.974
  }
 ]
