@@ -284,3 +284,28 @@ class GoldApiTests(unittest.TestCase):
         p = make_provider(cfg)
         self.assertIsInstance(p, Hybrid)
         self.assertIsInstance(p.p, GoldApiPrice)
+
+
+class NewsPauseTests(unittest.TestCase):
+    def test_pause_around_high_usd_news(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                t0 = pd.Timestamp("2026-11-06 13:30", tz="UTC")
+                ev = lambda title, imp, ts: {"key": title, "ts": ts.isoformat(), "country": "USD", "title": title,
+                                             "impact": imp, "forecast": "", "previous": "", "actual": ""}
+                await db.upsert_events([ev("Non-Farm Employment Change", "High", t0),
+                                        ev("Factory Orders", "Medium", t0 + pd.Timedelta(hours=3))])
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, None)
+                self.assertIsNone(await eng.news_pause(t0))          # по умолчанию выключено
+                eng.news_pause_min = 30
+                self.assertEqual((await eng.news_pause(t0 - pd.Timedelta(minutes=20)))["title"],
+                                 "Non-Farm Employment Change")
+                self.assertIsNotNone(await eng.news_pause(t0 + pd.Timedelta(minutes=29)))
+                self.assertIsNone(await eng.news_pause(t0 + pd.Timedelta(minutes=45)))
+                self.assertIsNone(await eng.news_pause(t0 + pd.Timedelta(hours=3)))  # Medium не блокирует
+                eng.news_pause_impact = ("High", "Medium")
+                self.assertIsNotNone(await eng.news_pause(t0 + pd.Timedelta(hours=3)))
+                await db.close()
+        run(go())

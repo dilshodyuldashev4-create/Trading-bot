@@ -111,6 +111,8 @@ class SignalEngine:
         self.last_price: float | None = None
         self.retry_at: dict[str, pd.Timestamp] = {}  # когда снова запрашивать свечи, если новой ещё нет
         self._trend: tuple[pd.Timestamp, int] | None = None  # (день UTC, дневной тренд)
+        self.news_pause_min = 0              # пауза новых сигналов вокруг новостей США (0 — выкл.)
+        self.news_pause_impact: tuple[str, ...] = ("High",)
 
     @property
     def multi(self) -> bool:
@@ -174,6 +176,19 @@ class SignalEngine:
             if self.on_day_closed:
                 await self.on_day_closed(streak)
 
+    async def news_pause(self, now: pd.Timestamp) -> dict | None:
+        """Важная новость США в пределах ±news_pause_min минут — новые сигналы не даём."""
+        if self.news_pause_min <= 0:
+            return None
+        m = pd.Timedelta(minutes=self.news_pause_min)
+        try:
+            events = await self.db.events_between((now - m).to_pydatetime(), (now + m).to_pydatetime())
+        except Exception:  # noqa: BLE001 — без календаря работаем как раньше
+            log.exception("news pause check")
+            return None
+        return next((e for e in events if e.get("country") == "USD"
+                     and e.get("impact") in self.news_pause_impact), None)
+
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
         if not market_open(now):
@@ -226,6 +241,10 @@ class SignalEngine:
             return None  # торговый день закрыт после серии стопов — ждём завтра
         if st.key in open_keys:
             return None  # у этой стратегии уже есть открытая сделка (как в бэктесте)
+        ev = await self.news_pause(now)
+        if ev is not None:
+            log.info("signal skipped (%s): news %s at %s", st.key, ev.get("title"), ev.get("ts"))
+            return None  # рядом важная новость США — рынок непредсказуем
 
         d = await self.direction(df, now, st)
         if d == 0:
