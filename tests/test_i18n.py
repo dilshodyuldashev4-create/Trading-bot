@@ -77,3 +77,14 @@ class NewsSelectTests(unittest.TestCase):
                  {"title": "Football results", "summary": "", "ts": now}]
         self.assertEqual(NewsService._select(items, 24, 5), [])
         self.assertEqual([i["title"] for i in NewsService._select(items, 72, 5)], ["Gold rises as Fed pauses"])
+
+
+class NewsTranslateTests(unittest.TestCase):
+    def test_core_filter_and_english_passthrough(self):
+        import asyncio
+        from goldbot.news import CORE, NewsService
+        self.assertTrue(CORE.search("Gold prices fall as strong US jobs data fuels rate hike bets"))
+        self.assertFalse(CORE.search("Protests in France turn violent as inflation anger boils over"))
+        self.assertFalse(CORE.search("Trump Admin cancels Billion-Dollar Solar Project"))
+        svc = NewsService((), "m")
+        self.assertEqual(asyncio.run(svc._translate(["Gold up"], "en")), ["Gold up"])
