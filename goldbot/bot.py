@@ -182,7 +182,6 @@ class App:
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
         self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
-        self.engine.trade_start = parse_hhmm(config.trade_start)
         self.engine.news_close_min = config.news_close_min
         self.engine.on_news_close = self.broadcast_news_close
         self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона

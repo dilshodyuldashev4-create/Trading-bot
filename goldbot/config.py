@@ -67,8 +67,6 @@ class Config:
 
     # за сколько минут до важной новости США закрывать открытые сделки и предупреждать всех (0 — выкл.)
     news_close_min: int = int(os.getenv("NEWS_CLOSE_MIN", "30"))
-    # местное время (DISPLAY_TZ), с которого после открытия сессии начинаются сигналы; пусто — сразу
-    trade_start: str = os.getenv("TRADE_START", "")
     # утренний разбор рынка в это местное время (пн–пт); пусто — выключен
     morning_review: str = os.getenv("MORNING_REVIEW", "08:00")
 

@@ -148,7 +148,6 @@ class SignalEngine:
         # за сколько минут до важной новости США закрывать открытые сделки (0 — не закрывать)
         self.news_close_min = 0
         self.on_news_close: Optional[Callable[[dict, float, dict, int], Awaitable[None]]] = None
-        self.trade_start: pd.Timedelta | None = None  # местное время начала сигналов после открытия сессии
 
     @property
     def multi(self) -> bool:
@@ -249,15 +248,6 @@ class SignalEngine:
             await self.on_news_close(s, price, ev, mins)
         return len(opened)
 
-    def before_trade_start(self, now: pd.Timestamp) -> bool:
-        """True — сессия уже открылась, но местное время начала сигналов (TRADE_START) ещё не наступило."""
-        if self.trade_start is None:
-            return False
-        local = now.tz_convert(self.tz)
-        start = local.normalize() + self.trade_start
-        opened = session_open(now).tz_convert(self.tz)
-        return opened <= local < start and opened.normalize() == local.normalize()
-
     async def morning_review(self, lang: str = "ru", now: pd.Timestamp | None = None,
                              news: dict | None = None) -> str:
         """Утренний разбор: что было с открытия сессии, хай/лой прошлого дня, тренд и основной сценарий."""
@@ -293,8 +283,6 @@ class SignalEngine:
             lines.append(t(lang, "mr_news", arrow=arrow, strength=t(lang, f"news_{news.get('strength', 'weak')}")))
         key = "mr_up" if score >= 2 else "mr_down" if score <= -2 else "mr_mixed"
         lines.append("\n" + t(lang, key, hi=f"{hi:.2f}", lo=f"{lo:.2f}"))
-        if self.trade_start is not None:
-            lines.append(t(lang, "mr_start"))
         return "\n".join(lines)
 
     async def tf_trends(self, m5: pd.DataFrame, now: pd.Timestamp) -> dict[str, int]:
@@ -377,8 +365,6 @@ class SignalEngine:
             return None  # не шлём старый сигнал при первом запуске
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
-        if self.before_trade_start(now):
-            return None  # с открытия сессии до TRADE_START сигналы не даём
         if st.key in open_keys:
             return None  # у этой стратегии уже есть открытая сделка (как в бэктесте)
         ev = await self.news_pause(now)

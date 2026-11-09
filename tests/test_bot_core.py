@@ -419,7 +419,7 @@ class NewsLineTests(unittest.TestCase):
 
 class TradeStartTests(unittest.TestCase):
     def test_no_signals_before_start_and_morning_review(self):
-        from goldbot.engine import parse_hhmm, session_open
+        from goldbot.engine import session_open
 
         async def go():
             with tempfile.TemporaryDirectory() as d:
@@ -429,18 +429,12 @@ class TradeStartTests(unittest.TestCase):
                 prov = Replay(df, start=len(df))
                 eng = SignalEngine(db, prov, "combo", 100, 200, "Asia/Tashkent", None, None)
                 ts = lambda s: pd.Timestamp(s, tz="Asia/Tashkent").tz_convert("UTC")
-                self.assertFalse(eng.before_trade_start(ts("2025-03-12 05:00")))   # без настройки — всегда можно
-                eng.trade_start = parse_hhmm("08:00")
                 # летом в США сессия открывается в 03:00 по Ташкенту
                 self.assertEqual(session_open(ts("2025-03-12 05:00")).tz_convert("Asia/Tashkent").hour, 3)
-                self.assertTrue(eng.before_trade_start(ts("2025-03-12 05:00")))
-                self.assertFalse(eng.before_trade_start(ts("2025-03-12 08:05")))
-                self.assertFalse(eng.before_trade_start(ts("2025-03-12 23:00")))
-                self.assertFalse(eng.before_trade_start(ts("2025-03-13 01:00")))   # ночь до закрытия сессии
                 eng._trend = (ts("2025-03-14 08:00").normalize(), 1)
                 text = await eng.morning_review("ru", ts("2025-03-14 08:00"),
                                                 {"bias": "bullish", "strength": "strong"})
-                for part in ("Утренний разбор", "Прошлый день", "Цена сейчас", "ценарий", "начинает давать"):
+                for part in ("Утренний разбор", "Прошлый день", "Цена сейчас", "ценарий"):
                     self.assertIn(part, text)
                 await db.close()
         run(go())
