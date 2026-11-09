@@ -21,6 +21,12 @@ KEYWORDS = re.compile(
     r"payroll|nfp|jobs|unemployment|rate cut|rate hike|tariff|geopolit|war|sanction|recession|gdp)\b",
     re.I)
 
+# без Claude показываем только то, что прямо про золото, ФРС, ставки и доходности
+CORE = re.compile(r"\b(gold|xau|bullion|precious|fed|fomc|powell|dxy|treasur\w*|yields?|rate cuts?|rate hikes?|"
+                  r"interest rates?|cpi|pce|payrolls?|nfp)\b", re.I)
+GT_LANG = {"ru": "ru", "uz": "uz", "en": "en"}
+GT_URL = "https://translate.googleapis.com/translate_a/single"
+
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 PROMPT = """Ты аналитик рынка золота. Ниже свежие новостные заголовки (с кратким текстом).
@@ -103,6 +109,24 @@ class NewsService:
             return None
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None
 
+    async def _translate(self, titles: list[str], lang: str) -> list[str]:
+        """Бесплатный перевод заголовков (Google Translate без ключа). При ошибке — оригинал."""
+        tl = GT_LANG.get(lang, "en")
+        if tl == "en" or not titles:
+            return titles
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+                async with s.get(GT_URL, params={"client": "gtx", "sl": "en", "tl": tl, "dt": "t",
+                                                 "q": "\n".join(titles)}, headers={"User-Agent": UA}) as r:
+                    r.raise_for_status()
+                    j = await r.json(content_type=None)
+            out = "".join(seg[0] for seg in j[0] if seg and seg[0]).strip().split("\n")
+            out = [x.strip() for x in out if x.strip()]
+            return out if len(out) == len(titles) else titles
+        except Exception as e:  # noqa: BLE001
+            log.warning("translate: %s", e)
+            return titles
+
     async def digest(self, lang: str = "ru") -> str:
         async with self._lock:
             cached = self._cache.get(lang)
@@ -112,8 +136,11 @@ class NewsService:
             if not items:
                 return t(lang, "news_none")
             summary = await self._summarize(items, lang)
-            if not summary:  # без ключа Claude — просто заголовки
-                summary = "\n".join(f"• {i['title']}" for i in items[:10])
+            if not summary:  # без Claude (нет ключа или баланса) — заголовки с бесплатным переводом
+                core = [i for i in items if CORE.search(i["title"])]
+                titles = [i["title"] for i in (core if len(core) >= 3 else items)[:10]]
+                titles = await self._translate(titles, lang)
+                summary = "\n".join(f"• {x}" for x in titles)
             summary = html.escape(summary, quote=False)
             out = t(lang, "news_head") + summary
             self._cache[lang] = (time.time(), out)
