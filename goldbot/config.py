@@ -62,6 +62,9 @@ class Config:
     news_pause_impact: tuple[str, ...] = tuple(
         x.strip() for x in os.getenv("NEWS_PAUSE_IMPACT", "High").split(",") if x.strip())
 
+    # 1 — не давать сигнал против сильного фона новостей (оценка Claude раз в час); 0 — только писать фон
+    news_filter: bool = os.getenv("NEWS_FILTER", "0") not in ("0", "false", "no", "")
+
     # новости
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
     news_feeds: tuple[str, ...] = tuple(
@@ -72,6 +75,9 @@ class Config:
             "&hl=en-US&gl=US&ceid=US:en,"
             "https://news.google.com/rss/search?q=%22Federal+Reserve%22+OR+Fed+OR+dollar+OR+inflation"
             "+OR+%22Treasury+yields%22+when:1d&hl=en-US&gl=US&ceid=US:en,"
+            # геополитика: войны, санкции, конфликты, пошлины
+            "https://news.google.com/rss/search?q=war+OR+sanctions+OR+geopolitical+OR+missile+OR+ceasefire"
+            "+OR+Iran+OR+Israel+OR+Ukraine+OR+Taiwan+OR+tariffs+when:1d&hl=en-US&gl=US&ceid=US:en,"
             "https://www.investing.com/rss/news_11.rss,"
             "https://www.investing.com/rss/news_95.rss",
         ).split(",") if u.strip()

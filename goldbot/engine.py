@@ -91,6 +91,17 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
              note=t(lang, f"note_{strategy.key}"))
 
 
+def news_line(info: dict | None, d: int, lang: str = "ru") -> str:
+    """Строка о фоне новостей в сигнале (если есть оценка Claude)."""
+    if not info or info.get("bias") not in ("bullish", "bearish", "neutral"):
+        return ""
+    side = {"bullish": 1, "bearish": -1, "neutral": 0}[info["bias"]]
+    arrow = {1: "⬆️", -1: "⬇️", 0: "➡️"}[side]
+    rel = "news_neutral" if side == 0 else ("news_with" if side == d else "news_against")
+    return "\n\n" + t(lang, "news_bg", arrow=arrow, strength=t(lang, f"news_{info.get('strength', 'weak')}"),
+                       rel=t(lang, rel))
+
+
 class SignalEngine:
     def __init__(self, db: DB, provider: Provider, strategy_key: str, sl_pips: float, tp_pips: float,
                  display_tz: str, on_signal: OnSignal, on_close: OnClose,
@@ -113,6 +124,9 @@ class SignalEngine:
         self._trend: tuple[pd.Timestamp, int] | None = None  # (день UTC, дневной тренд)
         self.news_pause_min = 0              # пауза новых сигналов вокруг новостей США (0 — выкл.)
         self.news_pause_impact: tuple[str, ...] = ("High",)
+        # оценка фона новостей: (данные рынка) → {"bias", "strength", ...} или None; строка в сигнале
+        self.news_bias: Optional[Callable[[str], Awaitable[dict | None]]] = None
+        self.news_block = False  # True — не давать сигнал против сильного фона
 
     @property
     def multi(self) -> bool:
@@ -194,6 +208,17 @@ class SignalEngine:
         return next((e for e in events if e.get("country") == "USD"
                      and e.get("impact") in self.news_pause_impact), None)
 
+    async def market_text(self, now: pd.Timestamp | None = None) -> str:
+        """Цена и дневной тренд — контекст для разбора новостей."""
+        now = now or pd.Timestamp.now(tz="UTC")
+        parts = [f"XAUUSD {self.last_price:.2f}"] if self.last_price else []
+        try:
+            trend = await self.daily_trend(now)
+            parts.append("дневной тренд (EMA50): " + ("вверх" if trend > 0 else "вниз" if trend < 0 else "нет"))
+        except Exception:  # noqa: BLE001
+            pass
+        return ", ".join(parts)
+
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
         if not market_open(now):
@@ -254,6 +279,17 @@ class SignalEngine:
         d = await self.direction(df, now, st)
         if d == 0:
             return None
+        info = None
+        if self.news_bias is not None:
+            try:
+                info = await self.news_bias(await self.market_text(now))
+            except Exception:  # noqa: BLE001 — без оценки новостей работаем по графику
+                log.exception("news bias")
+            side = {"bullish": 1, "bearish": -1}.get((info or {}).get("bias"), 0)
+            if self.news_block and side == -d and (info or {}).get("strength") == "strong":
+                log.info("signal skipped (%s): strong news background against %s", st.key,
+                         "BUY" if d == 1 else "SELL")
+                return None
         entry = price
         sl = entry - d * self.sl_pips * PIP
         tp = entry + d * self.tp_pips * PIP
@@ -264,7 +300,8 @@ class SignalEngine:
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
                        per_lang(lambda lang: format_signal(st, d, entry, sl, tp,
-                                                           self.sl_pips, self.tp_pips, when, lang)),
+                                                           self.sl_pips, self.tp_pips, when, lang)
+                                + news_line(info, d, lang)),
                        lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
         await self.on_signal(ns)
         return ns
