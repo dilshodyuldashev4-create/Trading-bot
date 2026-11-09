@@ -9,6 +9,8 @@ import logging
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -24,7 +26,7 @@ from . import econ_calendar, news_alerts
 from .config import config
 from .db import DB
 from .chart import render_signal, render_stats
-from .engine import NewSignal, SignalEngine, market_open, next_open
+from .engine import NewSignal, SignalEngine, market_open, next_open, parse_hhmm
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
 from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
@@ -130,16 +132,22 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
         return t(lang, "stats_empty")
     tp = [r for r in rows if r["status"] == "tp"]
     sl = [r for r in rows if r["status"] == "sl"]
+    nw = [r for r in rows if r["status"] == "news" and r.get("exit_price")]
     pips = lambda a, b: abs(a - b) / PIP  # noqa: E731
-    total = sum(pips(r["tp"], r["entry"]) for r in tp) - sum(pips(r["sl"], r["entry"]) for r in sl)
+    news_pips = lambda r: r["direction"] * (r["exit_price"] - r["entry"]) / PIP  # noqa: E731
+    total = (sum(pips(r["tp"], r["entry"]) for r in tp) - sum(pips(r["sl"], r["entry"]) for r in sl)
+             + sum(news_pips(r) for r in nw))
     closed = len(tp) + len(sl)
-    out = t(lang, "stats_head", total=len(rows), tp=len(tp), sl=len(sl), open=len(rows) - closed,
+    n_open = sum(1 for r in rows if r["status"] == "open")
+    out = t(lang, "stats_head", total=len(rows), tp=len(tp), sl=len(sl), open=n_open,
             wr=f"{100 * len(tp) / closed:.0f}%" if closed else "—", pips=f"{total:+.0f}")
     for r in rows[:15]:
         if r["status"] == "tp":
             res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{pips(r['tp'], r['entry']):.0f}")
         elif r["status"] == "sl":
             res = t(lang, "stats_sl", exit=f"{r['sl']:.2f}", pips=f"{pips(r['sl'], r['entry']):.0f}")
+        elif r["status"] == "news" and r.get("exit_price"):
+            res = t(lang, "stats_news", exit=f"{r['exit_price']:.2f}", pips=f"{news_pips(r):+.0f}")
         else:
             res = t(lang, "stats_open")
         when = datetime.fromisoformat(r["created_at"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
@@ -174,6 +182,9 @@ class App:
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
         self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
+        self.engine.trade_start = parse_hhmm(config.trade_start)
+        self.engine.news_close_min = config.news_close_min
+        self.engine.on_news_close = self.broadcast_news_close
         self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона
         self.router = Router()
         self._register()
@@ -249,6 +260,20 @@ class App:
             ok += sent
             await asyncio.sleep(0.04)
         log.info("signal #%s sent to %s users", s.id, ok)
+
+    async def broadcast_news_close(self, s: dict, price: float, ev: dict, mins: int) -> None:
+        """Перед важной новостью: всем — закрыть сделку по рынку."""
+        side = "BUY" if s["direction"] == 1 else "SELL"
+        res = s["direction"] * (price - s["entry"]) / PIP
+        langs = await self.db.user_langs()
+
+        def text(lang: str) -> str:
+            return t(lang, "news_close", id=s["id"], side=side, entry=f"{s['entry']:.2f}", mins=mins,
+                     title=html.escape(ev.get("title", "")), price=f"{price:.2f}", pips=f"{res:+.0f}")
+
+        n = await self.broadcast(await self.db.all_user_ids(),
+                                 lambda u: self.bot.send_message(u, text(norm(langs.get(u)))))
+        log.info("news close #%s sent to %s users", s["id"], n)
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
@@ -733,6 +758,37 @@ class App:
                 log.exception("market status")
             await asyncio.sleep(60)
 
+    async def morning_review(self, now: pd.Timestamp | None = None) -> bool:
+        """Утренний разбор рынка всем подписчикам в MORNING_REVIEW по местному времени (пн–пт), раз в день."""
+        at = parse_hhmm(config.morning_review)
+        now = now or pd.Timestamp.now(tz="UTC")
+        local = now.tz_convert(config.display_tz)
+        if at is None or local.weekday() > 4 or not market_open(now) or local < local.normalize() + at:
+            return False
+        key = f"morning_review:{local:%Y-%m-%d}"
+        if await self.db.get_kv(key):
+            return False
+        await self.db.set_kv(key, "1")
+        news = None
+        try:
+            news = await self.news.bias(await self.engine.market_text(now))
+        except Exception:  # noqa: BLE001
+            log.exception("morning news")
+        texts = {lang: await self.engine.morning_review(lang, now, news) for lang in ("ru", "en", "uz")}
+        langs = await self.db.user_langs()
+        n = await self.broadcast(await self.db.active_user_ids(),
+                                 lambda u: self.bot.send_message(u, texts.get(norm(langs.get(u)), texts["ru"])))
+        log.info("morning review sent to %s users", n)
+        return True
+
+    async def morning_review_loop(self) -> None:
+        while True:
+            try:
+                await self.morning_review()
+            except Exception:  # noqa: BLE001
+                log.exception("morning review")
+            await asyncio.sleep(60)
+
     async def trial_reminder_loop(self) -> None:
         while True:
             try:
@@ -755,6 +811,7 @@ class App:
             asyncio.create_task(self.trial_reminder_loop()),
             asyncio.create_task(self.news_alert_loop()),
             asyncio.create_task(self.market_status_loop()),
+            asyncio.create_task(self.morning_review_loop()),
         ]
         try:
             await self.dp.start_polling(self.bot)

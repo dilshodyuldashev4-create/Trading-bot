@@ -146,6 +146,9 @@ def render_stats(rows: list[dict], lang: str = "ru", tz: str = "UTC", pip: float
             result, rc = f"✓ TP +{abs(r['tp'] - r['entry']) / pip:.0f}", GREEN
         elif r["status"] == "sl":
             result, rc = f"✗ SL −{abs(r['sl'] - r['entry']) / pip:.0f}", RED
+        elif r["status"] == "news" and r.get("exit_price"):
+            v = r["direction"] * (r["exit_price"] - r["entry"]) / pip
+            result, rc = f"⚠ NEWS {v:+.0f}", GREEN if v >= 0 else RED
         else:
             result, rc = L["open"], GOLD
         vals = ((f"#{r['id']}", TXT), (when, TXT), ("▲ BUY" if buy else "▼ SELL", GREEN if buy else RED),
