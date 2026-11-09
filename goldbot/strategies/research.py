@@ -220,3 +220,100 @@ def trendline_breakout(df, swing: int = 5, bounce: bool = False):
             elif bounce and l[i] <= line and c[i] > line and c[i] > o[i]:
                 sig[i], ll_used = 1, True
     return sig
+
+
+# ── Стратегии ликвидности (ноябрь 2026) ──────────────────────────────────────────────────────────
+
+def asian_sweep(df):
+    """Sweep азиатского диапазона (Judas swing): Азия 00:00–07:00 Лондона; с 07:00 до 16:00 прокол
+    хая Азии и закрытие обратно внутрь → SELL, прокол лоя и закрытие обратно → BUY. Один сигнал в день."""
+    t = _local(df, "Europe/London")
+    m, day = _minutes(t), t.normalize()
+    h, l, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    sig = np.zeros(len(df), dtype=np.int8)
+    cur, ah, al, done = None, -np.inf, np.inf, False
+    for i in range(len(df)):
+        if day[i] != cur:
+            cur, ah, al, done = day[i], -np.inf, np.inf, False
+        if m[i] < 420:
+            ah, al = max(ah, h[i]), min(al, l[i])
+            continue
+        if done or not np.isfinite(ah) or m[i] >= 960:
+            continue
+        if h[i] > ah and c[i] < ah:
+            sig[i], done = -1, True
+        elif l[i] < al and c[i] > al:
+            sig[i], done = 1, True
+    return sig
+
+
+def swing_sweep(df, swing: int = 5):
+    """Sweep ликвидности за последним подтверждённым свингом: прокол хая свинга и закрытие ниже → SELL,
+    прокол лоя свинга и закрытие выше → BUY. Один сигнал на свинг."""
+    from ..indicators import pivot_high, pivot_low
+    h, l, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    ph, pl = pivot_high(h, swing), pivot_low(l, swing)
+    sig = np.zeros(len(df), dtype=np.int8)
+    sh = sl = np.nan
+    for i in range(len(df)):
+        if not np.isnan(ph[i]):
+            sh = ph[i]
+        if not np.isnan(pl[i]):
+            sl = pl[i]
+        if not np.isnan(sh) and h[i] > sh and c[i] < sh:
+            sig[i], sh = -1, np.nan
+        elif not np.isnan(sl) and l[i] < sl and c[i] > sl:
+            sig[i], sl = 1, np.nan
+    return sig
+
+
+def equal_levels_sweep(df, swing: int = 5, tol_atr: float = 0.15):
+    """Sweep равных хаёв/лоёв: два последних свинга на одном уровне (в пределах 0.15 ATR) — пул ликвидности;
+    прокол пула и закрытие обратно → вход в обратную сторону."""
+    from ..indicators import pivot_high, pivot_low
+    h, l, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    a = atr(df, 14).to_numpy()
+    ph, pl = pivot_high(h, swing), pivot_low(l, swing)
+    sig = np.zeros(len(df), dtype=np.int8)
+    highs, lows = [], []
+    pool_h = pool_l = np.nan
+    for i in range(len(df)):
+        if not np.isnan(ph[i]):
+            highs = (highs + [ph[i]])[-2:]
+            if len(highs) == 2 and abs(highs[0] - highs[1]) <= tol_atr * a[i]:
+                pool_h = max(highs)
+        if not np.isnan(pl[i]):
+            lows = (lows + [pl[i]])[-2:]
+            if len(lows) == 2 and abs(lows[0] - lows[1]) <= tol_atr * a[i]:
+                pool_l = min(lows)
+        if not np.isnan(pool_h) and h[i] > pool_h and c[i] < pool_h:
+            sig[i], pool_h = -1, np.nan
+        elif not np.isnan(pool_l) and l[i] < pool_l and c[i] > pool_l:
+            sig[i], pool_l = 1, np.nan
+    return sig
+
+
+def sweep_mss(df, swing: int = 5, window: int = 12):
+    """Sweep + слом структуры (MSS): сняли ликвидность под лоем свинга, и в течение window свечей
+    закрылись выше последнего хая свинга → BUY (зеркально SELL)."""
+    from ..indicators import pivot_high, pivot_low
+    h, l, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    ph, pl = pivot_high(h, swing), pivot_low(l, swing)
+    sig = np.zeros(len(df), dtype=np.int8)
+    sh = sl = np.nan
+    swept_low = swept_high = -10 ** 9   # индекс свечи, где сняли ликвидность
+    for i in range(len(df)):
+        if not np.isnan(ph[i]):
+            sh = ph[i]
+        if not np.isnan(pl[i]):
+            sl = pl[i]
+        if not np.isnan(sl) and l[i] < sl:
+            swept_low, sl = i, np.nan
+        if not np.isnan(sh) and h[i] > sh and i - swept_low > 0 and i - swept_low <= window and c[i] > sh:
+            sig[i], swept_low, sh = 1, -10 ** 9, np.nan
+            continue
+        if not np.isnan(sh) and h[i] > sh:
+            swept_high, sh = i, np.nan
+        if not np.isnan(sl) and l[i] < sl and 0 < i - swept_high <= window and c[i] < sl:
+            sig[i], swept_high, sl = -1, -10 ** 9, np.nan
+    return sig
