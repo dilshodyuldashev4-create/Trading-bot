@@ -111,6 +111,18 @@ def decision_kb(lang: str, sid: int, choice: str | None = None) -> InlineKeyboar
         InlineKeyboardButton(text=mark("btn_decline", "dec"), callback_data=f"sig:dec:{sid}")]])
 
 
+def excursion_text(lang: str, s: dict, status: str) -> str:
+    """Сколько сделка была в плюсе и какая была просадка (пипсы и цена) — для отчёта о закрытии."""
+    d, out = s["direction"], []
+    v = s.get("mfe") or 0
+    out.append(t(lang, "close_mfe", pips=f"{v:.0f}", price=f"{s['entry'] + d * v * PIP:.2f}") if v >= 1
+               else t(lang, "close_mfe_none"))
+    v = s.get("mae") or 0
+    out.append(t(lang, "close_mae", pips=f"{v:.0f}", price=f"{s['entry'] - d * v * PIP:.2f}") if v >= 1
+               else t(lang, "close_mae_none"))
+    return "\n".join(out) + "\n\n"
+
+
 def stats_text(lang: str, rows: list[dict], tz: str) -> str:
     """Статистика для подписчиков: итоги и последние сигналы со входом, выходом и результатом."""
     from datetime import datetime
@@ -248,7 +260,8 @@ class App:
 
         def text(lang: str) -> str:
             return (t(lang, "close_tp" if status == "tp" else "close_sl", id=s["id"], side=side, pips=f"{pips:.0f}")
-                    + "\n\n" + t(lang, "close_body", entry=f"{s['entry']:.2f}", exit=f"{level:.2f}",
+                    + "\n\n" + excursion_text(lang, s, status)
+                    + t(lang, "close_body", entry=f"{s['entry']:.2f}", exit=f"{level:.2f}",
                                   sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}", tp_n=st["tp"], sl_n=st["sl"])
                     + (t(lang, "winrate", wr=f"{100 * st['tp'] / closed:.0f}") if closed else ""))
 
@@ -258,7 +271,7 @@ class App:
             try:
                 image = render_signal(df, s["direction"], s["entry"], s["sl"], s["tp"],
                                       f"XAUUSD · #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
-                                      tz=config.display_tz)
+                                      tz=config.display_tz, mfe=s.get("mfe"), mae=s.get("mae"), pip=PIP)
             except Exception:  # noqa: BLE001
                 log.exception("close chart")
         active = set(await self.db.active_user_ids())

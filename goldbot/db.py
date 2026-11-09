@@ -84,6 +84,11 @@ class DB:
             await self.conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
         if "capital" not in cols:
             await self.conn.execute("ALTER TABLE users ADD COLUMN capital REAL")
+        cur = await self.conn.execute("PRAGMA table_info(signals)")
+        scols = [r[1] for r in await cur.fetchall()]
+        for c in ("mfe", "mae"):  # макс. ход в плюс / в минус по сделке, пипсы
+            if c not in scols:
+                await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} REAL DEFAULT 0")
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -233,6 +238,10 @@ class DB:
     async def open_signals(self) -> list[dict]:
         cur = await self.conn.execute("SELECT * FROM signals WHERE status='open'")
         return [dict(r) for r in await cur.fetchall()]
+
+    async def set_excursion(self, sid: int, mfe: float, mae: float) -> None:
+        await self.conn.execute("UPDATE signals SET mfe=?, mae=? WHERE id=?", (mfe, mae, sid))
+        await self.conn.commit()
 
     async def close_signal(self, sid: int, status: str) -> None:
         await self.conn.execute("UPDATE signals SET status=?, closed_at=? WHERE id=?",

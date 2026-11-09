@@ -135,6 +135,12 @@ class SignalEngine:
     async def check_open(self, price: float) -> None:
         for s in await self.db.open_signals():
             d = s["direction"]
+            # максимальный ход цены в плюс (mfe) и в минус (mae) за время сделки, в пипсах
+            moved = d * (price - s["entry"]) / PIP
+            mfe, mae = max(s.get("mfe") or 0, moved), max(s.get("mae") or 0, -moved)
+            if (mfe, mae) != (s.get("mfe") or 0, s.get("mae") or 0):
+                s["mfe"], s["mae"] = mfe, mae
+                await self.db.set_excursion(s["id"], mfe, mae)
             status = None
             if (d == 1 and price <= s["sl"]) or (d == -1 and price >= s["sl"]):
                 status = "sl"
@@ -146,7 +152,6 @@ class SignalEngine:
                 if status == "sl":
                     await self.check_day_stop()
                 continue
-            moved = d * (price - s["entry"]) / PIP  # пипсов в сторону тейка
             key = f"late_warned:{s['id']}"
             if self.on_late and self.late_pips > 0 and moved >= self.late_pips and not await self.db.get_kv(key):
                 await self.db.set_kv(key, "1")

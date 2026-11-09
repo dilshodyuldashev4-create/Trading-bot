@@ -99,6 +99,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Вход: {entry}\n🏁 Выход: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Статистика бота: {tp_n} TP / {sl_n} SL"),
         "winrate": " (винрейт {wr}%)",
+        "close_mfe": "📈 Максимум в плюсе был: <b>+{pips} пипсов</b> (до {price})",
+        "close_mfe_none": "📈 В плюс сделка не выходила",
+        "close_mae": "📉 Максимальная просадка была: <b>−{pips} пипсов</b> (до {price})",
+        "close_mae_none": "📉 Просадки почти не было",
         "close_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Вход: <b>{entry}</b>\n"
@@ -276,6 +280,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Entry: {entry}\n🏁 Exit: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot stats: {tp_n} TP / {sl_n} SL"),
         "winrate": " (win rate {wr}%)",
+        "close_mfe": "📈 Best profit during the trade: <b>+{pips} pips</b> (up to {price})",
+        "close_mfe_none": "📈 The trade never went into profit",
+        "close_mae": "📉 Max drawdown during the trade: <b>−{pips} pips</b> (down to {price})",
+        "close_mae_none": "📉 Almost no drawdown",
         "close_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Entry: <b>{entry}</b>\n"
@@ -454,6 +462,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_body": ("📍 Kirish: {entry}\n🏁 Chiqish: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
                        "📊 Bot statistikasi: {tp_n} TP / {sl_n} SL"),
         "winrate": " (winrate {wr}%)",
+        "close_mfe": "📈 Savdo davomida eng koʻp foyda: <b>+{pips} pips</b> ({price} gacha)",
+        "close_mfe_none": "📈 Savdo foydaga chiqmadi",
+        "close_mae": "📉 Eng katta pasayish: <b>−{pips} pips</b> ({price} gacha)",
+        "close_mae_none": "📉 Deyarli pasayish boʻlmadi",
         "close_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Kirish: <b>{entry}</b>\n"
