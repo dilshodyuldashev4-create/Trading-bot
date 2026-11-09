@@ -16,8 +16,10 @@ GREEN, RED, GOLD, CYAN = "#26c281", "#f23645", "#ffd600", "#00bcd4"
 
 def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp: float,
                   title: str, bars: int = 70, tz: str | None = None, lot: str | None = None,
-                  sl_note: str = "", tp_note: str = "") -> bytes:
-    """lot — «LOT 0.02» у линии входа для конкретного подписчика; sl_note/tp_note — суммы в $ у линий."""
+                  sl_note: str = "", tp_note: str = "",
+                  mfe: float | None = None, mae: float | None = None, pip: float = 0.10) -> bytes:
+    """lot — «LOT 0.02» у линии входа для конкретного подписчика; sl_note/tp_note — суммы в $ у линий.
+    mfe/mae — макс. ход в плюс и в минус по закрытой сделке (пипсы): рисуются пунктиром с подписью."""
     data = df.iloc[-bars:].copy()
     if tz:
         idx = data.index.tz_localize("UTC") if data.index.tz is None else data.index
@@ -39,6 +41,16 @@ def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp:
         ax.hlines(y, x0, x1, colors=c, linewidth=1.6)
         ax.text(x1, y, f" {label} {y:.2f}" + (f"  {note}" if note else ""), color="black", fontsize=10, fontweight="bold", va="center",
                 ha="left", bbox=dict(boxstyle="round,pad=0.3", fc=c, ec="none"))
+    for v, sign, c in ((mfe, 1, GREEN), (mae, -1, "#ff9f43")):
+        if v is None or v < 1:
+            continue
+        y = entry + sign * direction * v * pip
+        if min(abs(y - sl), abs(y - tp)) < 3 * pip:
+            continue  # совпадает с линией SL/TP — не дублируем
+        ax.hlines(y, 0, x1, colors=c, linewidth=1.3, linestyles="--")
+        ax.text(1, y, f" MAX {'+' if sign > 0 else '−'}{v:.0f} pips  {y:.2f} ", color="black", fontsize=10,
+                fontweight="bold", va="bottom" if sign * direction > 0 else "top", ha="left",
+                bbox=dict(boxstyle="round,pad=0.3", fc=c, ec="none"))
     arrow = "▲ BUY" if direction == 1 else "▼ SELL"
     ax.annotate(arrow, (x0, entry), xytext=(x0 - 8, entry + (-1 if direction == 1 else 1) * (abs(tp - entry) * 0.6)),
                 color=GREEN if direction == 1 else RED, fontsize=14, fontweight="bold",

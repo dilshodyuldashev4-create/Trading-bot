@@ -309,3 +309,42 @@ class NewsPauseTests(unittest.TestCase):
                 self.assertIsNotNone(await eng.news_pause(t0 + pd.Timedelta(hours=3)))
                 await db.close()
         run(go())
+
+
+class ExcursionTests(unittest.TestCase):
+    def test_tracks_best_and_worst_move(self):
+        from goldbot.bot import excursion_text
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                closed = []
+
+                async def on_close(s, status, price):
+                    closed.append((s, status))
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, on_close)
+                await db.add_signal("combo", -1, 4070.0, 4080.0, 4050.0)   # SELL
+                for p in (4066.5, 4071.0, 4064.0, 4075.0, 4080.5):          # +60 пипсов, потом стоп
+                    await eng.check_open(p)
+                s, status = closed[0]
+                self.assertEqual(status, "sl")
+                self.assertAlmostEqual(s["mfe"], 60, places=3)
+                self.assertIn("+60", excursion_text("ru", s, "sl"))
+                self.assertIn("4064.00", excursion_text("ru", s, "sl"))
+                await db.add_signal("combo", 1, 4000.0, 3990.0, 4020.0)    # BUY: просадка 35, потом тейк
+                for p in (3996.5, 4010.0, 4020.0):
+                    await eng.check_open(p)
+                s, status = closed[1]
+                self.assertEqual(status, "tp")
+                self.assertIn("−35", excursion_text("ru", s, "tp"))
+                await db.close()
+        run(go())
+
+
+class ExcursionChartTests(unittest.TestCase):
+    def test_close_chart_with_max_lines(self):
+        df = m5_frame(days=1)
+        e = float(df.close.iloc[-1])
+        png = render_signal(df, -1, e, e + 10, e - 20, "XAUUSD · #1 · STOP LOSS", mfe=60, mae=100)
+        self.assertTrue(png.startswith(b"\x89PNG"))
