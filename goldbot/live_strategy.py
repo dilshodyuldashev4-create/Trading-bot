@@ -11,7 +11,7 @@ from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
 from .strategies.popular import donchian_breakout
 from .strategies.research import squeeze_breakout, swing_sweep
-from .strategies.sessions import asian_range_breakout, silver_bullet
+from .strategies.sessions import asian_range_breakout, bank_manipulation, silver_bullet
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
 
 
 # Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
-GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15"}
+GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -63,12 +63,16 @@ STRATEGIES = {
         "liq_m15", "Снятие ликвидности за свингом по дневному тренду", "15min", swing_sweep,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 967 сделок, винрейт 36.4%, +8900 пипсов",
         daily_trend=True),
+    "amd": LiveStrategy(
+        "amd", "Манипуляция банка: Азия — диапазон, Лондон — вынос ликвидности, Нью-Йорк — вход", "15min",
+        bank_manipulation,
+        "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 386 сделок, тейков 46%, +54R"),
 }
 
 
 # STRATEGY=all — самые прибыльные стратегии на M15 (по одной на сетап, чтобы один и тот же сигнал не приходил
 # дважды). У каждой не больше одной открытой сделки, а встречный сигнал (против открытой сделки) не даётся.
-PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15")
+PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd")
 
 
 def resolve_keys(spec: str) -> list[str]:

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from goldbot.backtest import run_backtest
-from goldbot.strategies.sessions import asian_range_breakout, silver_bullet
+from goldbot.strategies.sessions import asian_range_breakout, bank_manipulation, silver_bullet
 from goldbot.strategies.xadz import xadz_signals
 
 
@@ -89,3 +89,20 @@ class DailyTrendTests(unittest.TestCase):
         sig[-10], sig[-5] = 1, -1
         out = with_trend(lambda _: sig)(df)
         self.assertEqual((int(out[-10]), int(out[-5])), (1, 0))
+
+
+class BankManipulationTests(unittest.TestCase):
+    def test_london_sweeps_high_then_ny_pullback(self):
+        # 10.03.2025, Лондон = UTC: Азия 00–07 в диапазоне 100±0.5, Лондон выносит хай (105), Нью-Йорк возвращается в диапазон
+        p = [100] * 28 + [105] * 4 + [102] * 16 + [100] * 20 + [100] * 28
+        df = make_df(p)
+        follow, classic = bank_manipulation(df), bank_manipulation(df, follow=False)
+        i = int(np.flatnonzero(follow)[0])
+        self.assertEqual(follow[i], 1)       # по направлению лондонского выноса
+        self.assertEqual(classic[i], -1)     # классика: разворот
+        self.assertEqual(df.index[i].hour, 12)
+        self.assertEqual(np.count_nonzero(follow), 1)
+
+    def test_both_sides_swept_no_signal(self):
+        p = [100] * 28 + [105] * 4 + [95] * 4 + [100] * 40
+        self.assertEqual(np.count_nonzero(bank_manipulation(make_df(p))), 0)

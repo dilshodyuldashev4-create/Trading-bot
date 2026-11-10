@@ -97,3 +97,42 @@ def ema_pullback(df):
     up = (e50 > e200) & (df.low <= e50) & (df.close > e50) & (df.close > df.open)
     dn = (e50 < e200) & (df.high >= e50) & (df.close < e50) & (df.close < df.open)
     return (up.astype(np.int8) - dn.astype(np.int8)).to_numpy()
+
+
+def bank_manipulation(df, follow: bool = True, entry: str = "ny_open"):
+    """«Манипуляция банка» (AMD / Power of 3) по сессиям, время Лондона:
+    Азия 00:00–07:00 — диапазон (накопление); Лондон 07:00–12:00 снимает ликвидность только с ОДНОЙ
+    стороны азиатского диапазона; Нью-Йорк 12:00–16:00 — вход, когда свеча закрылась обратно внутри
+    азиатского диапазона (entry="ny_open") или за его противоположной границей (entry="ny_break").
+
+    follow=False — классика: Нью-Йорк разворачивает лондонский вынос (сняли лои → BUY).
+    follow=True — по направлению лондонского выноса (сняли хаи → BUY на откате в диапазон).
+    На XAUUSD 12.2023–08.2026 (M15, стоп 2 ATR / тейк 3 ATR) классика в минусе: 32% тейков, −77R;
+    по направлению Лондона: 46% тейков, +54R. Поэтому по умолчанию follow=True. Один сигнал в день.
+    """
+    t = _local(df, "Europe/London")
+    m, day = _minutes(t), t.normalize()
+    h, l, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    sig = np.zeros(len(df), dtype=np.int8)
+    cur, ahi, alo, up, dn, done = None, -np.inf, np.inf, False, False, False
+    for i in range(len(df)):
+        if day[i] != cur:
+            cur, ahi, alo, up, dn, done = day[i], -np.inf, np.inf, False, False, False
+        if m[i] < 420:
+            ahi, alo = max(ahi, h[i]), min(alo, l[i])
+            continue
+        if not np.isfinite(ahi) or done:
+            continue
+        if m[i] < 720:      # Лондон: какая сторона азиатского диапазона снята
+            up |= h[i] > ahi
+            dn |= l[i] < alo
+            continue
+        if m[i] >= 960 or up == dn:
+            continue        # вне окна Нью-Йорка или сняты обе стороны / ни одной
+        d = 1 if dn else -1  # классика: сняли лои → покупки
+        if follow:
+            d = -d
+        ok = alo < c[i] < ahi if entry == "ny_open" else (c[i] > ahi if d == 1 else c[i] < alo)
+        if ok:
+            sig[i], done = d, True
+    return sig
