@@ -324,11 +324,13 @@ class SignalEngine:
         await self.check_open(price)
         await self.news_close_check(now, price)
 
-        open_keys = {s["strategy"] for s in await self.db.open_signals()}
+        opened = await self.db.open_signals()
+        open_keys = {s["strategy"] for s in opened}
+        open_dirs = {s["direction"] for s in opened}   # стороны открытых сделок (1 BUY, -1 SELL)
         cache: dict[str, pd.DataFrame] = {}
         result = None
         for st in self.strategies:
-            ns = await self._tick_strategy(st, now, price, cache, open_keys)
+            ns = await self._tick_strategy(st, now, price, cache, open_keys, open_dirs)
             result = ns or result
         return result
 
@@ -338,7 +340,7 @@ class SignalEngine:
         return cache[tf]
 
     async def _tick_strategy(self, st: LiveStrategy, now: pd.Timestamp, price: float,
-                             cache: dict, open_keys: set) -> NewSignal | None:
+                             cache: dict, open_keys: set, open_dirs: set | None = None) -> NewSignal | None:
         tf = st.timeframe
         step = pd.Timedelta(minutes=TF_MINUTES[tf])
         naive_now = now.tz_convert(None)
@@ -375,6 +377,10 @@ class SignalEngine:
         d = await self.direction(df, now, st)
         if d == 0:
             return None
+        open_dirs = open_dirs if open_dirs is not None else set()
+        if -d in open_dirs:
+            log.info("signal skipped (%s): %s while an opposite trade is open", st.key, "BUY" if d == 1 else "SELL")
+            return None  # встречный сигнал: пока открыта сделка в другую сторону, не даём
         info = None
         if self.news_bias is not None:
             try:
@@ -391,6 +397,7 @@ class SignalEngine:
         tp = entry + d * self.tp_pips * PIP
         sid = await self.db.add_signal(st.key, d, entry, sl, tp)
         open_keys.add(st.key)
+        open_dirs.add(d)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
         title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)

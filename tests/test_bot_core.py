@@ -143,7 +143,7 @@ class ComboTrendTests(unittest.TestCase):
 
                 df = m5_frame(days=20, start="2025-03-03 00:00")
                 prov = Replay(df, start=300)
-                eng = SignalEngine(db, prov, "fvg_m5", 30, 60, "Asia/Tashkent", on_signal, on_close)
+                eng = SignalEngine(db, prov, "fvg_m15", 30, 60, "Asia/Tashkent", on_signal, on_close)
                 trends = []
                 while prov.pos < len(df):
                     prov.step()
@@ -370,7 +370,7 @@ class NewsBiasFilterTests(unittest.TestCase):
 
                 df = m5_frame(days=20, start="2025-03-03 00:00")
                 prov = Replay(df, start=300)
-                eng = SignalEngine(db, prov, "fvg_m5", 30, 60, "UTC", on_signal, on_close)
+                eng = SignalEngine(db, prov, "fvg_m15", 30, 60, "UTC", on_signal, on_close)
                 eng.news_bias, eng.news_block = bias, True
                 while prov.pos < len(df):
                     prov.step()
@@ -468,5 +468,38 @@ class NewsCloseTests(unittest.TestCase):
                 rows = await db.last_signals(10)
                 self.assertEqual(rows[0]["status"], "news")
                 self.assertIn("+50", stats_text("ru", rows, "UTC"))
+                await db.close()
+        run(go())
+
+
+class OppositeSignalTests(unittest.TestCase):
+    def test_no_opposite_signal_while_trade_open(self):
+        """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); в ту же сторону можно."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                sent = []
+
+                async def on_signal(s):
+                    sent.append(s)
+
+                async def on_close(s, status, price):
+                    pass
+
+                df = m5_frame(days=6, start="2025-03-03 00:00")
+                prov = Replay(df, start=600)
+                eng = SignalEngine(db, prov, "squeeze,donchian,fvg_m15", 1000, 2000, "UTC", on_signal, on_close)
+                want = {"squeeze": 1, "donchian": -1, "fvg_m15": 1}
+
+                async def direction(df_, now_, st=None):
+                    return want[st.key]
+                eng.direction = direction
+                t = (df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC")
+                await eng.tick(now=t)          # первый запуск: только запоминаем свечу
+                prov.step(3)
+                t += pd.Timedelta(minutes=15)
+                await eng.tick(now=t)
+                self.assertEqual([s.direction for s in sent], [1, 1], "SELL против открытого BUY не должен прийти")
                 await db.close()
         run(go())
