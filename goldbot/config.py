@@ -53,7 +53,7 @@ class Config:
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
     late_pips: float = float(os.getenv("LATE_PIPS", "30"))
     # после стольких стопов подряд за день бот закрывает торговый день (0 — не закрывать)
-    max_sl_streak: int = int(os.getenv("MAX_SL_STREAK", "2"))
+    max_sl_streak: int = int(os.getenv("MAX_SL_STREAK", "0"))
     lot_mode: str = os.getenv("LOT_MODE", "risk")
     lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "2"))
 
