@@ -10,9 +10,8 @@ import pandas as pd
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
 from .strategies.popular import donchian_breakout
-from .strategies.research import (equal_levels_sweep, rsi_pullback_raw, squeeze_breakout, swing_sweep,
-                                  trendline_breakout)
-from .strategies.sessions import asian_range_breakout, silver_bullet
+from .strategies.research import squeeze_breakout, swing_sweep
+from .strategies.sessions import asian_range_breakout, bank_manipulation, silver_bullet
 
 
 @dataclass(frozen=True)
@@ -38,7 +37,7 @@ def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
 
 
 # Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
-GENERIC = {"rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5", "liq_m5", "eqliq_m5"}
+GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -48,11 +47,7 @@ STRATEGIES = {
         "fvg", "OB + FVG + BOS по тренду EMA200", "1h",
         lambda df: fvg_bos_signals(df, trend_filter=True),
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 283 сделки, винрейт 37.8%, +3800 пипсов"),
-    # ── самые прибыльные в 2026 году (M5–H4, без привязки к сессиям) ──
-    "rsi_m5": LiveStrategy(
-        "rsi_m5", "RSI-откат по дневному тренду", "5min", rsi_pullback_raw,
-        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 2462 сделки, винрейт 35.0%, +12100 пипсов",
-        daily_trend=True),
+    # ── самые прибыльные на M15 (без привязки к сессиям). Сигналов на M5 нет: на M5 слишком много шума ──
     "squeeze": LiveStrategy(
         "squeeze", "Squeeze (Боллинджер в Кельтнере) по дневному тренду", "15min", squeeze_breakout,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 441 сделка, винрейт 40.8%, +9900 пипсов",
@@ -60,28 +55,24 @@ STRATEGIES = {
     "donchian": LiveStrategy(
         "donchian", "Пробой канала Дончиана 20 по тренду EMA200", "15min", donchian_breakout,
         "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1635 сделок, винрейт 34.7%, +6900 пипсов"),
-    "fvg_m5": LiveStrategy(
-        "fvg_m5", "OB + FVG + BOS по дневному тренду", "5min", _fvg_raw,
-        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1375 сделок, винрейт 36.7%, +14000 пипсов",
+    "fvg_m15": LiveStrategy(
+        "fvg_m15", "OB + FVG + BOS по дневному тренду", "15min", _fvg_raw,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 647 сделок, винрейт 38.5%, +10000 пипсов",
         daily_trend=True),
-    "trendline_m5": LiveStrategy(
-        "trendline_m5", "Пробой трендовой линии по дневному тренду", "5min", trendline_breakout,
-        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1812 сделок, винрейт 35.2%, +9900 пипсов",
+    "liq_m15": LiveStrategy(
+        "liq_m15", "Снятие ликвидности за свингом по дневному тренду", "15min", swing_sweep,
+        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 967 сделок, винрейт 36.4%, +8900 пипсов",
         daily_trend=True),
-    "liq_m5": LiveStrategy(
-        "liq_m5", "Снятие ликвидности за свингом по дневному тренду", "5min", swing_sweep,
-        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 1917 сделок, винрейт 34.3%, +5700 пипсов",
-        daily_trend=True),
-    "eqliq_m5": LiveStrategy(
-        "eqliq_m5", "Снятие ликвидности за равными хаями/лоями по дневному тренду", "5min", equal_levels_sweep,
-        "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 437 сделок, винрейт 38.9%, +7300 пипсов",
-        daily_trend=True),
+    "amd": LiveStrategy(
+        "amd", "Манипуляция банка: Азия — диапазон, Лондон — вынос ликвидности, Нью-Йорк — вход", "15min",
+        bank_manipulation,
+        "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 386 сделок, тейков 46%, +54R"),
 }
 
 
-# STRATEGY=all — самые прибыльные стратегии 2026 года на M5–H4 (по одной на сетап, чтобы один и тот же
-# сигнал не приходил дважды) + 2 стратегии ликвидности. Каждая сама по себе: не больше одной открытой сделки.
-PORTFOLIO = ("rsi_m5", "squeeze", "donchian", "fvg_m5", "trendline_m5", "liq_m5", "eqliq_m5")
+# STRATEGY=all — самые прибыльные стратегии на M15 (по одной на сетап, чтобы один и тот же сигнал не приходил
+# дважды). У каждой не больше одной открытой сделки, а встречный сигнал (против открытой сделки) не даётся.
+PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd")
 
 
 def resolve_keys(spec: str) -> list[str]:

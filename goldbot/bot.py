@@ -76,18 +76,19 @@ def capital_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def lot_plan(capital: float) -> dict:
-    """Лот подписчика и что он теряет/зарабатывает по стопу/тейку."""
-    lot = lot_for(capital, config.lot_mode, config.lot_risk_pct, config.sl_pips)
-    loss, profit = money(lot, config.sl_pips), money(lot, config.tp_pips)
+def lot_plan(capital: float, sl_pips: float = 0, tp_pips: float = 0) -> dict:
+    """Лот подписчика и что он теряет/зарабатывает по стопу/тейку (пипсы сигнала; 0 — из настроек)."""
+    sl_pips, tp_pips = sl_pips or config.sl_pips, tp_pips or config.tp_pips
+    lot = lot_for(capital, config.lot_mode, config.lot_risk_pct, sl_pips)
+    loss, profit = money(lot, sl_pips), money(lot, tp_pips)
     return {"lot": lot, "loss": loss, "profit": profit, "loss_pct": 100 * loss / capital}
 
 
-def lot_text(lang: str, capital: float | None) -> str:
+def lot_text(lang: str, capital: float | None, sl_pips: float = 0, tp_pips: float = 0) -> str:
     """Блок «Ваш лот» для подписи сигнала."""
     if not capital:
         return t(lang, "sig_nocap")
-    p = lot_plan(capital)
+    p = lot_plan(capital, sl_pips, tp_pips)
     pct = f"{p['loss_pct']:.1f}".rstrip("0").rstrip(".")
     text = t(lang, "sig_lot", lot=f"{p['lot']:.2f}", cap=fmt_usd(capital), loss=fmt_usd(p["loss"]),
              loss_pct=pct, profit=fmt_usd(p["profit"]))
@@ -156,10 +157,11 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
     return out
 
 
-def signal_caption(lang: str, text: str, capital: float | None, direction: int, entry: float) -> str:
+def signal_caption(lang: str, text: str, capital: float | None, direction: int, entry: float,
+                   sl_pips: float = 0, tp_pips: float = 0) -> str:
     """Подпись к фото сигнала для конкретного подписчика: его лот, до какой цены входить, правила."""
     rules = t(lang, "sig_rules", n=config.max_sl_streak) if config.max_sl_streak > 0 else ""
-    return with_lot(text, lot_text(lang, capital) + late_hint(lang, direction, entry)) + rules
+    return with_lot(text, lot_text(lang, capital, sl_pips, tp_pips) + late_hint(lang, direction, entry)) + rules
 
 
 def with_lot(caption: str, block: str) -> str:
@@ -179,6 +181,8 @@ class App:
                                    config.display_tz, self.broadcast_signal, self.broadcast_close,
                                    self.broadcast_late, config.late_pips,
                                    self.broadcast_day_closed, config.max_sl_streak)
+        self.engine.sl_atr, self.engine.tp_atr = config.sl_atr, config.tp_atr
+        self.engine.sl_min_pips = config.sl_min_pips
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
         self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
@@ -235,7 +239,7 @@ class App:
         async def image_for(capital: float | None) -> bytes:
             if not capital or s.render is None:
                 return s.image
-            p = lot_plan(capital)
+            p = lot_plan(capital, s.sl_pips, s.tp_pips)
             if p["lot"] not in images:
                 try:
                     images[p["lot"]] = await asyncio.to_thread(
@@ -250,12 +254,12 @@ class App:
         for u in uids:
             lang, capital = norm(langs.get(u)), caps.get(u)
             img = await image_for(capital)
-            caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry)
+            caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry, s.sl_pips, s.tp_pips)
             sent = await self._send(u, lambda u=u, img=img, caption=caption, lang=lang: self.bot.send_photo(
                 u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption,
                 reply_markup=decision_kb(lang, s.id)))
             if sent:  # запоминаем, кто получил сигнал и с каким лотом (0 — капитал не указан)
-                await self.db.add_signal_lot(s.id, u, lot_plan(capital)["lot"] if capital else 0)
+                await self.db.add_signal_lot(s.id, u, lot_plan(capital, s.sl_pips, s.tp_pips)["lot"] if capital else 0)
             ok += sent
             await asyncio.sleep(0.04)
         log.info("signal #%s sent to %s users", s.id, ok)
@@ -277,10 +281,8 @@ class App:
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
         side = "BUY" if s["direction"] == 1 else "SELL"
-        if status == "tp":
-            pips, level = config.tp_pips, s["tp"]
-        else:
-            pips, level = config.sl_pips, s["sl"]
+        level = s["tp"] if status == "tp" else s["sl"]
+        pips = abs(level - s["entry"]) / PIP   # у каждого сигнала свои стоп и тейк
         st = await self.db.stats()
         closed = st["tp"] + st["sl"]
 

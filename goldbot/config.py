@@ -43,6 +43,11 @@ class Config:
     strategy: str = os.getenv("STRATEGY", "all")  # all | ключ стратегии | несколько через запятую (см. .env.example)
     sl_pips: float = float(os.getenv("SL_PIPS", "100"))
     tp_pips: float = float(os.getenv("TP_PIPS", "200"))
+    # стоп и тейк по волатильности: SL_ATR × ATR(14) и TP_ATR × ATR(14) свечей стратегии, у каждого сигнала свои.
+    # 0 — фиксированные SL_PIPS / TP_PIPS. Стоп не меньше SL_MIN_PIPS.
+    sl_atr: float = float(os.getenv("SL_ATR", "2"))
+    tp_atr: float = float(os.getenv("TP_ATR", "3"))
+    sl_min_pips: float = float(os.getenv("SL_MIN_PIPS", "50"))
     # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
