@@ -17,6 +17,7 @@ from .chart import render_signal
 from .data import PIP
 from .db import DB
 from .i18n import DEFAULT, per_lang, t
+from .indicators import atr
 from .live_strategy import STRATEGIES, LiveStrategy, daily_trend_side, expected_setup, resolve_keys
 from .market import TF_MINUTES, Provider
 
@@ -35,6 +36,8 @@ class NewSignal:
     image: bytes
     texts: dict[str, str]  # язык → текст сигнала
     render: Optional[Callable[..., bytes]] = None  # картинка с подписями для конкретного подписчика
+    sl_pips: float = 0     # стоп и тейк этого сигнала в пипсах (по ATR у каждого свои)
+    tp_pips: float = 0
 
     @property
     def text(self) -> str:
@@ -105,7 +108,7 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
                   sl_pips: float, tp_pips: float, when: str, lang: str = "ru") -> str:
     return t(lang, "signal", side="🟢 BUY" if d == 1 else "🔴 SELL", entry=f"{entry:.2f}",
              sl=f"{sl:.2f}", tp=f"{tp:.2f}", sl_pips=f"{sl_pips:.0f}", tp_pips=f"{tp_pips:.0f}",
-             rr=f"{tp_pips / sl_pips:.0f}", strategy=t(lang, f"strat_{strategy.key}"), when=when,
+             rr=f"{tp_pips / sl_pips:.1f}".rstrip("0").rstrip("."), strategy=t(lang, f"strat_{strategy.key}"), when=when,
              note=t(lang, f"note_{strategy.key}"))
 
 
@@ -148,6 +151,17 @@ class SignalEngine:
         # за сколько минут до важной новости США закрывать открытые сделки (0 — не закрывать)
         self.news_close_min = 0
         self.on_news_close: Optional[Callable[[dict, float, dict, int], Awaitable[None]]] = None
+        # стоп/тейк по волатильности: множители ATR(14) таймфрейма стратегии (0 — фиксированные пипсы)
+        self.sl_atr = self.tp_atr = 0.0
+        self.sl_min_pips = 50.0
+
+    def sl_tp_pips(self, df: pd.DataFrame) -> tuple[float, float]:
+        """Стоп и тейк в пипсах для нового сигнала: по ATR(14) последних закрытых свечей или фиксированные."""
+        if self.sl_atr <= 0 or self.tp_atr <= 0 or len(df) < 15:
+            return self.sl_pips, self.tp_pips
+        a = float(atr(df, 14).iloc[-1]) / PIP
+        sl = max(self.sl_min_pips, round(self.sl_atr * a / 10) * 10)
+        return sl, round(sl * self.tp_atr / self.sl_atr / 10) * 10
 
     @property
     def multi(self) -> bool:
@@ -393,8 +407,9 @@ class SignalEngine:
                          "BUY" if d == 1 else "SELL")
                 return None
         entry = price
-        sl = entry - d * self.sl_pips * PIP
-        tp = entry + d * self.tp_pips * PIP
+        sl_p, tp_p = self.sl_tp_pips(df)
+        sl = entry - d * sl_p * PIP
+        tp = entry + d * tp_p * PIP
         sid = await self.db.add_signal(st.key, d, entry, sl, tp)
         open_keys.add(st.key)
         open_dirs.add(d)
@@ -402,10 +417,9 @@ class SignalEngine:
         title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
-                       per_lang(lambda lang: format_signal(st, d, entry, sl, tp,
-                                                           self.sl_pips, self.tp_pips, when, lang)
+                       per_lang(lambda lang: format_signal(st, d, entry, sl, tp, sl_p, tp_p, when, lang)
                                 + news_line(info, d, lang)),
-                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw))
+                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw), sl_p, tp_p)
         await self.on_signal(ns)
         return ns
 

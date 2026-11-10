@@ -503,3 +503,23 @@ class OppositeSignalTests(unittest.TestCase):
                 self.assertEqual([s.direction for s in sent], [1, 1], "SELL против открытого BUY не должен прийти")
                 await db.close()
         run(go())
+
+
+class AtrStopTests(unittest.TestCase):
+    def test_sl_tp_by_atr(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                eng = SignalEngine(db, Replay(m5_frame()), "squeeze", 100, 200, "UTC", None, None)
+                df = m5_frame(days=2)
+                self.assertEqual(eng.sl_tp_pips(df), (100, 200))       # ATR выключен — фиксированные
+                eng.sl_atr, eng.tp_atr, eng.sl_min_pips = 2, 3, 10
+                df = df.assign(high=df.close + 5, low=df.close - 5)    # ход свечи ~10 $ = 100 пипсов
+                sl, tp = eng.sl_tp_pips(df)
+                self.assertAlmostEqual(sl, 200, delta=20)
+                self.assertEqual(tp, round(sl * 1.5 / 10) * 10)
+                eng.sl_min_pips = 500
+                self.assertEqual(eng.sl_tp_pips(df)[0], 500)          # не меньше минимума
+                await db.close()
+        run(go())
