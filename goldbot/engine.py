@@ -211,6 +211,8 @@ class SignalEngine:
         return now.tz_convert(self.tz).strftime("%Y-%m-%d")
 
     async def day_closed(self, now: pd.Timestamp | None = None) -> bool:
+        if self.max_sl_streak <= 0:
+            return False  # ограничение выключено (в том числе если день был закрыт до выключения)
         return await self.db.get_kv("day_closed") == self.today(now)
 
     async def check_day_stop(self, now: pd.Timestamp | None = None) -> None:
