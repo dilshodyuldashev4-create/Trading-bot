@@ -181,19 +181,41 @@ class SignalEngine:
         st = STRATEGIES.get(strategy_key or "")
         return self.dfs.get(st.timeframe) if st is not None and st.timeframe in self.dfs else self.last_df
 
-    async def check_open(self, price: float) -> None:
+    @staticmethod
+    def _range_since(s: dict, bars: pd.DataFrame | None) -> tuple[float, float] | None:
+        """Максимум и минимум свечей, начавшихся после открытия сигнала (минуту люфта даём на задержку
+        сигнала после закрытия свечи). Нужен, чтобы не пропустить тейк или стоп, которые цена задела
+        тенью между двумя опросами цены."""
+        if bars is None or bars.empty or not s.get("created_at"):
+            return None
+        created = pd.Timestamp(s["created_at"])
+        created = created.tz_convert(None) if created.tzinfo else created
+        part = bars[bars.index >= created - pd.Timedelta(minutes=1)]
+        if part.empty:
+            return None
+        return float(part["high"].max()), float(part["low"].min())
+
+    async def check_open(self, price: float, bars: pd.DataFrame | None = None) -> None:
+        """Закрывает сделки по стопу и тейку: по текущей цене и, если даны свечи, по их high/low
+        с момента открытия сигнала (как в бэктесте; если в одной свече задеты оба уровня — стоп)."""
         for s in await self.db.open_signals():
             d = s["direction"]
+            hi = lo = price
+            rng = self._range_since(s, bars)
+            if rng is not None:
+                hi, lo = max(hi, rng[0]), min(lo, rng[1])
+            best, worst = (hi, lo) if d == 1 else (lo, hi)   # лучшая и худшая цена для сделки
             # максимальный ход цены в плюс (mfe) и в минус (mae) за время сделки, в пипсах
             moved = d * (price - s["entry"]) / PIP
-            mfe, mae = max(s.get("mfe") or 0, moved), max(s.get("mae") or 0, -moved)
+            mfe = max(s.get("mfe") or 0, d * (best - s["entry"]) / PIP)
+            mae = max(s.get("mae") or 0, -d * (worst - s["entry"]) / PIP)
             if (mfe, mae) != (s.get("mfe") or 0, s.get("mae") or 0):
                 s["mfe"], s["mae"] = mfe, mae
                 await self.db.set_excursion(s["id"], mfe, mae)
             status = None
-            if (d == 1 and price <= s["sl"]) or (d == -1 and price >= s["sl"]):
+            if d * (worst - s["sl"]) <= 0:
                 status = "sl"
-            elif (d == 1 and price >= s["tp"]) or (d == -1 and price <= s["tp"]):
+            elif d * (best - s["tp"]) >= 0:
                 status = "tp"
             if status:
                 await self.db.close_signal(s["id"], status)
@@ -348,6 +370,10 @@ class SignalEngine:
         for st in self.strategies:
             ns = await self._tick_strategy(st, now, price, cache, open_keys, open_dirs)
             result = ns or result
+        if cache:
+            # пришли свежие свечи: проверяем, не задела ли цена тейк или стоп тенью между опросами
+            # (новые сигналы этой проверкой не затрагиваются — их свечи ещё не начались)
+            await self.check_open(price, cache[min(cache, key=lambda tf: TF_MINUTES[tf])])
         return result
 
     async def _candles(self, tf: str, now: pd.Timestamp, cache: dict) -> pd.DataFrame:
