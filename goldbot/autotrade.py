@@ -77,18 +77,25 @@ class MetaApi:
             await self._session.close()
 
     async def request(self, method: str, url: str, json: Any = None,
-                      headers: dict | None = None) -> tuple[int, Any, dict]:
+                      headers: dict | None = None, timeout: float = 90) -> tuple[int, Any, dict]:
+        """Запрос к MetaApi. Таймаут и обрыв связи — MetaApiError с кодом TIMEOUT / NETWORK."""
         h = {"auth-token": self.token, "Accept": "application/json", **(headers or {})}
         s = await self._http()
-        async with s.request(method, url, json=json, headers=h) as r:
-            try:
-                body = await r.json(content_type=None)
-            except Exception:  # noqa: BLE001
-                body = await r.text()
-            return r.status, body, dict(r.headers)
+        try:
+            async with s.request(method, url, json=json, headers=h,
+                                 timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                try:
+                    body = await r.json(content_type=None)
+                except Exception:  # noqa: BLE001
+                    body = await r.text()
+                return r.status, body, dict(r.headers)
+        except asyncio.TimeoutError as e:
+            raise MetaApiError(f"MetaApi did not answer in {timeout:.0f}s", "TIMEOUT") from e
+        except aiohttp.ClientError as e:
+            raise MetaApiError(f"{type(e).__name__}: {e}", "NETWORK") from e
 
-    async def _ok(self, method: str, url: str, json: Any = None) -> Any:
-        status, body, _ = await self.request(method, url, json)
+    async def _ok(self, method: str, url: str, json: Any = None, timeout: float = 90) -> Any:
+        status, body, _ = await self.request(method, url, json, timeout=timeout)
         if status >= 400:
             raise _error(status, body)
         return body
@@ -108,18 +115,34 @@ class MetaApi:
         if region:
             body["region"] = region
         tid = secrets.token_hex(16)
-        waited = 0.0
+        loop = asyncio.get_running_loop()
+        start = loop.time()
         while True:
-            status, resp, headers = await self.request("POST", f"{PROVISIONING}/users/current/accounts", body,
-                                                       {"transaction-id": tid})
+            try:  # MetaApi может долго проверять логин у брокера — ждём долго
+                status, resp, headers = await self.request("POST", f"{PROVISIONING}/users/current/accounts", body,
+                                                           {"transaction-id": tid}, timeout=180)
+            except MetaApiError as e:
+                # ответ не дошёл: повторяем с тем же transaction-id, MetaApi вернёт уже созданный счёт, а не второй
+                if e.code in ("TIMEOUT", "NETWORK") and loop.time() - start < max_wait:
+                    log.info("create account: %s, retrying", e)
+                    await asyncio.sleep(5)
+                    continue
+                raise
+            waited = loop.time() - start
             if status in (200, 201):
                 return resp
             if status == 202 and waited < max_wait:
                 delay = min(max(float(headers.get("Retry-After", 10) or 10), 3), 60)
                 await asyncio.sleep(delay)
-                waited += delay
                 continue
             raise _error(status, resp)
+
+    async def list_accounts(self, query: str) -> list[dict]:
+        from urllib.parse import quote
+        body = await self._ok("GET", f"{PROVISIONING}/users/current/accounts?query={quote(query)}&limit=100")
+        if isinstance(body, dict):  # в новых версиях API список лежит в items
+            body = body.get("items", [])
+        return body or []
 
     async def get_account(self, account_id: str) -> dict:
         return await self._ok("GET", f"{PROVISIONING}/users/current/accounts/{account_id}")
@@ -137,8 +160,8 @@ class MetaApi:
     def _client(self, account_id: str, region: str) -> str:
         return f"{CLIENT.format(region=region or 'new-york')}/users/current/accounts/{account_id}"
 
-    async def account_info(self, account_id: str, region: str) -> dict:
-        return await self._ok("GET", f"{self._client(account_id, region)}/account-information")
+    async def account_info(self, account_id: str, region: str, timeout: float = 90) -> dict:
+        return await self._ok("GET", f"{self._client(account_id, region)}/account-information", timeout=timeout)
 
     async def symbols(self, account_id: str, region: str) -> list[str]:
         body = await self._ok("GET", f"{self._client(account_id, region)}/symbols")
@@ -257,6 +280,7 @@ class AutoTrader:
         old = await self.db.get_trade_account(uid)
         if old:  # повторное подключение — старый счёт убираем из MetaApi
             await self.disconnect(uid)
+        await self._remove_orphans(uid)
         acc = await self.api.create_account(name=f"tg{uid}-{login}", login=login, password=password,
                                             server=server, platform=platform, magic=self.magic, region=self.region)
         acc_id = acc.get("id") or acc.get("_id")
@@ -278,16 +302,34 @@ class AutoTrader:
                                          info.get("type") == "ACCOUNT_TRADE_MODE_DEMO")
         return {**info, "symbol": symbol, "server": server, "login": login}
 
+    async def _remove_orphans(self, uid: int) -> None:
+        """Счета этого подписчика в MetaApi, которых нет в базе бота (прошлая попытка оборвалась), — удаляем,
+        чтобы не платить за них и не держать там пароль."""
+        prefix = f"tg{uid}-"
+        try:
+            accounts = await self.api.list_accounts(prefix)
+        except Exception as e:  # noqa: BLE001
+            log.info("list accounts for %s: %s", uid, e)
+            return
+        for a in accounts:
+            if str(a.get("name", "")).startswith(prefix):
+                log.info("removing leftover MetaApi account %s of user %s", a.get("_id") or a.get("id"), uid)
+                await self._remove_quietly(a.get("_id") or a.get("id"))
+
     async def _wait_connected(self, acc_id: str) -> dict:
         waited = 0.0
         last = ""
         while waited <= self.connect_timeout:
-            a = await self.api.get_account(acc_id)
-            last = a.get("connectionStatus", "")
+            try:
+                a = await self.api.get_account(acc_id)
+            except MetaApiError as e:  # MetaApi ответил с ошибкой или не ответил — пробуем ещё
+                log.info("get account %s: %s", acc_id, e)
+                a = {}
+            last = a.get("connectionStatus", last)
             if a.get("state") == "DEPLOYED" and last == "CONNECTED":
                 region = a.get("region") or self.region or "new-york"
                 try:
-                    info = await self.api.account_info(acc_id, region)
+                    info = await self.api.account_info(acc_id, region, timeout=30)
                     return {**info, "_region": region}
                 except MetaApiError as e:  # терминал ещё синхронизируется
                     log.info("account info not ready for %s: %s", acc_id, e)
