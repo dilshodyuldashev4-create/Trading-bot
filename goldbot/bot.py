@@ -6,7 +6,7 @@ import csv
 import html
 import io
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -924,7 +924,8 @@ class App:
                                        "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
                                        "/autotrade off|on — остановить / включить автоторговлю у всех\n"
                                        "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
-                                       "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты")
+                                       "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты\n"
+                                       "/feed — откуда сейчас берутся цены (брокер или запасной источник)")
             await c.answer()
 
         @r.message(Command("cancel"))
@@ -978,6 +979,37 @@ class App:
             if status == "sl":
                 await self.engine.check_day_stop()
             await m.answer(f"✅ Сигнал #{sid} закрыт: {status.upper()}, сообщение отправлено всем")
+
+        @r.message(Command("feed"))
+        async def feed(m: Message):
+            """Админу: откуда сейчас берутся цены, последняя ошибка MetaApi и живая проверка обоих источников."""
+            if not self.is_admin(m.from_user.id):
+                return
+            import time
+            p = self.provider
+            if not isinstance(p, Failover):
+                await m.answer("Источник цен: только DATA_PROVIDER / PRICE_PROVIDER "
+                               "(нет METAAPI_TOKEN или MARKET_FROM_BROKER=0)")
+                return
+            src = await self.market_account()
+            lines = ["📡 <b>Источник цен</b>",
+                     f"Цена: {'⚠️ запасной источник' if 'price' in p.backup_for else '✅ брокер через MetaApi'}",
+                     f"Свечи: {'⚠️ запасной источник' if 'candles' in p.backup_for else '✅ брокер через MetaApi'}",
+                     f"Счёт для цен: {html.escape(src['login'] + ' · ' + src['server'] + ' · ' + src['symbol']) if src else '❌ нет подключённого счёта админа'}"]
+            if p.last_ok_at:
+                lines.append(f"MetaApi отвечал: {self.fmt_dt(datetime.fromtimestamp(p.last_ok_at, timezone.utc))}")
+            if p.last_error:
+                lines.append(f"Последняя ошибка ({self.fmt_dt(datetime.fromtimestamp(p.last_error_at, timezone.utc))}): "
+                             f"<code>{html.escape(p.last_error)}</code>")
+            for name, prov in (("MetaApi", p.primary), ("Запасной", p.backup)):
+                t0 = time.monotonic()
+                try:
+                    price = await asyncio.wait_for(prov.price(), 10)
+                    lines.append(f"{name}: {price:.2f} ({time.monotonic() - t0:.1f} с)")
+                except Exception as e:  # noqa: BLE001
+                    lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "
+                                 f"({time.monotonic() - t0:.1f} с)")
+            await m.answer("\n".join(lines))
 
         @r.message(Command("grantauto"))
         async def grant_auto(m: Message, command: CommandObject):

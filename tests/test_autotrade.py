@@ -631,7 +631,10 @@ class MarketFeedTests(unittest.TestCase):
             calls = p.calls
             self.assertEqual(await f.price(), 2653.5)          # в паузе основной даже не спрашиваем
             self.assertEqual(p.calls, calls)
-            self.assertEqual((await f.candles("5min", 1))["close"].iloc[0], 2.0)
+            # свечи переключаются отдельно: сбой цены не уводит свечи с графика брокера
+            self.assertEqual((await f.candles("5min", 1))["close"].iloc[0], 1.0)
+            self.assertEqual(f.backup_for, {"price"})
+            self.assertIn("price: TimeoutError", f.last_error)
             p.hang = False
             await asyncio.sleep(0.6)
             self.assertEqual(await f.price(), 2650.0)          # вернулся — снова цены брокера
