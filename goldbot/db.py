@@ -54,6 +54,30 @@ CREATE TABLE IF NOT EXISTS signal_lots (
     PRIMARY KEY (signal_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS trade_accounts (
+    user_id INTEGER PRIMARY KEY,
+    meta_id TEXT NOT NULL,
+    region TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    server TEXT NOT NULL,
+    login TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    broker TEXT,
+    currency TEXT,
+    demo INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auto_trades (
+    signal_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    position_id TEXT,
+    volume REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (signal_id, user_id)
+);
 """
 
 
@@ -84,6 +108,8 @@ class DB:
             await self.conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
         if "capital" not in cols:
             await self.conn.execute("ALTER TABLE users ADD COLUMN capital REAL")
+        if "autotrade_asked" not in cols:  # бот уже спросил про автоторговлю
+            await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_asked INTEGER NOT NULL DEFAULT 0")
         cur = await self.conn.execute("PRAGMA table_info(signals)")
         scols = [r[1] for r in await cur.fetchall()]
         if "exit_price" not in scols:  # цена закрытия вручную (перед важной новостью)
@@ -303,6 +329,74 @@ class DB:
         cur = await self.conn.execute(
             "SELECT * FROM calendar_events WHERE ts>=? AND ts<=? ORDER BY ts", (_iso(a), _iso(b)))
         return [dict(r) for r in await cur.fetchall()]
+
+    # ── автоторговля ────────────────────────────────────────────────────────
+    async def set_autotrade_asked(self, uid: int) -> None:
+        await self.conn.execute("UPDATE users SET autotrade_asked=1 WHERE id=?", (uid,))
+        await self.conn.commit()
+
+    async def not_asked_autotrade(self) -> list[int]:
+        """Активные подписчики, которых бот ещё не спрашивал про автоторговлю и у кого нет счёта."""
+        t = _iso(now())
+        cur = await self.conn.execute(
+            "SELECT id FROM users WHERE blocked=0 AND autotrade_asked=0 AND (trial_until>? OR paid_until>?) "
+            "AND id NOT IN (SELECT user_id FROM trade_accounts)", (t, t))
+        return [r[0] for r in await cur.fetchall()]
+
+    async def save_trade_account(self, uid: int, meta_id: str, region: str, platform: str, server: str,
+                                 login: str, symbol: str, broker: str, currency: str, demo: bool) -> None:
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO trade_accounts (user_id, meta_id, region, platform, server, login, symbol, "
+            "broker, currency, demo, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
+            (uid, meta_id, region, platform, server, login, symbol, broker, currency, int(demo), _iso(now())))
+        await self.conn.commit()
+
+    async def get_trade_account(self, uid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM trade_accounts WHERE user_id=?", (uid,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def delete_trade_account(self, uid: int) -> None:
+        await self.conn.execute("DELETE FROM trade_accounts WHERE user_id=?", (uid,))
+        await self.conn.commit()
+
+    async def set_trade_enabled(self, uid: int, enabled: bool) -> None:
+        await self.conn.execute("UPDATE trade_accounts SET enabled=? WHERE user_id=?", (int(enabled), uid))
+        await self.conn.commit()
+
+    async def trade_accounts(self, enabled_only: bool = False) -> list[dict]:
+        """Счета для автоторговли; enabled_only — включённые и с действующим доступом к сигналам."""
+        if not enabled_only:
+            cur = await self.conn.execute("SELECT * FROM trade_accounts")
+        else:
+            t = _iso(now())
+            cur = await self.conn.execute(
+                "SELECT a.* FROM trade_accounts a JOIN users u ON u.id=a.user_id WHERE a.enabled=1 "
+                "AND u.blocked=0 AND (u.trial_until>? OR u.paid_until>?)", (t, t))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def save_auto_trade(self, sid: int, uid: int, position_id: str | None, volume: float,
+                              status: str, error: str) -> None:
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO auto_trades (signal_id, user_id, position_id, volume, status, error, created_at) "
+            "VALUES (?,?,?,?,?,?,?)", (sid, uid, position_id, volume, status, error, _iso(now())))
+        await self.conn.commit()
+
+    async def get_auto_trade(self, sid: int, uid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM auto_trades WHERE signal_id=? AND user_id=?", (sid, uid))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def auto_trades(self, sid: int, status: str | None = None) -> list[dict]:
+        if status:
+            cur = await self.conn.execute("SELECT * FROM auto_trades WHERE signal_id=? AND status=?", (sid, status))
+        else:
+            cur = await self.conn.execute("SELECT * FROM auto_trades WHERE signal_id=?", (sid,))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def set_auto_trade_status(self, sid: int, uid: int, status: str) -> None:
+        await self.conn.execute("UPDATE auto_trades SET status=? WHERE signal_id=? AND user_id=?", (status, sid, uid))
+        await self.conn.commit()
 
     # ── key-value ───────────────────────────────────────────────────────────
     async def get_kv(self, k: str, default: str | None = None) -> str | None:
