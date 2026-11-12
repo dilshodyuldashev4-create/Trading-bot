@@ -924,6 +924,7 @@ class App:
                                        "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
                                        "/autotrade off|on — остановить / включить автоторговлю у всех\n"
                                        "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
+                                       "/autotrade test — тестовая сделка мин. лотом на своём счёте (откроет и закроет)\n"
                                        "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты\n"
                                        "/feed — откуда сейчас берутся цены (брокер или запасной источник)")
             await c.answer()
@@ -1058,6 +1059,26 @@ class App:
                     await self.db.set_kv("autotrade_off", "1" if arg == "off" else "0")
                     await m.answer("⛔️ Автоторговля остановлена у всех: новые сделки не открываются"
                                    if arg == "off" else "✅ Автоторговля включена")
+                    return
+                if arg == "test":
+                    if not self.autotrader:
+                        await m.answer("Нет METAAPI_TOKEN в .env")
+                        return
+                    await m.answer("🧪 Открываю тестовую сделку BUY минимальным лотом на вашем счёте "
+                                   "(SL/TP ±$10), через 5 секунд закрою…")
+                    res, closed = await self.autotrader.test_trade(m.from_user.id)
+                    if not res.ok:
+                        await m.answer(f"❌ Сделка не открылась:\n<code>{html.escape(res.error)}</code>")
+                        return
+                    text = (f"✅ Открыта: {html.escape(res.symbol)} BUY {res.volume:.2f} лота по {res.price:.2f}, "
+                            f"SL {res.sl:.2f}, TP {res.tp:.2f}")
+                    if closed and closed.ok:
+                        pnl = "" if closed.profit is None else f", результат {closed.profit:+.2f} {closed.currency}"
+                        text += f"\n✅ Закрыта{pnl}"
+                    else:
+                        err = closed.error if closed else "нет записи о сделке"
+                        text += f"\n❌ Не закрылась, закройте вручную в MT5: <code>{html.escape(err)}</code>"
+                    await m.answer(text)
                     return
                 if arg == "invite":
                     if not self.autotrader:
