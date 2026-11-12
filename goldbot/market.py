@@ -157,29 +157,40 @@ class Hybrid(Provider):
 class Failover(Provider):
     """Основной источник (цены брокера через MetaApi) с мгновенным переключением на запасной:
     если основной не ответил за price_timeout / candle_timeout секунд или ответил ошибкой, этот же запрос
-    сразу идёт в запасной, и следующие cooldown секунд бот берёт данные только из запасного, без ожидания."""
+    сразу идёт в запасной, и следующие cooldown секунд этот вид данных берётся только из запасного, без ожидания.
+    Цена и свечи переключаются отдельно: сбой при загрузке свечей не уводит цену с графика брокера."""
 
     def __init__(self, primary: Provider, backup: Provider, price_timeout: float = 3,
                  candle_timeout: float = 15, cooldown: float = 60):
         self.primary, self.backup = primary, backup
         self.price_timeout, self.candle_timeout, self.cooldown = price_timeout, candle_timeout, cooldown
-        self._skip_until = 0.0
-        self.on_backup = False
+        self._skip_until: dict[str, float] = {}
+        self.backup_for: set[str] = set()   # что сейчас берётся из запасного: "price", "candles"
+        self.last_error = ""                # последняя ошибка основного источника (для /feed)
+        self.last_error_at = 0.0
+        self.last_ok_at = 0.0               # когда основной последний раз ответил на запрос цены
+
+    @property
+    def on_backup(self) -> bool:
+        return "price" in self.backup_for
 
     async def _call(self, name: str, timeout: float, *args):
-        if time.monotonic() >= self._skip_until:
+        if time.monotonic() >= self._skip_until.get(name, 0):
             try:
                 res = await asyncio.wait_for(getattr(self.primary, name)(*args), timeout)
-                if self.on_backup:
-                    log.warning("market data: broker feed is back")
-                    self.on_backup = False
+                if name == "price":
+                    self.last_ok_at = time.time()
+                if name in self.backup_for:
+                    log.warning("market data: broker %s is back", name)
+                    self.backup_for.discard(name)
                 return res
             except Exception as e:  # noqa: BLE001 — любая ошибка: сразу запасной источник
-                self._skip_until = time.monotonic() + self.cooldown
-                if not self.on_backup:
-                    log.warning("market data: broker feed failed (%s: %s), switching to backup",
-                                type(e).__name__, e)
-                self.on_backup = True
+                self._skip_until[name] = time.monotonic() + self.cooldown
+                self.last_error, self.last_error_at = f"{name}: {type(e).__name__}: {e}"[:300], time.time()
+                if name not in self.backup_for:
+                    log.warning("market data: broker %s failed (%s: %s), switching to backup",
+                                name, type(e).__name__, e)
+                self.backup_for.add(name)
         return await getattr(self.backup, name)(*args)
 
     async def candles(self, tf: str, count: int) -> pd.DataFrame:
