@@ -342,6 +342,42 @@ class ExcursionTests(unittest.TestCase):
         run(go())
 
 
+class WickHitTests(unittest.TestCase):
+    """Тейк, задетый тенью свечи между опросами цены, тоже фиксируется (случай сигнала #16)."""
+
+    def test_tp_by_candle_low(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                closed = []
+
+                async def on_close(s, status, price):
+                    closed.append((s["id"], status))
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, on_close)
+                sid = await db.add_signal("combo", -1, 3982.40, 3990.40, 3970.40)   # SELL
+                created = pd.Timestamp((await db.get_signal(sid))["created_at"]).tz_convert(None)
+                await eng.check_open(3975.70)                     # по текущей цене тейк не достигнут
+                self.assertEqual(closed, [])
+                old = pd.DataFrame({"open": [3960.0], "high": [3961.0], "low": [3955.0], "close": [3960.0]},
+                                   index=[created - pd.Timedelta(minutes=10)])
+                await eng.check_open(3975.70, old)                # свечи до сигнала не считаются
+                self.assertEqual(closed, [])
+                bars = pd.DataFrame({"open": [3976.0], "high": [3977.0], "low": [3968.99], "close": [3975.7]},
+                                    index=[created])
+                await eng.check_open(3975.70, bars)               # тень свечи задела тейк
+                self.assertEqual(closed, [(sid, "tp")])
+                # в одной свече задеты и стоп, и тейк — считаем стоп, как в бэктесте
+                sid2 = await db.add_signal("combo", 1, 4000.0, 3990.0, 4020.0)
+                created = pd.Timestamp((await db.get_signal(sid2))["created_at"]).tz_convert(None)
+                both = pd.DataFrame({"open": [4000.0], "high": [4021.0], "low": [3989.0], "close": [4000.0]},
+                                    index=[created])
+                await eng.check_open(4000.0, both)
+                self.assertEqual(closed[-1], (sid2, "sl"))
+                await db.close()
+        run(go())
+
+
 class ExcursionChartTests(unittest.TestCase):
     def test_close_chart_with_max_lines(self):
         df = m5_frame(days=1)

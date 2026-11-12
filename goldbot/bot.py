@@ -652,7 +652,8 @@ class App:
                 await c.message.answer(text)
             elif action == "granthelp":
                 await c.message.answer("/grant &lt;user_id&gt; &lt;дней&gt; — выдать подписку\n"
-                                       "/revoke &lt;user_id&gt; — забрать доступ")
+                                       "/revoke &lt;user_id&gt; — забрать доступ\n"
+                                       "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем")
             await c.answer()
 
         @r.message(Command("cancel"))
@@ -685,6 +686,27 @@ class App:
             ulang = await self.lang_of(uid)
             await self._send(uid, lambda: self.bot.send_message(
                 uid, t(ulang, "granted", until=self.fmt_dt(until))))
+
+        @r.message(Command("close"))
+        async def close_signal(m: Message, command: CommandObject):
+            """Закрыть открытый сигнал вручную (например, тейк задет только у брокера) —
+            всем уходит обычное сообщение о тейке или стопе."""
+            if not self.is_admin(m.from_user.id):
+                return
+            args = (command.args or "").split()
+            if len(args) != 2 or not args[0].lstrip("#").isdigit() or args[1].lower() not in ("tp", "sl"):
+                await m.answer("Формат: /close &lt;номер сигнала&gt; tp|sl")
+                return
+            sid, status = int(args[0].lstrip("#")), args[1].lower()
+            s = await self.db.get_signal(sid)
+            if not s or s["status"] != "open":
+                await m.answer(f"Сигнал #{sid} не найден или уже закрыт")
+                return
+            await self.db.close_signal(sid, status)
+            await self.broadcast_close(s, status, s[status])
+            if status == "sl":
+                await self.engine.check_day_stop()
+            await m.answer(f"✅ Сигнал #{sid} закрыт: {status.upper()}, сообщение отправлено всем")
 
         @r.message(Command("revoke"))
         async def revoke(m: Message, command: CommandObject):
