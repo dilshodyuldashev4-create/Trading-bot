@@ -101,6 +101,13 @@ class Config:
     autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
     autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
     autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
+    # автоторговля платная: цена в Telegram Stars за AUTOTRADE_DAYS дней (1500 ⭐ ≈ $30 для подписчика)
+    autotrade_price_stars: int = int(os.getenv("AUTOTRADE_PRICE_STARS", "1500"))
+    autotrade_price_usd: str = os.getenv("AUTOTRADE_PRICE_USD", "30")  # только для текста «≈ $30»
+    autotrade_days: int = int(os.getenv("AUTOTRADE_DAYS", "30"))
+    # 1 — анализировать рынок по свечам и цене с подключённого в боте счёта админа (через MetaApi), а
+    # Twelve Data / goldapi — запасной источник, на который бот переключается сразу, если MetaApi не ответил
+    market_from_broker: bool = os.getenv("MARKET_FROM_BROKER", "1") not in ("0", "false", "no", "")
 
 
 config = Config()

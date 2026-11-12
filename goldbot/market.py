@@ -1,12 +1,17 @@
 """Живые котировки XAU/USD: Twelve Data или OANDA. Плюс CSV-реплей для тестов."""
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from abc import ABC, abstractmethod
 
 import aiohttp
 import pandas as pd
 
 TF_MINUTES = {"5min": 5, "15min": 15, "30min": 30, "1h": 60, "4h": 240}
+
+log = logging.getLogger(__name__)
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:
@@ -147,6 +152,45 @@ class Hybrid(Provider):
     async def close(self) -> None:
         await self.c.close()
         await self.p.close()
+
+
+class Failover(Provider):
+    """Основной источник (цены брокера через MetaApi) с мгновенным переключением на запасной:
+    если основной не ответил за price_timeout / candle_timeout секунд или ответил ошибкой, этот же запрос
+    сразу идёт в запасной, и следующие cooldown секунд бот берёт данные только из запасного, без ожидания."""
+
+    def __init__(self, primary: Provider, backup: Provider, price_timeout: float = 3,
+                 candle_timeout: float = 15, cooldown: float = 60):
+        self.primary, self.backup = primary, backup
+        self.price_timeout, self.candle_timeout, self.cooldown = price_timeout, candle_timeout, cooldown
+        self._skip_until = 0.0
+        self.on_backup = False
+
+    async def _call(self, name: str, timeout: float, *args):
+        if time.monotonic() >= self._skip_until:
+            try:
+                res = await asyncio.wait_for(getattr(self.primary, name)(*args), timeout)
+                if self.on_backup:
+                    log.warning("market data: broker feed is back")
+                    self.on_backup = False
+                return res
+            except Exception as e:  # noqa: BLE001 — любая ошибка: сразу запасной источник
+                self._skip_until = time.monotonic() + self.cooldown
+                if not self.on_backup:
+                    log.warning("market data: broker feed failed (%s: %s), switching to backup",
+                                type(e).__name__, e)
+                self.on_backup = True
+        return await getattr(self.backup, name)(*args)
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        return await self._call("candles", self.candle_timeout, tf, count)
+
+    async def price(self) -> float:
+        return await self._call("price", self.price_timeout)
+
+    async def close(self) -> None:
+        await self.primary.close()
+        await self.backup.close()
 
 
 class Replay(Provider):
