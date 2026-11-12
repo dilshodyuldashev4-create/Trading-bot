@@ -98,9 +98,11 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
     code = getattr(e, "code", "")
     key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
+    if not key and isinstance(e, asyncio.TimeoutError):
+        key = "at_err_timeout"
     if key:
         return t(lang, key, server=html.escape(server)) if key == "at_err_server" else t(lang, key)
-    return t(lang, "at_err_other", error=html.escape(code or str(e))[:150])
+    return t(lang, "at_err_other", error=html.escape(code or str(e) or type(e).__name__)[:150])
 
 
 def trade_error_text(lang: str, error: str) -> str:
@@ -614,8 +616,8 @@ class App:
                      risk=f"{config.autotrade_risk_pct:g}")
             log.info("autotrade: user %s connected %s@%s", uid, login, server)
         except Exception as e:  # noqa: BLE001
-            log.warning("autotrade connect for %s (%s@%s) failed: %s %s", uid, login, server,
-                        getattr(e, "code", ""), e)
+            log.warning("autotrade connect for %s (%s@%s) failed: %s %s %s", uid, login, server,
+                        type(e).__name__, getattr(e, "code", ""), e)
             text = connect_error_text(lang, e, server)
         finally:
             self._connecting.discard(uid)

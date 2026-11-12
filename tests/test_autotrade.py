@@ -22,6 +22,7 @@ class FakeApi:
         self.open_positions: dict[str, set[str]] = {}
         self.n = 0
         self.polls = 0
+        self.orphans = []
 
     async def create_account(self, **kw):
         self.calls.append(("create", kw))
@@ -44,7 +45,10 @@ class FakeApi:
         status = "CONNECTED" if self.polls > 1 else "DISCONNECTED"
         return {"_id": acc_id, "state": "DEPLOYED", "connectionStatus": status, "region": "london"}
 
-    async def account_info(self, acc_id, region):
+    async def list_accounts(self, query):
+        return [a for a in self.orphans if query in a["name"]]
+
+    async def account_info(self, acc_id, region, timeout=90):
         assert region == "london"
         return {"broker": "Exness", "currency": self.currency, "balance": self.equity, "equity": self.equity,
                 "type": self.acc_type}
@@ -252,6 +256,18 @@ class AutoTraderTests(unittest.TestCase):
                 await db.close()
         run(go())
 
+    def test_leftover_account_removed_before_new_one(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi()
+                # прошлая попытка оборвалась: в MetaApi остался счёт, которого нет в базе бота
+                api.orphans = [{"_id": "old1", "name": "tg1-474908173"}, {"_id": "other", "name": "tg12-5"}]
+                await trader(db, api).connect(1, "mt5", "S", "474908173", "p")
+                self.assertEqual(api.removed, ["old1"])
+                await db.close()
+        run(go())
+
     def test_ask_once_list(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:
@@ -324,9 +340,13 @@ class RestClientTests(unittest.TestCase):
                 seen["tids"].append(req.headers.get("transaction-id"))
                 assert req.headers.get("auth-token") == "tok"
                 seen["posts"] += 1
-                if seen["posts"] == 1:  # MetaApi ещё определяет настройки брокера
-                    return web.json_response({"message": "retry"}, status=202, headers={"Retry-After": "0"})
+                n = seen["posts"]
                 body = await req.json()
+                if n == 1:  # ответ не успел прийти — клиент должен повторить с тем же id
+                    await asyncio.sleep(3)
+                    return web.json_response({}, status=500)
+                if n == 2:  # MetaApi ещё определяет настройки брокера
+                    return web.json_response({"message": "retry"}, status=202, headers={"Retry-After": "0"})
                 assert body["login"] == "123" and body["platform"] == "mt5"
                 return web.json_response({"id": "abc", "state": "UNDEPLOYED"}, status=201)
 
@@ -358,10 +378,16 @@ class RestClientTests(unittest.TestCase):
             old = at.PROVISIONING, at.CLIENT
             at.PROVISIONING = at.CLIENT = f"http://127.0.0.1:{port}"
             api = at.MetaApi("tok")
+            orig = api.request
+
+            async def short(method, url, json=None, headers=None, timeout=90):
+                return await orig(method, url, json, headers, timeout=min(timeout, 1))
+            api.request = short
             try:
                 acc = await api.create_account(name="n", login="123", password="p", server="S", platform="mt5",
                                                magic=1)
                 self.assertEqual(acc["id"], "abc")
+                self.assertEqual(seen["posts"], 3)
                 self.assertEqual(len(set(seen["tids"])), 1)   # повтор с тем же transaction-id
                 self.assertEqual(len(seen["tids"][0]), 32)
                 r = await api.trade("abc", "x", {"actionType": "ORDER_TYPE_BUY", "volume": 0.1})
