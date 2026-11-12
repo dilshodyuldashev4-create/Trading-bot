@@ -4,7 +4,9 @@ import tempfile
 import unittest
 
 from goldbot import autotrade as at
-from goldbot.db import DB
+from datetime import timedelta
+
+from goldbot.db import DB, now
 
 
 def run(coro):
@@ -83,6 +85,7 @@ async def make_db(d):
     await db.connect()
     for uid in (1, 2):
         await db.add_user(uid, None, None, 3)
+        await db.extend_autotrade(uid, 30)   # автоторговля оплачена
     return db
 
 
@@ -235,8 +238,14 @@ class AutoTraderTests(unittest.TestCase):
                 await db.set_kv("autotrade_off", "1")
                 self.assertEqual(await tr.open_signal(1, 1, 20, 30), [])
                 await db.set_kv("autotrade_off", "0")
-                await db.revoke(1)                       # подписка кончилась — не торгуем
+                await db.conn.execute("UPDATE users SET autotrade_until='2020-01-01T00:00:00+00:00' WHERE id=1")
+                await db.conn.commit()                   # оплата автоторговли кончилась — не торгуем
                 self.assertEqual(await tr.open_signal(2, 1, 20, 30), [])
+                self.assertEqual(await db.autotrade_expired_accounts(), [1])
+                self.assertEqual(await db.autotrade_expired_accounts(frozenset({1})), [])  # админ
+                tr.exempt = frozenset({1})               # админу оплата не нужна
+                self.assertEqual(len(await tr.open_signal(2, 1, 20, 30)), 1)
+                tr.exempt = frozenset()
                 await db.close()
         run(go())
 
@@ -275,6 +284,47 @@ class AutoTraderTests(unittest.TestCase):
                 self.assertEqual(sorted(await db.not_asked_autotrade()), [1, 2])
                 await db.set_autotrade_asked(1)
                 self.assertEqual(await db.not_asked_autotrade(), [2])
+                await db.close()
+        run(go())
+
+
+class BillingTests(unittest.TestCase):
+    def test_reminder_then_disconnect_when_paid_period_ends(self):
+        from goldbot import bot as botmod
+
+        class FakeBot:
+            def __init__(self):
+                self.sent = []
+
+            async def send_message(self, uid, text, **kw):
+                self.sent.append((uid, text))
+
+            async def send_invoice(self, uid, **kw):
+                self.sent.append((uid, "INVOICE " + kw["payload"]))
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi()
+                app = botmod.App.__new__(botmod.App)
+                app.db, app.bot, app._connecting = db, FakeBot(), set()
+                app.autotrader = trader(db, api)
+                await app.autotrader.connect(1, "mt5", "S", "1", "p")
+                await db.conn.execute("UPDATE users SET autotrade_until=? WHERE id=1",
+                                      ((now() + timedelta(hours=5)).isoformat(),))
+                await db.conn.commit()
+                await app.autotrade_billing()
+                await app.autotrade_billing()   # напоминание только один раз
+                self.assertEqual([x for u, x in app.bot.sent if u == 1 and x.startswith("INVOICE")], ["INVOICE auto"])
+                self.assertEqual(len([x for u, x in app.bot.sent if "заканчивается" in x]), 1)
+                self.assertIsNotNone(await db.get_trade_account(1))
+                await db.conn.execute("UPDATE users SET autotrade_until=? WHERE id=1",
+                                      ((now() - timedelta(minutes=1)).isoformat(),))
+                await db.conn.commit()
+                await app.autotrade_billing()
+                self.assertIsNone(await db.get_trade_account(1))   # счёт отключён из MetaApi
+                self.assertIn("acc1", api.removed)
+                self.assertTrue(any("закончилась" in x for u, x in app.bot.sent))
                 await db.close()
         run(go())
 
@@ -411,7 +461,7 @@ class TelegramDialogTests(unittest.TestCase):
 
     def test_full_dialog(self):
         from aiogram.client.session.base import BaseSession
-        from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendMessage
+        from aiogram.methods import DeleteMessage, EditMessageReplyMarkup, SendInvoice, SendMessage
         from aiogram.types import Update
 
         from goldbot import bot as botmod
@@ -424,9 +474,9 @@ class TelegramDialogTests(unittest.TestCase):
 
             async def make_request(self, bot, method, timeout=None):
                 self.log.append(method)
-                if isinstance(method, SendMessage):
+                if isinstance(method, (SendMessage, SendInvoice)):
                     return {"message_id": len(self.log), "date": 0, "chat": {"id": method.chat_id, "type": "private"},
-                            "text": method.text}
+                            "text": getattr(method, "text", None) or "invoice"}
                 if isinstance(method, (DeleteMessage, EditMessageReplyMarkup)):
                     return True
                 return True
@@ -447,7 +497,7 @@ class TelegramDialogTests(unittest.TestCase):
 
         async def go():
             with tempfile.TemporaryDirectory() as d:
-                patch = {"metaapi_token": "tok", "db_path": os.path.join(d, "t.db"), "bot_token": "123:ABC",
+                patch = {"metaapi_token": "tok", "autotrade_price_stars": 1500, "admin_ids": set(), "db_path": os.path.join(d, "t.db"), "bot_token": "123:ABC",
                          "twelvedata_key": "x", "data_provider": "twelvedata", "autotrade_demo_only": True}
                 saved = {k: getattr(config, k) for k in patch}
                 for k, v in patch.items():
@@ -484,8 +534,19 @@ class TelegramDialogTests(unittest.TestCase):
                     await tap("cap:1000")
                     self.assertIn("Подключить бота к вашему торговому счёту", texts(session)[-1])
                     self.assertEqual(kb_data(session), ["at:yes", "at:no"])
+                    self.assertIn("1500 ⭐", texts(session)[-1])          # в вопросе есть цена
                     await tap("at:yes")
-                    self.assertIn("демо-счета", texts(session)[-1])
+                    # без оплаты подключать нельзя: сначала счёт на оплату автоторговли
+                    self.assertIn("платная", texts(session)[-1])
+                    inv = [m for m in session.log if isinstance(m, SendInvoice)][-1]
+                    self.assertEqual((inv.payload, inv.prices[0].amount, inv.currency), ("auto", 1500, "XTR"))
+                    n[0] += 1
+                    await app.dp.feed_update(app.bot, Update.model_validate({"update_id": n[0], "message": {
+                        "message_id": 900, "date": 0, "chat": chat, "from": user, "successful_payment": {
+                            "currency": "XTR", "total_amount": 1500, "invoice_payload": "auto",
+                            "telegram_payment_charge_id": "ch1", "provider_payment_charge_id": "p1"}}}))
+                    self.assertTrue(app.db.autotrade_until(await app.db.get_user(42)))
+                    self.assertIn("демо-счета", texts(session)[-1])     # после оплаты сразу шаг подключения
                     await tap("at:agree")
                     await tap("at:pf:mt5")
                     self.assertIn("at:br:0", kb_data(session))
@@ -511,7 +572,8 @@ class TelegramDialogTests(unittest.TestCase):
 
                     await msg("🤖 Автоторговля")                     # кнопка меню: статус и управление
                     self.assertIn("98765432", texts(session)[-1])
-                    self.assertEqual(kb_data(session), ["at:pause", "at:disc"])
+                    self.assertEqual(kb_data(session), ["at:pause", "at:pay", "at:disc"])
+                    self.assertIn("Оплачено до", texts(session)[-1])
                     await tap("at:pause")
                     self.assertEqual((await app.db.get_trade_account(42))["enabled"], 0)
                     await tap("at:disc")

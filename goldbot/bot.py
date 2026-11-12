@@ -25,7 +25,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
 from . import econ_calendar, news_alerts
 from .autotrade import BROKERS, AutoTrader, MetaApi, demo_servers, sl_tp_dist
 from .config import config
-from .db import DB
+from .db import DB, now
 from .chart import render_signal, render_stats
 from .engine import NewSignal, SignalEngine, market_open, next_open, parse_hhmm
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
@@ -244,7 +244,8 @@ class App:
         if config.metaapi_token:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
                                          config.autotrade_risk_pct, config.autotrade_max_lot,
-                                         config.autotrade_symbol, config.metaapi_region)
+                                         config.autotrade_symbol, config.metaapi_region,
+                                         exempt=frozenset(config.admin_ids))
         self._connecting: set[int] = set()   # чьи счета сейчас подключаются
         self._tasks: set[asyncio.Task] = set()
         self.router = Router()
@@ -462,6 +463,34 @@ class App:
             payload="sub", currency="XTR", provider_token="",
             prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days), amount=config.sub_price_stars)])
 
+    async def send_auto_invoice(self, chat_id: int, lang: str) -> None:
+        """Счёт на оплату автоторговли (отдельно от подписки на сигналы)."""
+        await self.bot.send_invoice(
+            chat_id, title=t(lang, "inv_auto_title", days=config.autotrade_days),
+            description=t(lang, "inv_auto_desc"),
+            payload="auto", currency="XTR", provider_token="",
+            prices=[LabeledPrice(label=t(lang, "inv_label", days=config.autotrade_days),
+                                 amount=config.autotrade_price_stars)])
+
+    async def has_autotrade(self, uid: int) -> bool:
+        """Оплачена ли автоторговля (админам — всегда)."""
+        if self.is_admin(uid):
+            return True
+        until = self.db.autotrade_until(await self.db.get_user(uid))
+        return bool(until and until > now())
+
+    def price_line(self, lang: str) -> str:
+        return t(lang, "at_price", stars=config.autotrade_price_stars, usd=config.autotrade_price_usd,
+                 days=config.autotrade_days)
+
+    async def show_risks(self, chat_id: int, lang: str) -> None:
+        demo = t(lang, "at_demo_note") if config.autotrade_demo_only else ""
+        await self.bot.send_message(
+            chat_id, t(lang, "at_risks", risk=f"{config.autotrade_risk_pct:g}",
+                       max_lot=f"{config.autotrade_max_lot:g}", demo=demo),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [_btn(t(lang, "btn_agree"), "at:agree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+
     async def send_hello(self, chat_id: int, uid: int, first_name: str | None, lang: str, new: bool) -> None:
         hello = t(lang, "hello", name=html.escape(first_name or t(lang, "trader")))
         if new:
@@ -556,7 +585,8 @@ class App:
         if not u or u.get("autotrade_asked") or await self.db.get_trade_account(uid):
             return
         await self.db.set_autotrade_asked(uid)
-        await self.bot.send_message(chat_id, t(lang, "at_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        text = t(lang, "at_ask") + ("" if await self.has_autotrade(uid) else "\n\n" + self.price_line(lang))
+        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [_btn(t(lang, "btn_yes_connect"), "at:yes"), _btn(t(lang, "btn_no_thanks"), "at:no")]]))
 
     async def autotrade_menu(self, chat_id: int, uid: int, lang: str) -> None:
@@ -565,8 +595,9 @@ class App:
             return
         acc = await self.autotrader.status(uid)
         if not acc:
-            await self.bot.send_message(chat_id, t(lang, "at_none"), reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")]]))
+            await self.bot.send_message(chat_id, t(lang, "at_none") + await self.paid_line(uid, lang),
+                                        reply_markup=InlineKeyboardMarkup(
+                                            inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")]]))
             return
         if await self.db.get_kv("autotrade_off") == "1":
             state = t(lang, "at_global_off")
@@ -577,10 +608,21 @@ class App:
         text = t(lang, "at_status", broker=html.escape(acc.get("broker") or "—"), login=acc["login"],
                  server=html.escape(acc["server"]), kind=t(lang, "at_kind_demo" if acc["demo"] else "at_kind_real"),
                  balance=balance, state=state, risk=f"{config.autotrade_risk_pct:g}",
-                 max_lot=f"{config.autotrade_max_lot:g}")
+                 max_lot=f"{config.autotrade_max_lot:g}") + await self.paid_line(uid, lang)
         toggle = _btn(t(lang, "btn_pause"), "at:pause") if acc["enabled"] else _btn(t(lang, "btn_resume"), "at:resume")
-        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]))
+        rows = [[toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]
+        if not self.is_admin(uid):
+            rows.insert(1, [_btn(t(lang, "btn_extend"), "at:pay")])
+        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    async def paid_line(self, uid: int, lang: str) -> str:
+        """Строка «Оплачено до …» / цена — для меню автоторговли."""
+        if self.is_admin(uid):
+            return t(lang, "at_until_admin")
+        until = self.db.autotrade_until(await self.db.get_user(uid))
+        if until and until > now():
+            return t(lang, "at_until", until=self.fmt_dt(until))
+        return "\n\n" + self.price_line(lang)
 
     async def show_servers(self, chat_id: int, lang: str, state: FSMContext, query: str) -> None:
         data = await state.get_data()
@@ -805,6 +847,14 @@ class App:
         async def paid(m: Message):
             p = m.successful_payment
             await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
+            if p.invoice_payload == "auto":   # оплата автоторговли
+                uid = m.from_user.id
+                until = await self.db.extend_autotrade(uid, config.autotrade_days)
+                lang = await self.lang_of(uid)
+                await m.answer(t(lang, "at_paid_ok", until=self.fmt_dt(until)), reply_markup=menu(lang))
+                if self.autotrader and not await self.db.get_trade_account(uid) and uid not in self._connecting:
+                    await self.show_risks(m.chat.id, lang)   # сразу продолжаем подключение счёта
+                return
             until = await self.db.extend_paid(m.from_user.id, config.sub_days)
             lang = await self.lang_of(m.from_user.id)
             await m.answer(t(lang, "paid_ok", until=self.fmt_dt(until)), reply_markup=menu(lang))
@@ -857,7 +907,8 @@ class App:
                                        "/revoke &lt;user_id&gt; — забрать доступ\n"
                                        "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
                                        "/autotrade off|on — остановить / включить автоторговлю у всех\n"
-                                       "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали")
+                                       "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
+                                       "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты")
             await c.answer()
 
         @r.message(Command("cancel"))
@@ -911,6 +962,23 @@ class App:
             if status == "sl":
                 await self.engine.check_day_stop()
             await m.answer(f"✅ Сигнал #{sid} закрыт: {status.upper()}, сообщение отправлено всем")
+
+        @r.message(Command("grantauto"))
+        async def grant_auto(m: Message, command: CommandObject):
+            if not self.is_admin(m.from_user.id):
+                return
+            try:
+                uid, days = (int(x) for x in (command.args or "").split())
+            except ValueError:
+                await m.answer("Формат: /grantauto &lt;user_id&gt; &lt;дней&gt;")
+                return
+            if not await self.db.get_user(uid):
+                await m.answer("Пользователь не найден (он должен нажать /start)")
+                return
+            until = await self.db.extend_autotrade(uid, days)
+            await m.answer(f"🤖 {uid}: автоторговля до {self.fmt_dt(until)}")
+            ulang = await self.lang_of(uid)
+            await self._send(uid, lambda: self.bot.send_message(uid, t(ulang, "at_paid_ok", until=self.fmt_dt(until))))
 
         @r.message(Command("revoke"))
         async def revoke(m: Message, command: CommandObject):
@@ -991,19 +1059,16 @@ class App:
                     pass
                 await c.message.answer(t(lang, "cancelled"), reply_markup=menu(lang))
             elif action == "yes":
-                if not self.db.has_access(await self.db.get_user(uid)):
-                    await c.message.answer(t(lang, "at_no_access"))
-                    await self.send_invoice(chat, lang)
+                if not await self.has_autotrade(uid):   # сначала оплата, потом подключение
+                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
+                    await self.send_auto_invoice(chat, lang)
                     return
                 if uid in self._connecting:
                     await c.message.answer(t(lang, "at_busy"))
                     return
-                demo = t(lang, "at_demo_note") if config.autotrade_demo_only else ""
-                await c.message.answer(
-                    t(lang, "at_risks", risk=f"{config.autotrade_risk_pct:g}",
-                      max_lot=f"{config.autotrade_max_lot:g}", demo=demo),
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [_btn(t(lang, "btn_agree"), "at:agree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+                await self.show_risks(chat, lang)
+            elif action == "pay":
+                await self.send_auto_invoice(chat, lang)
             elif action == "agree":
                 await state.clear()
                 await c.message.answer(t(lang, "at_platform"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1162,6 +1227,37 @@ class App:
                 log.exception("morning review")
             await asyncio.sleep(60)
 
+    async def autotrade_billing(self) -> None:
+        """Напоминание за сутки до конца оплаты автоторговли; после конца — счёт отключается из MetaApi
+        (иначе он продолжает стоить денег)."""
+        if not self.autotrader:
+            return
+        exempt = frozenset(config.admin_ids)
+        for uid, until in await self.db.autotrade_expiring(timedelta(days=1), exempt):
+            key = f"at_remind:{uid}:{until}"
+            if await self.db.get_kv(key):
+                continue
+            await self.db.set_kv(key, "1")
+            lang = await self.lang_of(uid)
+            await self._send(uid, lambda u=uid, lg=lang, un=until: self.bot.send_message(
+                u, t(lg, "at_expiring", until=self.fmt_dt(un)) + "\n\n" + self.price_line(lg)))
+            await self._send(uid, lambda u=uid, lg=lang: self.send_auto_invoice(u, lg))
+        for uid in await self.db.autotrade_expired_accounts(exempt):
+            if uid in self._connecting:
+                continue
+            await self.autotrader.disconnect(uid)
+            log.info("autotrade expired for %s: account disconnected", uid)
+            lang = await self.lang_of(uid)
+            await self._send(uid, lambda u=uid, lg=lang: self.bot.send_message(u, t(lg, "at_expired")))
+
+    async def autotrade_billing_loop(self) -> None:
+        while True:
+            try:
+                await self.autotrade_billing()
+            except Exception:  # noqa: BLE001
+                log.exception("autotrade billing")
+            await asyncio.sleep(600)
+
     async def trial_reminder_loop(self) -> None:
         while True:
             try:
@@ -1185,6 +1281,7 @@ class App:
             asyncio.create_task(self.news_alert_loop()),
             asyncio.create_task(self.market_status_loop()),
             asyncio.create_task(self.morning_review_loop()),
+            asyncio.create_task(self.autotrade_billing_loop()),
         ]
         try:
             await self.dp.start_polling(self.bot)

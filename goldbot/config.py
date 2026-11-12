@@ -101,6 +101,10 @@ class Config:
     autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
     autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
     autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
+    # автоторговля платная: цена в Telegram Stars за AUTOTRADE_DAYS дней (1500 ⭐ ≈ $30 для подписчика)
+    autotrade_price_stars: int = int(os.getenv("AUTOTRADE_PRICE_STARS", "1500"))
+    autotrade_price_usd: str = os.getenv("AUTOTRADE_PRICE_USD", "30")  # только для текста «≈ $30»
+    autotrade_days: int = int(os.getenv("AUTOTRADE_DAYS", "30"))
 
 
 config = Config()

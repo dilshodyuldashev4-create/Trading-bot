@@ -272,6 +272,7 @@ class AutoTrader:
     connect_timeout: float = 240
     poll: float = 5
     concurrency: int = 10
+    exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str) -> dict:
@@ -372,7 +373,8 @@ class AutoTrader:
         """Открывает сделку по сигналу на всех включённых счетах (uids — только у этих подписчиков)."""
         if await self.db.get_kv("autotrade_off") == "1":
             return []
-        accounts = [a for a in await self.db.trade_accounts(enabled_only=True) if uids is None or a["user_id"] in uids]
+        accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
+                    if uids is None or a["user_id"] in uids]
         sem = asyncio.Semaphore(self.concurrency)
 
         async def one(acc: dict) -> OpenResult:

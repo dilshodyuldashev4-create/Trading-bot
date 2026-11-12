@@ -108,6 +108,8 @@ class DB:
             await self.conn.execute("ALTER TABLE users ADD COLUMN lang TEXT")
         if "capital" not in cols:
             await self.conn.execute("ALTER TABLE users ADD COLUMN capital REAL")
+        if "autotrade_until" not in cols:  # оплачена автоторговля до
+            await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_until TEXT")
         if "autotrade_asked" not in cols:  # бот уже спросил про автоторговлю
             await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_asked INTEGER NOT NULL DEFAULT 0")
         cur = await self.conn.execute("PRAGMA table_info(signals)")
@@ -364,16 +366,47 @@ class DB:
         await self.conn.execute("UPDATE trade_accounts SET enabled=? WHERE user_id=?", (int(enabled), uid))
         await self.conn.commit()
 
-    async def trade_accounts(self, enabled_only: bool = False) -> list[dict]:
-        """Счета для автоторговли; enabled_only — включённые и с действующим доступом к сигналам."""
+    async def trade_accounts(self, enabled_only: bool = False, exempt: frozenset[int] = frozenset()) -> list[dict]:
+        """Счета для автоторговли; enabled_only — включённые и с оплаченной автоторговлей
+        (exempt — админы, им оплата не нужна)."""
         if not enabled_only:
             cur = await self.conn.execute("SELECT * FROM trade_accounts")
-        else:
-            t = _iso(now())
-            cur = await self.conn.execute(
-                "SELECT a.* FROM trade_accounts a JOIN users u ON u.id=a.user_id WHERE a.enabled=1 "
-                "AND u.blocked=0 AND (u.trial_until>? OR u.paid_until>?)", (t, t))
-        return [dict(r) for r in await cur.fetchall()]
+            return [dict(r) for r in await cur.fetchall()]
+        cur = await self.conn.execute(
+            "SELECT a.*, u.autotrade_until FROM trade_accounts a JOIN users u ON u.id=a.user_id "
+            "WHERE a.enabled=1 AND u.blocked=0")
+        t = now()
+        return [dict(r) for r in await cur.fetchall()
+                if r["user_id"] in exempt or (_parse(r["autotrade_until"]) or t) > t]
+
+    async def extend_autotrade(self, uid: int, days: int) -> datetime:
+        """Продлевает оплаченную автоторговлю на days дней (от сегодня или от конца текущей оплаты)."""
+        u = await self.get_user(uid)
+        base = max(now(), _parse(u.get("autotrade_until")) or now()) if u else now()
+        until = base + timedelta(days=days)
+        await self.conn.execute("UPDATE users SET autotrade_until=? WHERE id=?", (_iso(until), uid))
+        await self.conn.commit()
+        return until
+
+    @staticmethod
+    def autotrade_until(user: dict | None) -> datetime | None:
+        return _parse((user or {}).get("autotrade_until"))
+
+    async def autotrade_expired_accounts(self, exempt: frozenset[int] = frozenset()) -> list[int]:
+        """Подключённые счета, у которых оплата автоторговли закончилась (или не было)."""
+        cur = await self.conn.execute(
+            "SELECT a.user_id, u.autotrade_until FROM trade_accounts a LEFT JOIN users u ON u.id=a.user_id")
+        t = now()
+        return [r[0] for r in await cur.fetchall()
+                if r[0] not in exempt and (_parse(r[1]) or t) <= t]
+
+    async def autotrade_expiring(self, within: timedelta, exempt: frozenset[int] = frozenset()) -> list[tuple[int, str]]:
+        """(id, до какого времени оплачено) — у кого оплата автоторговли кончается в ближайшее время."""
+        a, b = _iso(now()), _iso(now() + within)
+        cur = await self.conn.execute(
+            "SELECT u.id, u.autotrade_until FROM users u JOIN trade_accounts t ON t.user_id=u.id "
+            "WHERE u.autotrade_until>? AND u.autotrade_until<=?", (a, b))
+        return [(r[0], r[1]) for r in await cur.fetchall() if r[0] not in exempt]
 
     async def save_auto_trade(self, sid: int, uid: int, position_id: str | None, volume: float,
                               status: str, error: str) -> None:
