@@ -90,6 +90,7 @@ async def make_db(d):
 
 
 def trader(db, api, **kw):
+    kw.setdefault("retry_delays", (0, 0))
     return at.AutoTrader(db, api, poll=0, **kw)
 
 
@@ -122,6 +123,9 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(e.code, "E_AUTH")
         e = at._error(400, {"message": "Server file not found E_SRV_NOT_FOUND", "details": [{"x": 1}]})
         self.assertEqual(e.code, "E_SRV_NOT_FOUND")
+        e = at._error(400, {"error": "ValidationError", "message": "Validation failed",
+                            "details": [{"parameter": "clientId", "message": "too long"}]})
+        self.assertIn("clientId: too long", str(e))   # в логе видно, какое поле не прошло
 
     def test_sl_tp_dist(self):
         self.assertEqual(at.sl_tp_dist(2900, 2880, 2930, 0, 0), (20, 30))
@@ -131,6 +135,78 @@ class HelpersTests(unittest.TestCase):
 
 
 class AutoTraderTests(unittest.TestCase):
+    def test_retry_after_undeployed_and_no_double_open(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi()
+                tr = trader(db, api)
+                await tr.connect(1, "mt5", "Exness-MT5Trial7", "1", "p")
+                fails = {"n": 1}
+                orig_price, orig_get = api.price, api.get_account
+
+                async def price(*a):
+                    if fails["n"]:
+                        fails["n"] -= 1
+                        raise at.MetaApiError("It seems like you are trying to access too many unexisting or "
+                                              "undeployed trading accounts", "", 429)
+                    return await orig_price(*a)
+
+                async def get_account(acc_id):
+                    return {**await orig_get(acc_id), "state": "UNDEPLOYED"}
+                api.price, api.get_account = price, get_account
+                res = await tr.open_signal(5, 1, 20, 30)
+                self.assertTrue(res[0].ok, res[0].error)
+                self.assertEqual(api.calls.count(("deploy", "acc1")), 2)   # при подключении и после сбоя
+                req = api.trades[-1][1]
+                self.assertNotIn("clientId", req)
+                self.assertLessEqual(len(req["comment"]), 26)
+
+                # ордер дошёл, но ответ потерялся — повтор находит позицию и второй не открывает
+                orig_trade, orig_pos = api.trade, api.positions
+
+                async def trade(acc_id, region, rq):
+                    await orig_trade(acc_id, region, rq)
+                    raise at.MetaApiError("MetaApi did not answer in 90s", "TIMEOUT")
+
+                async def positions(acc_id, region):
+                    return [{"id": p, "comment": "goldbot #6", "volume": 0.05}
+                            for p in api.open_positions.get(acc_id, set()) if p == str(1000 + len(api.trades))]
+                api.trade, api.positions = trade, positions
+                n = len(api.trades)
+                res = await tr.open_signal(6, 1, 20, 30)
+                self.assertTrue(res[0].ok, res[0].error)
+                self.assertEqual(len(api.trades), n + 1)
+                api.trade, api.positions = orig_trade, orig_pos
+                await db.close()
+        run(go())
+
+    def test_validation_error_not_retried_and_admin_test_trade(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi(equity=100000)
+                tr = trader(db, api)
+                await tr.connect(1, "mt5", "Exness-MT5Trial7", "1", "p")
+                res, closed = await tr.test_trade(1, hold=0)
+                self.assertTrue(res.ok)
+                self.assertEqual(res.volume, 0.01)      # тест всегда минимальным лотом
+                self.assertTrue(closed and closed.ok)
+                self.assertEqual(api.trades[-1][1]["actionType"], "POSITION_CLOSE_ID")
+                n = len(api.trades)
+
+                async def bad(*a):
+                    raise at.MetaApiError("Validation failed (volume: bad)", "", 400)
+                api.trade = bad
+                res = await tr.open_signal(8, 1, 20, 30)
+                self.assertFalse(res[0].ok)
+                self.assertIn("volume: bad", res[0].error)
+                self.assertEqual(len(api.trades), n)
+                res, closed = await tr.test_trade(2, hold=0)
+                self.assertEqual(res.error, "NO_ACCOUNT")
+                await db.close()
+        run(go())
+
     def test_connect_demo_account(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:

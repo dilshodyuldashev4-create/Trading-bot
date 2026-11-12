@@ -55,6 +55,11 @@ def _error(status: int, body: Any) -> MetaApiError:
         details = body.get("details")
         code = details.get("code", "") if isinstance(details, dict) else (details if isinstance(details, str) else "")
         msg = body.get("message") or body.get("error") or str(body)
+        if isinstance(details, list):  # ValidationError: какие поля не прошли проверку
+            parts = [f"{d.get('parameter', '')}: {d.get('message', '')}".strip(": ") for d in details
+                     if isinstance(d, dict) and (d.get("parameter") or d.get("message"))]
+            if parts:
+                msg = f"{msg} ({'; '.join(parts)})"[:300]
         if not code:
             m = re.search(r"\bE_[A-Z_]+\b", str(body))
             code = m.group(0) if m else ""
@@ -236,6 +241,16 @@ def calc_volume(equity: float, currency: str, sl_dist: float, risk_pct: float, m
     return round(vol, 2)
 
 
+def _retryable(e: MetaApiError) -> bool:
+    """Временные сбои: нет связи, MetaApi перегружен, терминал не развёрнут/не синхронизирован."""
+    if e.code in ("TIMEOUT", "NETWORK"):
+        return True
+    if e.status == 429 or e.status >= 500 or e.status == 404:
+        return True
+    text = str(e).lower()
+    return any(w in text for w in ("undeployed", "not connected", "not synchronized", "notfound", "timed out"))
+
+
 def round_price(x: float, digits: int | None) -> float:
     return round(x, digits if digits is not None else 2)
 
@@ -275,6 +290,7 @@ class AutoTrader:
     connect_timeout: float = 240
     poll: float = 5
     concurrency: int = 10
+    retry_delays: tuple[float, ...] = (5.0, 20.0)
     exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
 
     # ── подключение ────────────────────────────────────────────────────────
@@ -383,7 +399,7 @@ class AutoTrader:
         async def one(acc: dict) -> OpenResult:
             async with sem:
                 try:
-                    return await self._open_one(acc, sid, direction, sl_dist, tp_dist)
+                    return await self._open_retry(acc, sid, direction, sl_dist, tp_dist)
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
@@ -393,7 +409,66 @@ class AutoTrader:
 
         return list(await asyncio.gather(*(one(a) for a in accounts)))
 
-    async def _open_one(self, acc: dict, sid: int, direction: int, sl_dist: float, tp_dist: float) -> OpenResult:
+    async def _open_retry(self, acc: dict, sid: int, direction: int, sl_dist: float,
+                          tp_dist: float, min_lot: bool = False) -> OpenResult:
+        """Сбой связи с MetaApi или терминал не в сети — проверяем, что счёт развёрнут, и пробуем ещё."""
+        for attempt in range(len(self.retry_delays) + 1):
+            try:
+                if attempt:  # прошлый ордер мог дойти до брокера, хоть ответ и потерялся — не открываем второй
+                    found = await self._find_open(acc, sid)
+                    if found:
+                        return found
+                return await self._open_one(acc, sid, direction, sl_dist, tp_dist, min_lot)
+            except MetaApiError as e:
+                if not _retryable(e) or attempt == len(self.retry_delays):
+                    raise
+                log.info("autotrade open #%s for %s: %s, retrying", sid, acc["user_id"], e)
+                await self._ensure_deployed(acc["meta_id"])
+                await asyncio.sleep(self.retry_delays[attempt])
+        raise AssertionError("unreachable")
+
+    async def test_trade(self, uid: int, hold: float = 5) -> tuple[OpenResult, CloseResult | None]:
+        """Проверка для админа: та же заявка, что по сигналу, но минимальным лотом; через hold секунд закрываем."""
+        acc = await self.db.get_trade_account(uid)
+        if not acc:
+            return OpenResult(uid, False, error="NO_ACCOUNT"), None
+        sid = -int(asyncio.get_running_loop().time())  # отрицательный id — не путается с сигналами
+        try:
+            res = await self._open_retry({**acc}, sid, 1, 10.0, 10.0, min_lot=True)
+        except MetaApiError as e:
+            return OpenResult(uid, False, error=f"{e.code} {e}".strip()), None
+        await asyncio.sleep(hold)
+        tr = await self.db.get_auto_trade(sid, uid)
+        try:
+            closed = await self._close_one(tr) if tr else None
+        except MetaApiError as e:
+            closed = CloseResult(uid, False, error=f"{e.code} {e}".strip())
+        return res, closed
+
+    async def _find_open(self, acc: dict, sid: int) -> OpenResult | None:
+        for p in await self.api.positions(acc["meta_id"], acc["region"]):
+            if p.get("comment") == f"goldbot #{sid}":
+                vol = float(p.get("volume") or 0)
+                await self.db.save_auto_trade(sid, acc["user_id"], str(p.get("id")), vol, "open", "")
+                return OpenResult(acc["user_id"], True, vol, float(p.get("openPrice") or 0),
+                                  float(p.get("stopLoss") or 0), float(p.get("takeProfit") or 0), acc["symbol"])
+        return None
+
+    async def _ensure_deployed(self, acc_id: str) -> None:
+        try:
+            a = await self.api.get_account(acc_id)
+        except MetaApiError as e:
+            log.info("get account %s: %s", acc_id, e)
+            return
+        if a.get("state") in ("UNDEPLOYED", "UNDEPLOYING"):
+            log.warning("account %s was %s, deploying again", acc_id, a.get("state"))
+            try:
+                await self.api.deploy(acc_id)
+            except MetaApiError as e:
+                log.warning("deploy %s: %s", acc_id, e)
+
+    async def _open_one(self, acc: dict, sid: int, direction: int, sl_dist: float, tp_dist: float,
+                        min_lot: bool = False) -> OpenResult:
         if await self.db.get_auto_trade(sid, acc["user_id"]):
             raise MetaApiError("already opened", "DUPLICATE")
         mid, region, symbol = acc["meta_id"], acc["region"], acc["symbol"]
@@ -404,6 +479,8 @@ class AutoTrader:
             spec = {}
         vol = calc_volume(float(info.get("equity") or info.get("balance") or 0), info.get("currency") or "USD",
                           sl_dist, self.risk_pct, self.max_lot, spec)
+        if min_lot and vol > 0:
+            vol = round(float(spec.get("minVolume") or 0.01), 2)
         if vol <= 0:
             raise MetaApiError("no money", "NO_MONEY")
         px = await self.api.price(mid, region, symbol)
@@ -413,8 +490,7 @@ class AutoTrader:
         sl = round_price(open_px - direction * sl_dist, digits)
         tp = round_price(open_px + direction * tp_dist, digits)
         req = {"actionType": "ORDER_TYPE_BUY" if direction == 1 else "ORDER_TYPE_SELL", "symbol": symbol,
-               "volume": vol, "stopLoss": sl, "takeProfit": tp, "comment": f"goldbot #{sid}",
-               "clientId": f"gb{sid}u{acc['user_id']}"[:20]}
+               "volume": vol, "stopLoss": sl, "takeProfit": tp, "comment": f"goldbot #{sid}"[:26]}
         resp = await self.api.trade(mid, region, req)
         pos = str(resp.get("positionId") or resp.get("orderId") or "")
         await self.db.save_auto_trade(sid, acc["user_id"], pos, vol, "open", "")
