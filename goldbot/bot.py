@@ -23,6 +23,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
                            PreCheckoutQuery, ReplyKeyboardMarkup)
 
 from . import econ_calendar, news_alerts
+from .autotrade import BROKERS, AutoTrader, MetaApi, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB
 from .chart import render_signal, render_stats
@@ -43,6 +44,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats")],
         [b("btn_sub"), b("btn_profile")],
+        *([[b("btn_auto")]] if config.metaapi_token else []),
     ])
 
 
@@ -64,6 +66,51 @@ class AdminStates(StatesGroup):
 
 class CapitalStates(StatesGroup):
     waiting = State()
+
+
+class AutoStates(StatesGroup):
+    broker_name = State()   # «Другой брокер»: ждём название
+    server = State()        # ждём имя сервера вручную
+    login = State()
+    password = State()
+
+
+def _btn(text: str, data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=data)
+
+
+def broker_kb(lang: str) -> InlineKeyboardMarkup:
+    rows = [[_btn(name, f"at:br:{i}") for i, (name, _) in enumerate(BROKERS)][j:j + 3]
+            for j in range(0, len(BROKERS), 3)]
+    rows.append([_btn(t(lang, "btn_other_broker"), "at:br:other")])
+    rows.append([_btn(t(lang, "btn_cancel"), "at:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def servers_kb(lang: str, servers: list[str]) -> InlineKeyboardMarkup:
+    rows = [[_btn(sv, f"at:sv:{i}")] for i, sv in enumerate(servers)]
+    rows.append([_btn(t(lang, "btn_server_manual"), "at:sv:manual")])
+    rows.append([_btn(t(lang, "btn_cancel"), "at:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def connect_error_text(lang: str, e: Exception, server: str) -> str:
+    code = getattr(e, "code", "")
+    key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
+           "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
+    if key:
+        return t(lang, key, server=html.escape(server)) if key == "at_err_server" else t(lang, key)
+    return t(lang, "at_err_other", error=html.escape(code or str(e))[:150])
+
+
+def trade_error_text(lang: str, error: str) -> str:
+    if error in ("NO_MONEY", "TRADE_RETCODE_NO_MONEY"):
+        return t(lang, "at_e_money")
+    if error in ("TRADE_RETCODE_MARKET_CLOSED", "TRADE_RETCODE_TRADE_DISABLED"):
+        return t(lang, "at_e_market")
+    if error in ("TRADE_RETCODE_CONNECTION", "TRADE_RETCODE_NO_CONNECTION") or "connect" in error.lower():
+        return t(lang, "at_e_conn")
+    return html.escape(error)[:150]
 
 
 CAPITAL_PRESETS = (50, 100, 200, 300, 500, 1000, 2000, 5000)
@@ -171,6 +218,8 @@ def with_lot(caption: str, block: str) -> str:
 
 
 class App:
+    autotrader: AutoTrader | None = None
+
     def __init__(self) -> None:
         self.bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         self.dp = Dispatcher()
@@ -189,6 +238,13 @@ class App:
         self.engine.news_close_min = config.news_close_min
         self.engine.on_news_close = self.broadcast_news_close
         self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона
+        self.autotrader: AutoTrader | None = None
+        if config.metaapi_token:
+            self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
+                                         config.autotrade_risk_pct, config.autotrade_max_lot,
+                                         config.autotrade_symbol, config.metaapi_region)
+        self._connecting: set[int] = set()   # чьи счета сейчас подключаются
+        self._tasks: set[asyncio.Task] = set()
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -231,6 +287,7 @@ class App:
 
     async def broadcast_signal(self, s: NewSignal) -> None:
         """Каждому подписчику — картинка и текст с его лотом (по его капиталу)."""
+        self.spawn(self.autotrade_open(s))   # на подключённых счетах сделка открывается сразу
         uids = await self.db.active_user_ids()
         langs = await self.db.user_langs()
         caps = await self.db.user_capitals()
@@ -266,6 +323,7 @@ class App:
 
     async def broadcast_news_close(self, s: dict, price: float, ev: dict, mins: int) -> None:
         """Перед важной новостью: всем — закрыть сделку по рынку."""
+        self.spawn(self.autotrade_close(s["id"]))
         side = "BUY" if s["direction"] == 1 else "SELL"
         res = s["direction"] * (price - s["entry"]) / PIP
         langs = await self.db.user_langs()
@@ -280,6 +338,7 @@ class App:
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
+        self.spawn(self.autotrade_close(s["id"]))   # что не закрыл брокер по своим SL/TP — закрываем
         side = "BUY" if s["direction"] == 1 else "SELL"
         level = s["tp"] if status == "tp" else s["sl"]
         pips = abs(level - s["entry"]) / PIP   # у каждого сигнала свои стоп и тейк
@@ -423,11 +482,144 @@ class App:
         lang = await self.lang_of(user.id)
         text = (t(lang, "cap_set", cap=fmt_usd(capital), lot=f"{lot_plan(capital)['lot']:.2f}") if capital
                 else t(lang, "cap_skipped"))
-        if data.get("onboard"):  # новый пользователь: дальше приветствие с меню
+        if data.get("onboard"):  # новый пользователь: дальше приветствие с меню и вопрос про автоторговлю
             await self.bot.send_message(chat_id, text)
             await self.send_hello(chat_id, user.id, user.first_name, lang, bool(data.get("new_user")))
+            await self.ask_autotrade(chat_id, user.id, lang)
         else:
             await self.bot.send_message(chat_id, text, reply_markup=menu(lang))
+
+    # ── автоторговля ─────────────────────────────────────────────────────────
+    def spawn(self, coro) -> None:
+        """Автоторговля в фоне, чтобы не задерживать рассылку сигналов."""
+        if not self.autotrader:
+            coro.close()
+            return
+        tasks = self.__dict__.setdefault("_tasks", set())
+        task = asyncio.create_task(coro)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    async def autotrade_open(self, s: NewSignal) -> None:
+        if not self.autotrader:
+            return
+        sl_d, tp_d = sl_tp_dist(s.entry, s.sl, s.tp, s.sl_pips, s.tp_pips)
+        try:
+            results = await self.autotrader.open_signal(s.id, s.direction, sl_d, tp_d)
+        except Exception:  # noqa: BLE001
+            log.exception("autotrade open #%s", s.id)
+            return
+        langs = await self.db.user_langs()
+        side = "🟢 BUY" if s.direction == 1 else "🔴 SELL"
+        for r in results:
+            lang = norm(langs.get(r.uid))
+            if r.ok:
+                text = t(lang, "at_opened", id=s.id, side=side, symbol=html.escape(r.symbol), lot=f"{r.volume:.2f}",
+                         price=f"{r.price:.2f}", sl=f"{r.sl:.2f}", tp=f"{r.tp:.2f}")
+            elif r.error == "DUPLICATE":
+                continue
+            else:
+                text = t(lang, "at_open_fail", id=s.id, error=trade_error_text(lang, r.error))
+            await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
+        log.info("autotrade #%s: %s opened, %s failed", s.id, sum(r.ok for r in results),
+                 sum(not r.ok for r in results))
+
+    async def autotrade_close(self, sid: int, uids: set[int] | None = None) -> None:
+        if not self.autotrader:
+            return
+        try:
+            results = await self.autotrader.close_signal(sid, uids)
+        except Exception:  # noqa: BLE001
+            log.exception("autotrade close #%s", sid)
+            return
+        langs = await self.db.user_langs()
+        for r in results:
+            if not r.ok:
+                log.warning("autotrade close #%s for %s: %s", sid, r.uid, r.error)
+                continue
+            lang = norm(langs.get(r.uid))
+            profit = ""
+            if r.profit is not None:
+                sign = "+" if r.profit >= 0 else "−"
+                profit = t(lang, "at_closed_profit", pnl=f"{sign}{abs(r.profit):,.2f}".replace(",", " "),
+                           currency=html.escape(r.currency))
+            await self._send(r.uid, lambda u=r.uid, x=t(lang, "at_closed", id=sid, profit=profit):
+                             self.bot.send_message(u, x))
+
+    async def ask_autotrade(self, chat_id: int, uid: int, lang: str) -> None:
+        """Один раз спрашиваем подписчика, подключить ли бота к его счёту."""
+        if not self.autotrader:
+            return
+        u = await self.db.get_user(uid)
+        if not u or u.get("autotrade_asked") or await self.db.get_trade_account(uid):
+            return
+        await self.db.set_autotrade_asked(uid)
+        await self.bot.send_message(chat_id, t(lang, "at_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [_btn(t(lang, "btn_yes_connect"), "at:yes"), _btn(t(lang, "btn_no_thanks"), "at:no")]]))
+
+    async def autotrade_menu(self, chat_id: int, uid: int, lang: str) -> None:
+        if not self.autotrader:
+            await self.bot.send_message(chat_id, t(lang, "at_unavailable"))
+            return
+        acc = await self.autotrader.status(uid)
+        if not acc:
+            await self.bot.send_message(chat_id, t(lang, "at_none"), reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")]]))
+            return
+        if await self.db.get_kv("autotrade_off") == "1":
+            state = t(lang, "at_global_off")
+        else:
+            state = t(lang, "at_on" if acc["enabled"] else "at_paused")
+        bal = acc.get("balance")
+        balance = f"{bal:,.2f} {acc.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
+        text = t(lang, "at_status", broker=html.escape(acc.get("broker") or "—"), login=acc["login"],
+                 server=html.escape(acc["server"]), kind=t(lang, "at_kind_demo" if acc["demo"] else "at_kind_real"),
+                 balance=balance, state=state, risk=f"{config.autotrade_risk_pct:g}",
+                 max_lot=f"{config.autotrade_max_lot:g}")
+        toggle = _btn(t(lang, "btn_pause"), "at:pause") if acc["enabled"] else _btn(t(lang, "btn_resume"), "at:resume")
+        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]))
+
+    async def show_servers(self, chat_id: int, lang: str, state: FSMContext, query: str) -> None:
+        data = await state.get_data()
+        version = 4 if data.get("platform") == "mt4" else 5
+        await self.bot.send_message(chat_id, t(lang, "at_searching", q=html.escape(query)))
+        try:
+            servers = demo_servers(await self.autotrader.api.search_servers(version, query),
+                                   config.autotrade_demo_only)[:24]
+        except Exception as e:  # noqa: BLE001
+            log.warning("server search %r: %s", query, e)
+            servers = []
+        if not servers:
+            await state.set_state(AutoStates.broker_name)
+            await self.bot.send_message(chat_id, t(lang, "at_no_servers", q=html.escape(query)))
+            return
+        await state.set_state(None)
+        await state.update_data(servers=servers)
+        await self.bot.send_message(chat_id, t(lang, "at_servers"), reply_markup=servers_kb(lang, servers))
+
+    async def ask_login(self, chat_id: int, lang: str, state: FSMContext, server: str) -> None:
+        await state.update_data(server=server)
+        await state.set_state(AutoStates.login)
+        await self.bot.send_message(chat_id, t(lang, "at_login", server=html.escape(server)))
+
+    async def run_connect(self, chat_id: int, uid: int, lang: str, platform: str, server: str, login: str,
+                          password: str) -> None:
+        try:
+            info = await self.autotrader.connect(uid, platform, server, login, password)
+            bal = info.get("balance")
+            balance = f"{bal:,.2f} {info.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
+            text = t(lang, "at_connected", broker=html.escape(info.get("broker") or "—"), login=login,
+                     server=html.escape(server), balance=balance, symbol=html.escape(info["symbol"]),
+                     risk=f"{config.autotrade_risk_pct:g}")
+            log.info("autotrade: user %s connected %s@%s", uid, login, server)
+        except Exception as e:  # noqa: BLE001
+            log.warning("autotrade connect for %s (%s@%s) failed: %s %s", uid, login, server,
+                        getattr(e, "code", ""), e)
+            text = connect_error_text(lang, e, server)
+        finally:
+            self._connecting.discard(uid)
+        await self._send(uid, lambda: self.bot.send_message(chat_id, text, reply_markup=menu(lang)))
 
     # ── handlers ─────────────────────────────────────────────────────────────
     def _register(self) -> None:
@@ -446,6 +638,7 @@ class App:
                 await self.ask_capital(m.chat.id, norm(u["lang"]), state, onboard=True, new_user=new)
                 return
             await self.send_hello(m.chat.id, m.from_user.id, m.from_user.first_name, norm(u["lang"]), new)
+            await self.ask_autotrade(m.chat.id, m.from_user.id, norm(u["lang"]))
 
         @r.message(Command("language", "lang"))
         async def language(m: Message):
@@ -540,6 +733,8 @@ class App:
             u = await self.db.get_user(uid) or {}
             lot = lot_plan(u["capital"])["lot"] if u.get("capital") else 0
             await self.db.set_decision(sid, uid, choice == "dec", lot)
+            if choice == "dec":  # отклонил — закрываем сделку на его счёте, если бот её открыл
+                self.spawn(self.autotrade_close(sid, {uid}))
             await c.answer()
             await c.message.answer(t(lang, "declined" if choice == "dec" else "accepted", id=sid))
             try:
@@ -592,7 +787,8 @@ class App:
             lang = norm(u.get("lang"))
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t(lang, "btn_capital"), callback_data="cap:menu")],
-                [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")]])
+                [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")],
+                *([[_btn(t(lang, "btn_auto"), "at:menu")]] if self.autotrader else [])])
             cap = u.get("capital")
             cap_line = (t(lang, "profile_cap", cap=fmt_usd(cap), lot=f"{lot_plan(cap)['lot']:.2f}") if cap
                         else t(lang, "profile_nocap"))
@@ -628,12 +824,16 @@ class App:
                 closed = s["tp"] + s["sl"]
                 wr = f"{100 * s['tp'] / closed:.1f}%" if closed else "—"
                 langs = ", ".join(f"{k}: {v}" for k, v in sorted((await self.db.lang_stats()).items()))
+                accs = await self.db.trade_accounts()
+                auto = (f"\n🤖 Автоторговля: {len(accs)} счетов, включено {sum(a['enabled'] for a in accs)}"
+                        + (" (остановлена /autotrade off)" if await self.db.get_kv("autotrade_off") == "1" else "")
+                        if self.autotrader else "")
                 await c.message.answer(
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
                     f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
                     f"⭐ Выручка: {s['revenue']}\n\n"
                     f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}\n"
-                    f"🌐 Языки: {langs or '—'}")
+                    f"🌐 Языки: {langs or '—'}{auto}")
             elif action == "broadcast":
                 await state.set_state(AdminStates.broadcast)
                 await c.message.answer("Отправьте сообщение для рассылки всем (текст или фото). /cancel — отмена.")
@@ -653,7 +853,9 @@ class App:
             elif action == "granthelp":
                 await c.message.answer("/grant &lt;user_id&gt; &lt;дней&gt; — выдать подписку\n"
                                        "/revoke &lt;user_id&gt; — забрать доступ\n"
-                                       "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем")
+                                       "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
+                                       "/autotrade off|on — остановить / включить автоторговлю у всех\n"
+                                       "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали")
             await c.answer()
 
         @r.message(Command("cancel"))
@@ -723,6 +925,152 @@ class App:
         @r.message(CapitalStates.waiting, F.text, ~F.text.startswith("/"))
         async def capital_bad(m: Message):  # ждём капитал, а прислали не число и не кнопку меню
             await m.answer(t(await self.lang_of(m.from_user.id), "cap_bad"))
+
+        self._register_autotrade()
+
+    def _register_autotrade(self) -> None:
+        r = self.router
+
+        @r.message(F.text.in_(variants("btn_auto")))
+        @r.message(Command("autotrade"))
+        async def autotrade_cmd(m: Message, state: FSMContext, command: CommandObject | None = None):
+            arg = (command.args or "").strip().lower() if command else ""
+            if arg and self.is_admin(m.from_user.id):
+                if arg in ("off", "on"):
+                    await self.db.set_kv("autotrade_off", "1" if arg == "off" else "0")
+                    await m.answer("⛔️ Автоторговля остановлена у всех: новые сделки не открываются"
+                                   if arg == "off" else "✅ Автоторговля включена")
+                    return
+                if arg == "invite":
+                    if not self.autotrader:
+                        await m.answer("Нет METAAPI_TOKEN в .env")
+                        return
+                    uids = await self.db.not_asked_autotrade()
+                    langs = await self.db.user_langs()
+                    n = 0
+                    for u in uids:
+                        lang = norm(langs.get(u))
+                        n += await self._send(u, lambda u=u, lang=lang: self.ask_autotrade(u, u, lang))
+                        await asyncio.sleep(0.04)
+                    await m.answer(f"🤖 Вопрос про автоторговлю отправлен: {n} из {len(uids)}")
+                    return
+            await state.clear()
+            await self.autotrade_menu(m.chat.id, m.from_user.id, await self.lang_of(m.from_user.id))
+
+        @r.callback_query(F.data.startswith("at:"))
+        async def autotrade_cb(c: CallbackQuery, state: FSMContext):
+            parts = c.data.split(":")
+            action, arg = parts[1], (parts[2] if len(parts) > 2 else "")
+            uid, chat = c.from_user.id, c.message.chat.id
+            lang = await self.lang_of(uid)
+            await c.answer()
+            if not self.autotrader:
+                await c.message.answer(t(lang, "at_unavailable"))
+                return
+            if action not in ("menu", "no", "cancel"):
+                try:  # кнопки прошлого шага убираем, чтобы не нажимали дважды
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+            if action == "menu":
+                await state.clear()
+                await self.autotrade_menu(chat, uid, lang)
+            elif action == "no":
+                try:
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+                await c.message.answer(t(lang, "at_declined_ok"))
+            elif action == "cancel":
+                await state.clear()
+                try:
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+                await c.message.answer(t(lang, "cancelled"), reply_markup=menu(lang))
+            elif action == "yes":
+                if not self.db.has_access(await self.db.get_user(uid)):
+                    await c.message.answer(t(lang, "at_no_access"))
+                    await self.send_invoice(chat, lang)
+                    return
+                if uid in self._connecting:
+                    await c.message.answer(t(lang, "at_busy"))
+                    return
+                demo = t(lang, "at_demo_note") if config.autotrade_demo_only else ""
+                await c.message.answer(
+                    t(lang, "at_risks", risk=f"{config.autotrade_risk_pct:g}",
+                      max_lot=f"{config.autotrade_max_lot:g}", demo=demo),
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [_btn(t(lang, "btn_agree"), "at:agree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+            elif action == "agree":
+                await state.clear()
+                await c.message.answer(t(lang, "at_platform"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [_btn("MetaTrader 5", "at:pf:mt5"), _btn("MetaTrader 4", "at:pf:mt4")],
+                    [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+            elif action == "pf" and arg in ("mt4", "mt5"):
+                await state.update_data(platform=arg)
+                await c.message.answer(t(lang, "at_broker"), reply_markup=broker_kb(lang))
+            elif action == "br":
+                if arg == "other":
+                    await state.set_state(AutoStates.broker_name)
+                    await c.message.answer(t(lang, "at_broker_name"))
+                elif arg.isdigit() and int(arg) < len(BROKERS):
+                    await self.show_servers(chat, lang, state, BROKERS[int(arg)][1])
+            elif action == "sv":
+                servers = (await state.get_data()).get("servers") or []
+                if arg == "manual":
+                    await state.set_state(AutoStates.server)
+                    await c.message.answer(t(lang, "at_server_manual"))
+                elif arg.isdigit() and int(arg) < len(servers):
+                    await self.ask_login(chat, lang, state, servers[int(arg)])
+            elif action in ("pause", "resume"):
+                await self.db.set_trade_enabled(uid, action == "resume")
+                await c.message.answer(t(lang, "at_resumed_ok" if action == "resume" else "at_paused_ok"))
+            elif action == "disc":
+                await self.autotrader.disconnect(uid)
+                await c.message.answer(t(lang, "at_disconnected"), reply_markup=menu(lang))
+
+        not_cmd = ~F.text.startswith("/")
+
+        @r.message(AutoStates.broker_name, F.text, not_cmd)
+        async def broker_typed(m: Message, state: FSMContext):
+            await self.show_servers(m.chat.id, await self.lang_of(m.from_user.id), state, m.text.strip()[:40])
+
+        @r.message(AutoStates.server, F.text, not_cmd)
+        async def server_typed(m: Message, state: FSMContext):
+            await self.ask_login(m.chat.id, await self.lang_of(m.from_user.id), state, m.text.strip()[:80])
+
+        @r.message(AutoStates.login, F.text, not_cmd)
+        async def login_typed(m: Message, state: FSMContext):
+            lang = await self.lang_of(m.from_user.id)
+            login = m.text.strip()
+            if not login.isdigit() or len(login) > 20:
+                await m.answer(t(lang, "at_login_bad"))
+                return
+            await state.update_data(login=login)
+            await state.set_state(AutoStates.password)
+            await m.answer(t(lang, "at_password"))
+
+        @r.message(AutoStates.password, F.text, not_cmd)
+        async def password_typed(m: Message, state: FSMContext):
+            uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
+            password = m.text.strip()
+            data = await state.get_data()
+            await state.clear()   # в памяти бота пароль не остаётся
+            try:
+                await m.delete()  # и в чате тоже
+            except Exception:  # noqa: BLE001
+                log.warning("could not delete password message of %s", uid)
+            platform, server, login = data.get("platform") or "mt5", data.get("server"), data.get("login")
+            if not server or not login:
+                await m.answer(t(lang, "cancelled"), reply_markup=menu(lang))
+                return
+            if uid in self._connecting:
+                await m.answer(t(lang, "at_busy"))
+                return
+            self._connecting.add(uid)
+            await m.answer(t(lang, "at_connecting", login=login, server=html.escape(server)))
+            self.spawn(self.run_connect(m.chat.id, uid, lang, platform, server, login, password))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
     async def calendar_loop(self) -> None:
@@ -842,4 +1190,6 @@ class App:
             for task in tasks:
                 task.cancel()
             await self.provider.close()
+            if self.autotrader:
+                await self.autotrader.api.close()
             await self.db.close()

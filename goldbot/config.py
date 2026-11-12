@@ -94,5 +94,13 @@ class Config:
     )
     display_tz: str = os.getenv("DISPLAY_TZ", "Asia/Tashkent")
 
+    # автоторговля на счетах подписчиков через MetaApi (metaapi.cloud); без токена функция выключена
+    metaapi_token: str = os.getenv("METAAPI_TOKEN", "")
+    metaapi_region: str = os.getenv("METAAPI_REGION", "")           # пусто — регион по умолчанию MetaApi
+    autotrade_demo_only: bool = os.getenv("AUTOTRADE_DEMO_ONLY", "1") not in ("0", "false", "no", "")
+    autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
+    autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
+    autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
+
 
 config = Config()
