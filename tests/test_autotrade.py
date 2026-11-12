@@ -589,3 +589,101 @@ class TelegramDialogTests(unittest.TestCase):
                     for k, v in saved.items():
                         object.__setattr__(config, k, v)
         run(go())
+
+
+class MarketFeedTests(unittest.TestCase):
+    def test_failover_switches_at_once_and_comes_back(self):
+        import pandas as pd
+
+        from goldbot.market import Failover, Provider
+
+        class Slow(Provider):
+            def __init__(self):
+                self.hang, self.fail, self.calls = False, False, 0
+
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [1.0]})
+
+            async def price(self):
+                self.calls += 1
+                if self.hang:
+                    await asyncio.sleep(30)
+                if self.fail:
+                    raise RuntimeError("down")
+                return 2650.0
+
+        class Backup(Provider):
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [2.0]})
+
+            async def price(self):
+                return 2653.5
+
+        async def go():
+            loop = asyncio.get_running_loop()
+            p, b = Slow(), Backup()
+            f = Failover(p, b, price_timeout=0.2, cooldown=0.5)
+            self.assertEqual(await f.price(), 2650.0)
+            p.hang = True
+            t0 = loop.time()
+            self.assertEqual(await f.price(), 2653.5)          # не ответил за 0.2 с — сразу запасной
+            self.assertLess(loop.time() - t0, 1)
+            calls = p.calls
+            self.assertEqual(await f.price(), 2653.5)          # в паузе основной даже не спрашиваем
+            self.assertEqual(p.calls, calls)
+            self.assertEqual((await f.candles("5min", 1))["close"].iloc[0], 2.0)
+            p.hang = False
+            await asyncio.sleep(0.6)
+            self.assertEqual(await f.price(), 2650.0)          # вернулся — снова цены брокера
+            self.assertFalse(f.on_backup)
+            p.fail = True
+            self.assertEqual(await f.price(), 2653.5)          # ошибка — тоже сразу запасной
+        run(go())
+
+    def test_broker_market_reads_candles_and_bid(self):
+        from aiohttp import web
+
+        async def go():
+            async def candles(req):
+                assert req.match_info["tf"] == "15m" and req.query["limit"] == "3"
+                # MetaApi может вернуть свечи от новых к старым — бот сортирует сам
+                return web.json_response([
+                    {"time": "2026-11-12T10:30:00.000Z", "open": 3, "high": 4, "low": 2, "close": 3.5, "tickVolume": 9},
+                    {"time": "2026-11-12T10:15:00.000Z", "open": 2, "high": 3, "low": 1, "close": 2.5, "tickVolume": 8},
+                    {"time": "2026-11-12T10:00:00.000Z", "open": 1, "high": 2, "low": 0.5, "close": 1.5, "tickVolume": 7}])
+
+            async def price(req):
+                assert req.query.get("keepSubscription") == "true"
+                return web.json_response({"symbol": "XAUUSD", "bid": 4131.8, "ask": 4132.0})
+
+            app = web.Application()
+            app.router.add_get("/users/current/accounts/m1/historical-market-data/symbols/XAUUSD/timeframes/{tf}/candles",
+                               candles)
+            app.router.add_get("/users/current/accounts/m1/symbols/XAUUSD/current-price", price)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            old = at.CLIENT, at.MARKET
+            at.CLIENT = at.MARKET = f"http://127.0.0.1:{port}"
+            api = at.MetaApi("tok")
+
+            async def src():
+                return {"meta_id": "m1", "region": "london", "symbol": "XAUUSD"}
+            try:
+                bm = at.BrokerMarket(api, src)
+                df = await bm.candles("15min", 3)
+                self.assertEqual(list(df["close"]), [1.5, 2.5, 3.5])
+                self.assertEqual(str(df.index[0]), "2026-11-12 10:00:00")
+                self.assertEqual(await bm.price(), 4131.8)
+
+                async def none():
+                    return None
+                with self.assertRaises(at.MetaApiError):
+                    await at.BrokerMarket(api, none).price()   # счёта нет → запасной источник
+            finally:
+                at.CLIENT, at.MARKET = old
+                await api.close()
+                await runner.cleanup()
+        run(go())

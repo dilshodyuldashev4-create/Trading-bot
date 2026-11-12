@@ -23,7 +23,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
                            PreCheckoutQuery, ReplyKeyboardMarkup)
 
 from . import econ_calendar, news_alerts
-from .autotrade import BROKERS, AutoTrader, MetaApi, demo_servers, sl_tp_dist
+from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB, now
 from .chart import render_signal, render_stats
@@ -31,7 +31,7 @@ from .engine import NewSignal, SignalEngine, market_open, next_open, parse_hhmm
 from .i18n import CHOOSE, LANG_BUTTONS, norm, t, variants
 from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
-from .market import make_provider
+from .market import Failover, make_provider
 from .news import NewsService
 
 log = logging.getLogger(__name__)
@@ -246,6 +246,11 @@ class App:
                                          config.autotrade_risk_pct, config.autotrade_max_lot,
                                          config.autotrade_symbol, config.metaapi_region,
                                          exempt=frozenset(config.admin_ids))
+        if self.autotrader and config.market_from_broker:
+            # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
+            self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider)
+            self.engine.provider = self.provider
+        self._market_src: tuple[float, dict | None] = (0.0, None)
         self._connecting: set[int] = set()   # чьи счета сейчас подключаются
         self._tasks: set[asyncio.Task] = set()
         self.router = Router()
@@ -521,6 +526,17 @@ class App:
             await self.bot.send_message(chat_id, text, reply_markup=menu(lang))
 
     # ── автоторговля ─────────────────────────────────────────────────────────
+    async def market_account(self) -> dict | None:
+        """Счёт админа, с которого берём свечи и цену (кэш на минуту)."""
+        import time
+        at, src = self._market_src
+        if time.monotonic() - at < 60:
+            return src
+        accs = [a for a in await self.db.trade_accounts() if a["user_id"] in config.admin_ids]
+        src = accs[0] if accs else None
+        self._market_src = (time.monotonic(), src)
+        return src
+
     def spawn(self, coro) -> None:
         """Автоторговля в фоне, чтобы не задерживать рассылку сигналов."""
         if not self.autotrader:

@@ -20,11 +20,14 @@ from typing import Any
 import aiohttp
 
 from .data import PIP
+from .market import Provider, _frame
 
 log = logging.getLogger(__name__)
 
 PROVISIONING = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
 CLIENT = "https://mt-client-api-v1.{region}.agiliumtrade.ai"
+MARKET = "https://mt-market-data-client-api-v1.{region}.agiliumtrade.ai"
+MT_TF = {"5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h", "4h": "4h", "1day": "1d"}
 OK_CODES = {"TRADE_RETCODE_DONE", "TRADE_RETCODE_DONE_PARTIAL", "TRADE_RETCODE_PLACED",
             "TRADE_RETCODE_NO_CHANGES", "ERR_NO_ERROR"}
 CENT_CURRENCIES = {"USC", "USX", "USc", "UScent"}
@@ -453,6 +456,43 @@ class AutoTrader:
         except Exception as e:  # noqa: BLE001
             log.info("deals for %s: %s", pos, e)
         return CloseResult(uid, True, profit, acc.get("currency") or "USD", already)
+
+
+class BrokerMarket(Provider):
+    """Свечи и цена XAUUSD прямо с MetaTrader-счёта через MetaApi (тот же график, что в MT5 у брокера).
+    source() → {"meta_id", "region", "symbol"} счёта, с которого берём данные (None — счёта нет)."""
+
+    def __init__(self, api: MetaApi, source):
+        self.api, self.source = api, source
+
+    async def _src(self) -> dict:
+        src = await self.source()
+        if not src:
+            raise MetaApiError("no market data account", "NO_ACCOUNT")
+        return src
+
+    async def candles(self, tf: str, count: int):
+        src = await self._src()
+        url = (f"{MARKET.format(region=src['region'] or 'new-york')}/users/current/accounts/{src['meta_id']}"
+               f"/historical-market-data/symbols/{src['symbol']}/timeframes/{MT_TF[tf]}/candles"
+               f"?limit={min(count, 1000)}")
+        body = await self.api._ok("GET", url, timeout=20)
+        if not body:
+            raise MetaApiError("no candles", "NO_DATA")
+        rows = [{"time": c["time"], "open": c["open"], "high": c["high"], "low": c["low"],
+                 "close": c["close"], "volume": c.get("tickVolume") or 0} for c in body]
+        df = _frame(rows)
+        return df[~df.index.duplicated(keep="last")].iloc[-count:]
+
+    async def price(self) -> float:
+        src = await self._src()
+        body = await self.api._ok(
+            "GET", f"{self.api._client(src['meta_id'], src['region'])}/symbols/{src['symbol']}/current-price"
+                   f"?keepSubscription=true", timeout=10)
+        p = float(body.get("bid") or 0)   # графики в MetaTrader строятся по bid
+        if p <= 0:
+            raise MetaApiError(f"no price: {body}", "NO_DATA")
+        return p
 
 
 def sl_tp_dist(entry: float, sl: float, tp: float, sl_pips: float = 0, tp_pips: float = 0) -> tuple[float, float]:
