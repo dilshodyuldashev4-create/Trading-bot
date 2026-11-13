@@ -418,6 +418,53 @@ class NewsBiasFilterTests(unittest.TestCase):
                 await db.close()
         run(go())
 
+    def test_news_trade_mode(self):
+        """Торговля в новости: без паузы, со свежей оценкой новости; против умеренного фона — пропуск."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                ev = {"title": "CPI m/m", "ts": "2025-03-12T12:30:00+00:00", "country": "USD", "impact": "High"}
+
+                async def run_replay(trade_on):
+                    sent, asked = [], []
+                    db = DB(os.path.join(d, f"t{int(trade_on)}.db"))
+                    await db.connect()
+
+                    async def on_signal(s):
+                        sent.append(s)
+
+                    async def on_close(s, status, price):
+                        pass
+
+                    async def pause(now):
+                        return ev  # каждая свеча — рядом с важной новостью
+
+                    async def flag():
+                        return trade_on
+
+                    async def event_bias(market, e):
+                        asked.append(e["title"])
+                        return {"bias": "bullish", "strength": "moderate", "reason": "war"}
+
+                    df = m5_frame(days=20, start="2025-03-03 00:00")
+                    prov = Replay(df, start=300)
+                    eng = SignalEngine(db, prov, "fvg_m15", 30, 60, "UTC", on_signal, on_close)
+                    eng.news_pause, eng.news_trade, eng.news_event_bias = pause, flag, event_bias
+                    while prov.pos < len(df):
+                        prov.step()
+                        await eng.tick(now=(df.index[prov.pos - 1] + pd.Timedelta(minutes=5)).tz_localize("UTC"))
+                    await db.close()
+                    return sent, asked
+
+                sent, asked = await run_replay(False)
+                self.assertEqual((sent, asked), ([], []))           # выключено — пауза, как раньше
+                sent, asked = await run_replay(True)
+                self.assertTrue(sent)
+                self.assertIn("CPI m/m", asked)
+                self.assertTrue(all(s.direction == 1 for s in sent))  # SELL против умеренного фона не даём
+                self.assertIn("Сигнал во время новости", sent[0].texts["ru"])
+                self.assertIn("12:30", sent[0].texts["ru"])
+        run(go())
+
     def test_strong_bias_mapping(self):
         from goldbot.news import NewsService
 
@@ -495,6 +542,15 @@ class NewsCloseTests(unittest.TestCase):
                 eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, None)
                 eng.on_news_close = on_news_close
                 sid = await db.add_signal("combo", -1, 4070.0, 4080.0, 4050.0)
+                trade_news = [True]
+
+                async def flag():
+                    return trade_news[0]
+                eng.news_trade, eng.news_close_min = flag, 30
+                # торговля в новости включена — сделку не закрываем
+                self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=29), 4065.0), 0)
+                trade_news[0] = False
+                eng.news_close_min = 0
                 self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=29), 4065.0), 0)  # выключено
                 eng.news_close_min = 30
                 self.assertEqual(await eng.news_close_check(t0 - pd.Timedelta(minutes=45), 4065.0), 0)  # рано
