@@ -167,6 +167,10 @@ class SignalEngine:
         self.news_trade: Optional[Callable[[], Awaitable[bool]]] = None
         # оценка рынка перед конкретной новостью: (данные рынка, событие) → {"bias", "strength", ...}
         self.news_event_bias: Optional[Callable[[str, dict], Awaitable[dict | None]]] = None
+        # даже в режиме торговли в новости не входим в самый момент выхода новости: за столько минут до
+        # и после неё рынок дёргает в обе стороны и выбивает стопы (0 и 0 — входить и в момент выхода)
+        self.news_hot_before = 10
+        self.news_hot_after = 15
         # стоп/тейк по волатильности: множители ATR(14) таймфрейма стратегии (0 — фиксированные пипсы)
         self.sl_atr = self.tp_atr = 0.0
         self.sl_min_pips = 50.0
@@ -293,6 +297,27 @@ class SignalEngine:
             log.exception("news trade flag")
             return False
 
+    async def news_hot(self, now: pd.Timestamp) -> dict | None:
+        """Важная новость США выходит в ближайшие news_hot_before минут или вышла меньше news_hot_after минут назад."""
+        if self.news_hot_before <= 0 and self.news_hot_after <= 0:
+            return None
+        try:
+            events = await self.db.events_between(
+                (now - pd.Timedelta(minutes=self.news_hot_after)).to_pydatetime(),
+                (now + pd.Timedelta(minutes=self.news_hot_before)).to_pydatetime())
+        except Exception:  # noqa: BLE001
+            log.exception("news hot check")
+            return None
+        for e in events:
+            if e.get("country") != "USD" or e.get("impact") not in self.news_pause_impact:
+                continue
+            ts = pd.Timestamp(e["ts"])
+            ts = ts if ts.tzinfo else ts.tz_localize("UTC")
+            # ровно через news_hot_after минут после выхода уже можно входить
+            if now - pd.Timedelta(minutes=self.news_hot_after) < ts:
+                return e
+        return None
+
     async def news_close_check(self, now: pd.Timestamp, price: float) -> int:
         """За news_close_min минут до важной новости США закрывает открытые сделки по рынку и сообщает всем."""
         if self.news_close_min <= 0 or self.on_news_close is None:
@@ -395,8 +420,9 @@ class SignalEngine:
         open_dirs = {s["direction"] for s in opened}   # стороны открытых сделок (1 BUY, -1 SELL)
         cache: dict[str, pd.DataFrame] = {}
         result = None
+        fresh_dirs: set[int] = set()   # стороны сигналов, уже данных на этой проверке
         for st in self.strategies:
-            ns = await self._tick_strategy(st, now, price, cache, open_keys, open_dirs)
+            ns = await self._tick_strategy(st, now, price, cache, open_keys, open_dirs, fresh_dirs)
             result = ns or result
         if cache:
             # пришли свежие свечи: проверяем, не задела ли цена тейк или стоп тенью между опросами
@@ -410,7 +436,8 @@ class SignalEngine:
         return cache[tf]
 
     async def _tick_strategy(self, st: LiveStrategy, now: pd.Timestamp, price: float,
-                             cache: dict, open_keys: set, open_dirs: set | None = None) -> NewSignal | None:
+                             cache: dict, open_keys: set, open_dirs: set | None = None,
+                             fresh_dirs: set | None = None) -> NewSignal | None:
         tf = st.timeframe
         step = pd.Timedelta(minutes=TF_MINUTES[tf])
         naive_now = now.tz_convert(None)
@@ -444,6 +471,11 @@ class SignalEngine:
         if ev is not None and not news_mode:
             log.info("signal skipped (%s): news %s at %s", st.key, ev.get("title"), ev.get("ts"))
             return None  # рядом важная новость США — рынок непредсказуем
+        if news_mode:
+            hot = await self.news_hot(now)
+            if hot is not None:
+                log.info("signal skipped (%s): release of %s at %s", st.key, hot.get("title"), hot.get("ts"))
+                return None  # момент выхода новости: резкие движения в обе стороны
 
         d = await self.direction(df, now, st)
         if d == 0:
@@ -452,6 +484,11 @@ class SignalEngine:
         if -d in open_dirs:
             log.info("signal skipped (%s): %s while an opposite trade is open", st.key, "BUY" if d == 1 else "SELL")
             return None  # встречный сигнал: пока открыта сделка в другую сторону, не даём
+        fresh_dirs = fresh_dirs if fresh_dirs is not None else set()
+        if d in fresh_dirs:
+            log.info("signal skipped (%s): another strategy already gave %s on this candle", st.key,
+                     "BUY" if d == 1 else "SELL")
+            return None  # две стратегии в одну сторону на одной свече — это одна сделка с двойным риском
         info = None
         try:
             if news_mode and self.news_event_bias is not None:
@@ -477,6 +514,7 @@ class SignalEngine:
         sid = await self.db.add_signal(st.key, d, entry, sl, tp)
         open_keys.add(st.key)
         open_dirs.add(d)
+        fresh_dirs.add(d)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
         title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
