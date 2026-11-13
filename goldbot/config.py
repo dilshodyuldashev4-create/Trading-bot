@@ -75,6 +75,9 @@ class Config:
     # 1 — торговать и во время важных новостей: без паузы и без закрытия сделок перед новостью,
     # сигнал проверяется свежей оценкой новости и геополитики; админ переключает /newstrade on|off
     news_trade: bool = os.getenv("NEWS_TRADE", "1") not in ("0", "false", "no", "")
+    # и в этом режиме не входить за NEWS_HOT_BEFORE минут до выхода новости и NEWS_HOT_AFTER минут после
+    news_hot_before: int = int(os.getenv("NEWS_HOT_BEFORE", "10"))
+    news_hot_after: int = int(os.getenv("NEWS_HOT_AFTER", "15"))
     # утренний разбор рынка в это местное время (пн–пт); пусто — выключен
     morning_review: str = os.getenv("MORNING_REVIEW", "08:00")
 

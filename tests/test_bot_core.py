@@ -465,6 +465,26 @@ class NewsBiasFilterTests(unittest.TestCase):
                 self.assertIn("12:30", sent[0].texts["ru"])
         run(go())
 
+    def test_no_entry_at_news_release(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                t0 = pd.Timestamp("2026-11-13 13:30", tz="UTC")
+                await db.upsert_events([{"key": "cpi", "ts": t0.isoformat(), "country": "USD", "title": "CPI m/m",
+                                         "impact": "High", "forecast": "", "previous": "", "actual": ""}])
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, None)
+                m = lambda x: t0 + pd.Timedelta(minutes=x)  # noqa: E731
+                self.assertIsNone(await eng.news_hot(m(-15)))           # за 15 минут до — можно
+                self.assertIsNotNone(await eng.news_hot(m(-10)))
+                self.assertIsNotNone(await eng.news_hot(m(0)))          # сам выход новости
+                self.assertIsNotNone(await eng.news_hot(m(14)))
+                self.assertIsNone(await eng.news_hot(m(15)))            # через 15 минут — снова можно
+                eng.news_hot_before = eng.news_hot_after = 0
+                self.assertIsNone(await eng.news_hot(m(0)))
+                await db.close()
+        run(go())
+
     def test_strong_bias_mapping(self):
         from goldbot.news import NewsService
 
@@ -566,7 +586,8 @@ class NewsCloseTests(unittest.TestCase):
 
 class OppositeSignalTests(unittest.TestCase):
     def test_no_opposite_signal_while_trade_open(self):
-        """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); в ту же сторону можно."""
+        """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); второй сигнал в ту же
+        сторону на той же свече тоже не даём — это была бы одна сделка с двойным риском."""
         async def go():
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
@@ -592,7 +613,7 @@ class OppositeSignalTests(unittest.TestCase):
                 prov.step(3)
                 t += pd.Timedelta(minutes=15)
                 await eng.tick(now=t)
-                self.assertEqual([s.direction for s in sent], [1, 1], "SELL против открытого BUY не должен прийти")
+                self.assertEqual([s.direction for s in sent], [1], "SELL против BUY и дубль BUY не должны прийти")
                 await db.close()
         run(go())
 

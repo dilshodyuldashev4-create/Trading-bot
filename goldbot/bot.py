@@ -242,6 +242,7 @@ class App:
         self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона
         self.engine.news_trade = self.news_trade_on  # торговля во время новостей (/newstrade)
         self.engine.news_event_bias = self.news.event_bias
+        self.engine.news_hot_before, self.engine.news_hot_after = config.news_hot_before, config.news_hot_after
         self.autotrader: AutoTrader | None = None
         if config.metaapi_token:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
@@ -1033,7 +1034,9 @@ class App:
             await m.answer(
                 ("⚡️ Торговля во время новостей <b>включена</b>: бот даёт сигналы и открывает сделки и рядом "
                  "с важными новостями, сделки перед новостью не закрываются. Перед сигналом Claude заново оценивает "
-                 "новость и геополитику; против сильного или умеренного фона сигнал не даётся.\n"
+                 "новость и геополитику; против сильного или умеренного фона сигнал не даётся. "
+                 f"В сам момент выхода новости (за {config.news_hot_before} мин до и {config.news_hot_after} мин после) "
+                 "новые сделки не открываются.\n"
                  "Выключить: /newstrade off")
                 if on else
                 ("⏸ Торговля во время новостей <b>выключена</b>: за {0} мин до важной новости США сигналы на паузе, "
