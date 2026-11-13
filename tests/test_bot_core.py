@@ -586,8 +586,8 @@ class NewsCloseTests(unittest.TestCase):
 
 class OppositeSignalTests(unittest.TestCase):
     def test_no_opposite_signal_while_trade_open(self):
-        """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); второй сигнал в ту же
-        сторону на той же свече тоже не даём — это была бы одна сделка с двойным риском."""
+        """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); в ту же сторону можно
+        (на истории запрет дублей на одной свече снижал прибыль: +37 500 против +41 600 пипсов)."""
         async def go():
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
@@ -613,7 +613,7 @@ class OppositeSignalTests(unittest.TestCase):
                 prov.step(3)
                 t += pd.Timedelta(minutes=15)
                 await eng.tick(now=t)
-                self.assertEqual([s.direction for s in sent], [1], "SELL против BUY и дубль BUY не должны прийти")
+                self.assertEqual([s.direction for s in sent], [1, 1], "SELL против открытого BUY не должен прийти")
                 await db.close()
         run(go())
 
