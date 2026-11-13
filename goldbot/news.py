@@ -56,6 +56,19 @@ strength: strong — только если есть явный крупный д
 крупные санкции и т.п.), иначе moderate или weak. Не выдумывай факты, которых нет в заголовках.
 Данные рынка: {market}"""
 
+EVENT_PROMPT = """Ты аналитик рынка золота (XAUUSD). Скоро (или только что) выходит важная новость:
+{event}
+Оцени, куда золото, скорее всего, пойдёт на ближайшие 1–3 часа. Учитывай вместе:
+- саму новость: ожидания (прогноз против прошлого значения, а если есть — факт против прогноза);
+- свежие заголовки ниже: ФРС, доллар, доходности и обязательно геополитику (войны, санкции, конфликты,
+  пошлины, эскалация или перемирие) — она может перевесить экономические данные;
+- данные рынка (цена и дневной тренд).
+bias: bullish — вверх, bearish — вниз, neutral — неясно или силы уравновешены.
+strength: strong — только если драйвер явный и все факторы в одну сторону; moderate — перевес есть, но
+не однозначный; weak — перевеса нет. При сомнениях выбирай weak или neutral.
+В reason коротко: что решает (новость или геополитика) и главный риск. Не выдумывай факты.
+Данные рынка: {market}"""
+
 BIAS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -75,6 +88,7 @@ class NewsService:
         self._lock = asyncio.Lock()
         self._bias: tuple[float, dict | None] | None = None   # (время, оценка фона) — кэш на час
         self._bias_lock = asyncio.Lock()
+        self._event_bias: dict[str, tuple[float, dict | None]] = {}   # оценка перед конкретной новостью
 
     async def _fetch_feed(self, s: aiohttp.ClientSession, url: str) -> list[dict]:
         try:
@@ -175,7 +189,29 @@ class NewsService:
             self._bias = (time.time() if result else time.time() - ttl + 600, result)
             return result
 
-    async def _ask_bias(self, items: list[dict], market: str) -> dict | None:
+    async def event_bias(self, market: str, ev: dict, ttl: int = 600) -> dict | None:
+        """Свежая оценка рынка перед/во время важной новости: сама новость + геополитика (кэш 10 минут)."""
+        if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
+            return None
+        key = f"{ev.get('ts')}|{ev.get('title')}|{ev.get('actual')}"
+        async with self._bias_lock:
+            hit = self._event_bias.get(key)
+            if hit and time.time() - hit[0] < ttl:
+                return hit[1]
+            result = None
+            try:
+                items = await self.headlines(hours=12) or await self.headlines()
+                event = "; ".join(f"{k}: {ev[k]}" for k in ("title", "ts", "country", "forecast", "previous", "actual")
+                                  if ev.get(k))
+                result = await self._ask_bias(items or [{"title": "нет свежих заголовков", "summary": ""}],
+                                              market, EVENT_PROMPT.format(event=event, market=market or "нет данных"))
+            except Exception:  # noqa: BLE001
+                log.exception("event bias")
+            # при ошибке повторим через 3 минуты
+            self._event_bias = {key: (time.time() if result else time.time() - ttl + 180, result)}
+            return result
+
+    async def _ask_bias(self, items: list[dict], market: str, system: str | None = None) -> dict | None:
         import anthropic
 
         text = "\n".join(f"- {i['title']}. {i['summary']}" for i in items)
@@ -187,7 +223,7 @@ class NewsService:
                 output_config={"effort": "low", "format": {"type": "json_schema", "schema": BIAS_SCHEMA}},
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
-                system=BIAS_PROMPT.format(market=market or "нет данных"),
+                system=system or BIAS_PROMPT.format(market=market or "нет данных"),
                 messages=[{"role": "user", "content": text}],
             )
         except anthropic.APIStatusError as e:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
@@ -112,6 +113,16 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
              note=t(lang, f"note_{strategy.key}"))
 
 
+def news_event_line(ev: dict, tz: str, lang: str = "ru") -> str:
+    """Предупреждение в сигнале, данном рядом с важной новостью."""
+    try:
+        ts = pd.Timestamp(ev["ts"])
+        when = (ts if ts.tzinfo else ts.tz_localize("UTC")).tz_convert(tz).strftime("%H:%M")
+    except Exception:  # noqa: BLE001
+        when = "—"
+    return "\n\n" + t(lang, "news_event", title=html.escape(ev.get("title") or ""), time=when)
+
+
 def news_line(info: dict | None, d: int, lang: str = "ru") -> str:
     """Строка о фоне новостей в сигнале (если есть оценка Claude)."""
     if not info or info.get("bias") not in ("bullish", "bearish", "neutral"):
@@ -151,6 +162,11 @@ class SignalEngine:
         # за сколько минут до важной новости США закрывать открытые сделки (0 — не закрывать)
         self.news_close_min = 0
         self.on_news_close: Optional[Callable[[dict, float, dict, int], Awaitable[None]]] = None
+        # торговля во время новостей: () → True — не ставить паузу и не закрывать сделки перед новостью,
+        # а давать сигналы с отдельной свежей оценкой новости и геополитики (None — выключено)
+        self.news_trade: Optional[Callable[[], Awaitable[bool]]] = None
+        # оценка рынка перед конкретной новостью: (данные рынка, событие) → {"bias", "strength", ...}
+        self.news_event_bias: Optional[Callable[[str, dict], Awaitable[dict | None]]] = None
         # стоп/тейк по волатильности: множители ATR(14) таймфрейма стратегии (0 — фиксированные пипсы)
         self.sl_atr = self.tp_atr = 0.0
         self.sl_min_pips = 50.0
@@ -267,10 +283,22 @@ class SignalEngine:
         return next((e for e in events if e.get("country") == "USD"
                      and e.get("impact") in self.news_pause_impact), None)
 
+    async def trading_news(self) -> bool:
+        """Включена ли торговля во время новостей (переключает админ)."""
+        if self.news_trade is None:
+            return False
+        try:
+            return bool(await self.news_trade())
+        except Exception:  # noqa: BLE001 — при ошибке ведём себя как раньше (пауза)
+            log.exception("news trade flag")
+            return False
+
     async def news_close_check(self, now: pd.Timestamp, price: float) -> int:
         """За news_close_min минут до важной новости США закрывает открытые сделки по рынку и сообщает всем."""
         if self.news_close_min <= 0 or self.on_news_close is None:
             return 0
+        if await self.trading_news():
+            return 0  # торгуем и в новости: сделки остаются открытыми со своими SL/TP
         opened = await self.db.open_signals()
         if not opened:
             return 0
@@ -412,7 +440,8 @@ class SignalEngine:
         if st.key in open_keys:
             return None  # у этой стратегии уже есть открытая сделка (как в бэктесте)
         ev = await self.news_pause(now)
-        if ev is not None:
+        news_mode = ev is not None and await self.trading_news()
+        if ev is not None and not news_mode:
             log.info("signal skipped (%s): news %s at %s", st.key, ev.get("title"), ev.get("ts"))
             return None  # рядом важная новость США — рынок непредсказуем
 
@@ -424,16 +453,23 @@ class SignalEngine:
             log.info("signal skipped (%s): %s while an opposite trade is open", st.key, "BUY" if d == 1 else "SELL")
             return None  # встречный сигнал: пока открыта сделка в другую сторону, не даём
         info = None
-        if self.news_bias is not None:
-            try:
+        try:
+            if news_mode and self.news_event_bias is not None:
+                # во время новости — свежая оценка именно этой новости вместе с геополитикой
+                info = await self.news_event_bias(await self.market_text(now), ev)
+            if info is None and self.news_bias is not None:
                 info = await self.news_bias(await self.market_text(now))
-            except Exception:  # noqa: BLE001 — без оценки новостей работаем по графику
-                log.exception("news bias")
-            side = {"bullish": 1, "bearish": -1}.get((info or {}).get("bias"), 0)
-            if self.news_block and side == -d and (info or {}).get("strength") == "strong":
-                log.info("signal skipped (%s): strong news background against %s", st.key,
-                         "BUY" if d == 1 else "SELL")
-                return None
+        except Exception:  # noqa: BLE001 — без оценки новостей работаем по графику
+            log.exception("news bias")
+        side = {"bullish": 1, "bearish": -1}.get((info or {}).get("bias"), 0)
+        strength = (info or {}).get("strength")
+        # обычно — пропуск только против сильного фона (если NEWS_FILTER=1); в новости строже:
+        # против сильного или умеренного фона сигнал не даём
+        against = side == -d and (strength == "strong" or (news_mode and strength == "moderate"))
+        if against and (self.news_block or news_mode):
+            log.info("signal skipped (%s): %s news background against %s", st.key, strength,
+                     "BUY" if d == 1 else "SELL")
+            return None
         entry = price
         sl_p, tp_p = self.sl_tp_pips(df)
         sl = entry - d * sl_p * PIP
@@ -446,7 +482,8 @@ class SignalEngine:
         img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
         ns = NewSignal(sid, d, entry, sl, tp, img,
                        per_lang(lambda lang: format_signal(st, d, entry, sl, tp, sl_p, tp_p, when, lang)
-                                + news_line(info, d, lang)),
+                                + news_line(info, d, lang)
+                                + (news_event_line(ev, self.tz, lang) if news_mode else "")),
                        lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw), sl_p, tp_p)
         await self.on_signal(ns)
         return ns

@@ -240,6 +240,8 @@ class App:
         self.engine.news_close_min = config.news_close_min
         self.engine.on_news_close = self.broadcast_news_close
         self.engine.news_block = config.news_filter  # блокировать сигнал против сильного фона
+        self.engine.news_trade = self.news_trade_on  # торговля во время новостей (/newstrade)
+        self.engine.news_event_bias = self.news.event_bias
         self.autotrader: AutoTrader | None = None
         if config.metaapi_token:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
@@ -447,6 +449,11 @@ class App:
     async def lang_of(self, uid: int) -> str:
         u = await self.db.get_user(uid)
         return norm(u.get("lang") if u else None)
+
+    async def news_trade_on(self) -> bool:
+        """Торговля во время новостей: переключатель админа (/newstrade), по умолчанию NEWS_TRADE из .env."""
+        v = await self.db.get_kv("news_trade")
+        return config.news_trade if v is None else v == "1"
 
     def is_admin(self, uid: int) -> bool:
         return uid in config.admin_ids
@@ -896,6 +903,8 @@ class App:
                 auto = (f"\n🤖 Автоторговля: {len(accs)} счетов, включено {sum(a['enabled'] for a in accs)}"
                         + (" (остановлена /autotrade off)" if await self.db.get_kv("autotrade_off") == "1" else "")
                         if self.autotrader else "")
+                auto += ("\n⚡️ Торговля в новости: " + ("включена" if await self.news_trade_on() else "выключена")
+                         + " (/newstrade)")
                 await c.message.answer(
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
                     f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
@@ -1011,6 +1020,24 @@ class App:
                     lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "
                                  f"({time.monotonic() - t0:.1f} с)")
             await m.answer("\n".join(lines))
+
+        @r.message(Command("newstrade"))
+        async def newstrade(m: Message, command: CommandObject):
+            """Админу: торговать ли во время важных новостей (/newstrade on|off)."""
+            if not self.is_admin(m.from_user.id):
+                return
+            arg = (command.args or "").strip().lower()
+            if arg in ("on", "off"):
+                await self.db.set_kv("news_trade", "1" if arg == "on" else "0")
+            on = await self.news_trade_on()
+            await m.answer(
+                ("⚡️ Торговля во время новостей <b>включена</b>: бот даёт сигналы и открывает сделки и рядом "
+                 "с важными новостями, сделки перед новостью не закрываются. Перед сигналом Claude заново оценивает "
+                 "новость и геополитику; против сильного или умеренного фона сигнал не даётся.\n"
+                 "Выключить: /newstrade off")
+                if on else
+                ("⏸ Торговля во время новостей <b>выключена</b>: за {0} мин до важной новости США сигналы на паузе, "
+                 "открытые сделки закрываются.\nВключить: /newstrade on").format(config.news_pause_min))
 
         @r.message(Command("grantauto"))
         async def grant_auto(m: Message, command: CommandObject):
