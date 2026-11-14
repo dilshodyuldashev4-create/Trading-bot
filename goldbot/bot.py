@@ -24,7 +24,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
 
 import json
 
-from . import econ_calendar, news_alerts
+from . import changelog, econ_calendar, news_alerts
 from . import prop as pr
 from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, demo_servers, sl_tp_dist
 from .config import config
@@ -60,7 +60,15 @@ ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="👥 Подписчики (CSV)", callback_data="adm:export"),
      InlineKeyboardButton(text="🧾 Последние сигналы", callback_data="adm:signals")],
     [InlineKeyboardButton(text="🎁 Выдать / забрать подписку", callback_data="adm:granthelp")],
+    [InlineKeyboardButton(text="🆕 Обновление: отправить всем", callback_data="adm:release")],
 ])
+
+
+def release_kb(version: str, sent: bool = False) -> InlineKeyboardMarkup:
+    send = ("🔁 Отправить ещё раз", f"rel:force:{version}") if sent else ("📣 Отправить всем", f"rel:send:{version}")
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=send[0], callback_data=send[1]),
+        InlineKeyboardButton(text="❌ Не отправлять", callback_data=f"rel:skip:{version}")]])
 
 
 class AdminStates(StatesGroup):
@@ -237,6 +245,7 @@ class App:
         self.bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         self.dp = Dispatcher()
         self.db = DB(config.db_path)
+        self._release_lock = asyncio.Lock()  # одна рассылка об обновлении за раз
         self.news = NewsService(config.news_feeds, config.anthropic_model)
         self.provider = make_provider(config)
         self.engine = SignalEngine(self.db, self.provider, config.strategy, config.sl_pips, config.tp_pips,
@@ -1065,6 +1074,12 @@ class App:
                     f"⭐ Выручка: {s['revenue']}\n\n"
                     f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}\n"
                     f"🌐 Языки: {langs or '—'}{auto}")
+            elif action == "release":
+                rel = changelog.latest()
+                if not rel:
+                    await c.message.answer("В changelog.py пока нет ни одной версии")
+                else:
+                    await self.offer_release(c.from_user.id, rel)
             elif action == "broadcast":
                 await state.set_state(AdminStates.broadcast)
                 await c.message.answer("Отправьте сообщение для рассылки всем (текст или фото). /cancel — отмена.")
@@ -1097,6 +1112,32 @@ class App:
             await state.clear()
             lang = await self.lang_of(m.from_user.id)
             await m.answer(t(lang, "cancelled"), reply_markup=menu(lang))
+
+        @r.callback_query(F.data.startswith("rel:"))
+        async def release_cb(c: CallbackQuery):
+            if not self.is_admin(c.from_user.id):
+                await c.answer()
+                return
+            _, action, version = c.data.split(":", 2)
+            await c.message.edit_reply_markup(reply_markup=None)
+            if action == "skip":
+                await c.answer("Не отправляем")
+                await c.message.answer("❌ Рассылку об обновлении не отправляем. "
+                                       "Передумаете — /admin → «🆕 Обновление».")
+                return
+            rel = changelog.find(version)
+            if not rel:
+                await c.answer("Версия не найдена", show_alert=True)
+                return
+            async with self._release_lock:
+                ok = await changelog.claim_send(self.db, version, force=action == "force")
+            if not ok:
+                await c.answer("Эта версия уже разослана", show_alert=True)
+                return
+            await c.answer("Отправляю…")
+            await c.message.answer("📣 Отправляю обновление всем подписчикам…")
+            n = await self.broadcast_release(rel)
+            await c.message.answer(f"✅ Обновление отправлено: {n} подписчикам")
 
         @r.message(AdminStates.broadcast)
         async def do_broadcast(m: Message, state: FSMContext):
@@ -1608,6 +1649,49 @@ class App:
                 log.exception("trial reminder")
             await asyncio.sleep(600)
 
+    async def offer_release(self, admin_id: int, rel: dict) -> None:
+        """Админу — готовое сообщение об обновлении (как его увидят подписчики) и кнопки."""
+        sent = bool(await self.db.get_kv(changelog.sent_key(rel["version"])))
+        n = len(await self.db.all_user_ids())
+        note = (f"🆕 <b>Обновление {rel['version']}</b>\n"
+                + ("Эта версия уже разослана. " if sent else "")
+                + f"Ниже — сообщение, которое получат подписчики ({n} чел., каждый на своём языке). "
+                "Отправить всем?")
+        await self._send(admin_id, lambda: self.bot.send_message(admin_id, note))
+        lang = await self.lang_of(admin_id)
+        caption = changelog.release_text(rel, lang)
+        await self._send(admin_id, lambda: self.bot.send_photo(
+            admin_id, BufferedInputFile(changelog.LOGO.read_bytes(), "logo.jpg"),
+            caption=caption, reply_markup=release_kb(rel["version"], sent)))
+
+    async def broadcast_release(self, rel: dict) -> int:
+        """Всем подписчикам — логотип и что нового, каждому на его языке."""
+        langs = await self.db.user_langs()
+        photo: dict = {}  # file_id после первой загрузки, чтобы не грузить картинку каждому
+
+        async def send(u: int):
+            m = await self.bot.send_photo(
+                u, photo.get("id") or BufferedInputFile(changelog.LOGO.read_bytes(), "logo.jpg"),
+                caption=changelog.release_text(rel, langs.get(u)))
+            if m.photo and "id" not in photo:
+                photo["id"] = m.photo[-1].file_id
+            return m
+
+        n = await self.broadcast(await self.db.all_user_ids(), send)
+        log.info("release %s sent to %s users", rel["version"], n)
+        return n
+
+    async def release_offer_on_start(self) -> None:
+        """После обновления — один раз предложить админам разослать новость о новой версии."""
+        try:
+            await asyncio.sleep(10)  # дать боту спокойно запуститься
+            rel = await changelog.to_offer(self.db)
+            if rel:
+                for admin_id in config.admin_ids:
+                    await self.offer_release(admin_id, rel)
+        except Exception:  # noqa: BLE001
+            log.exception("release offer")
+
     async def run(self) -> None:
         await self.db.connect()
         tasks = [
@@ -1619,6 +1703,7 @@ class App:
             asyncio.create_task(self.morning_review_loop()),
             asyncio.create_task(self.autotrade_billing_loop()),
             asyncio.create_task(self.prop_loop()),
+            asyncio.create_task(self.release_offer_on_start()),
         ]
         try:
             await self.dp.start_polling(self.bot)
