@@ -817,6 +817,8 @@ TEXTS: dict[str, dict[str, str]] = {
 PROP_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
         "btn_prop": "🏆 Проп-фирма FundedNext",
+        "btn_fundednext": "🏆 FundedNext",
+        "prop_replace_note": "\n\nℹ️ У вас уже подключён обычный счёт. Проп-счёт подключится вместо него: бот отключит старый счёт и будет торговать на проп-счёте.",
         "btn_prop_register": "📝 Регистрация в FundedNext",
         "btn_prop_have": "✅ У меня уже есть счёт",
         "prop_intro": "🏆 <b>Проп-счёт FundedNext</b>\n\nFundedNext даёт торговать на своих деньгах: вы проходите челлендж и получаете финансируемый счёт с долей прибыли до 95%. Бот сам торгует по сигналам и соблюдает правила FundedNext: дневной и общий лимит просадки, риск на сделку не больше 2.8%.\n\n⚠️ <b>Важно при покупке счёта:</b>\n• платформа <b>MetaTrader 4 или 5</b>;\n• размер <b>до $25 000</b>: на счетах от $50 000 FundedNext запрещает ботов;\n• обязательно добавьте дополнение <b>«EA»</b> (или «VPS & EA»). Без него торговать ботом нельзя, счёт могут закрыть.{discount}",
@@ -849,6 +851,8 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
     },
     "en": {
         "btn_prop": "🏆 Prop firm FundedNext",
+        "btn_fundednext": "🏆 FundedNext",
+        "prop_replace_note": "\n\nℹ️ You already have a regular account connected. The prop account will replace it: the bot disconnects the old account and trades on the prop account.",
         "btn_prop_register": "📝 Sign up at FundedNext",
         "btn_prop_have": "✅ I already have an account",
         "prop_intro": "🏆 <b>FundedNext prop account</b>\n\nFundedNext lets you trade its money: you pass a challenge and get a funded account with up to 95% profit split. The bot trades its signals and follows FundedNext rules: daily and overall drawdown limits, risk per trade no more than 2.8%.\n\n⚠️ <b>Important when buying the account:</b>\n• platform <b>MetaTrader 4 or 5</b>;\n• size <b>up to $25,000</b>: FundedNext does not allow bots on $50,000 and above;\n• be sure to add the <b>“EA”</b> add-on (or “VPS & EA”). Without it bot trading is not allowed and the account can be closed.{discount}",
@@ -881,6 +885,8 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
     },
     "uz": {
         "btn_prop": "🏆 Prop firma FundedNext",
+        "btn_fundednext": "🏆 FundedNext",
+        "prop_replace_note": "\n\nℹ️ Sizda oddiy hisob ulangan. Prop hisob uning oʻrniga ulanadi: bot eski hisobni uzadi va prop hisobda savdo qiladi.",
         "btn_prop_register": "📝 FundedNext’da roʻyxatdan oʻtish",
         "btn_prop_have": "✅ Menda hisob bor",
         "prop_intro": "🏆 <b>FundedNext prop hisobi</b>\n\nFundedNext oʻz pulida savdo qilish imkonini beradi: challenge’dan oʻtasiz va foydaning 95% gacha ulushi bilan moliyalashtirilgan hisob olasiz. Bot signallar boʻyicha oʻzi savdo qiladi va FundedNext qoidalariga amal qiladi: kunlik va umumiy zarar limiti, bitta savdoga xavf 2.8% dan oshmaydi.\n\n⚠️ <b>Hisob sotib olayotganda muhim:</b>\n• platforma <b>MetaTrader 4 yoki 5</b>;\n• hajmi <b>$25 000 gacha</b>: $50 000 va undan katta hisoblarda FundedNext botlarni taqiqlaydi;\n• albatta <b>«EA»</b> (yoki «VPS & EA») qoʻshimchasini qoʻshing. Usiz bot bilan savdo qilish mumkin emas, hisob yopilishi mumkin.{discount}",
