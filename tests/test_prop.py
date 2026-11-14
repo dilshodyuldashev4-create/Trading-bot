@@ -210,6 +210,12 @@ class PropBotTextTests(unittest.TestCase):
             return True
 
         app.lang_of, app._send = lang_of, _send
+
+        class FakeDB:
+            async def get_trade_account(self, uid):   # уже подключён обычный счёт
+                return {"user_id": uid, "prop_plan": None}
+
+        app.db = FakeDB()
         a = {**acc("2step", 25_000, day_balance=25_000), "equity": 24_800, "prop_halt": "daily"}
         status = app.prop_status(a, "ru")
         self.assertIn("−$200.00, осталось $550.00 из $750.00", status)
@@ -225,6 +231,7 @@ class PropBotTextTests(unittest.TestCase):
         asyncio.run(go())
         intro, rules, passed = sent
         self.assertIn("REFHGUTBT", intro[1])
+        self.assertIn("подключится вместо него", intro[1])
         self.assertEqual(intro[2].inline_keyboard[0][0].url, "https://fundednext.com")
         self.assertIn("$125", rules[1])                     # 0.5 % от $25 000
         self.assertIn("2.8% ($700)", rules[1])

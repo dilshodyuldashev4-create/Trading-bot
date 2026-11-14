@@ -648,8 +648,13 @@ class TelegramDialogTests(unittest.TestCase):
 
                     await msg("🤖 Автоторговля")                     # кнопка меню: статус и управление
                     self.assertIn("98765432", texts(session)[-1])
-                    self.assertEqual(kb_data(session), ["at:pause", "at:pay", "at:disc"])
+                    self.assertEqual(kb_data(session), ["at:pause", "at:pay", "at:prop", "at:disc"])
                     self.assertIn("Оплачено до", texts(session)[-1])
+                    # отдельная кнопка меню FundedNext: видна и при подключённом счёте
+                    await msg("🏆 FundedNext")
+                    self.assertIn("REFHGUTBT", texts(session)[-1])
+                    self.assertIn("подключится вместо него", texts(session)[-1])
+                    self.assertIn("at:pplan", kb_data(session))
                     await tap("at:pause")
                     self.assertEqual((await app.db.get_trade_account(42))["enabled"], 0)
                     await tap("at:disc")

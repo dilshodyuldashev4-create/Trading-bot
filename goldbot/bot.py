@@ -47,7 +47,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats")],
         [b("btn_sub"), b("btn_profile")],
-        *([[b("btn_auto")]] if config.metaapi_token else []),
+        *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
 
 
@@ -658,6 +658,9 @@ class App:
             + await self.paid_line(uid, lang)
         toggle = _btn(t(lang, "btn_pause"), "at:pause") if acc["enabled"] else _btn(t(lang, "btn_resume"), "at:resume")
         rows = [[toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]
+        # подключить другой счёт: к обычному — проп-счёт FundedNext, к проп-счёту — обычный (заменит текущий)
+        other = _btn(t(lang, "btn_connect"), "at:yes") if acc.get("prop_plan") else _btn(t(lang, "btn_prop"), "at:prop")
+        rows.insert(1, [other])
         if not self.is_admin(uid):
             rows.insert(1, [_btn(t(lang, "btn_extend"), "at:pay")])
         await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
@@ -692,7 +695,9 @@ class App:
         if config.fundednext_url:
             rows.append([InlineKeyboardButton(text=t(lang, "btn_prop_register"), url=config.fundednext_url)])
         rows += [[_btn(t(lang, "btn_prop_have"), "at:pplan")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]
-        await self.bot.send_message(chat_id, t(lang, "prop_intro", discount=discount),
+        acc = await self.db.get_trade_account(chat_id)
+        replace = t(lang, "prop_replace_note") if acc and not acc.get("prop_plan") else ""
+        await self.bot.send_message(chat_id, t(lang, "prop_intro", discount=discount) + replace,
                                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                                     disable_web_page_preview=True)
 
@@ -1227,6 +1232,21 @@ class App:
 
     def _register_autotrade(self) -> None:
         r = self.router
+
+        @r.message(F.text.in_(variants("btn_fundednext")))
+        @r.message(Command("fundednext"))
+        async def fundednext_cmd(m: Message, state: FSMContext):
+            """Отдельный раздел FundedNext: подключённый проп-счёт — его состояние, иначе — как подключить."""
+            await state.clear()
+            uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
+            if not self.autotrader:
+                await m.answer(t(lang, "at_unavailable"))
+                return
+            acc = await self.db.get_trade_account(uid)
+            if acc and acc.get("prop_plan"):
+                await self.autotrade_menu(m.chat.id, uid, lang)
+            else:
+                await self.prop_intro(m.chat.id, lang)
 
         @r.message(F.text.in_(variants("btn_auto")))
         @r.message(Command("autotrade"))
