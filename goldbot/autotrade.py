@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import timedelta
 import logging
 import math
 import re
@@ -267,6 +268,8 @@ class OpenResult:
     tp: float = 0
     symbol: str = ""
     error: str = ""
+    aid: int = 0            # id счёта (у подписчика их может быть несколько)
+    login: str = ""
 
 
 @dataclass
@@ -277,6 +280,8 @@ class CloseResult:
     currency: str = ""
     already: bool = False   # брокер уже закрыл сам (по своему SL/TP)
     error: str = ""
+    aid: int = 0
+    login: str = ""
 
 
 @dataclass
@@ -294,6 +299,7 @@ class AutoTrader:
     concurrency: int = 10
     retry_delays: tuple[float, ...] = (5.0, 20.0)
     exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
+    paid_days: int = 30               # на сколько дней оплачен новый счёт
     # проп-счета FundedNext
     prop_risk_pct: float = 0.5        # риск на сделку, % от размера счёта (больше 2.8 % не бывает)
     prop_strong_risk_pct: float = 1.0  # риск на сильный сигнал (сильный фон новостей в ту же сторону)
@@ -309,13 +315,19 @@ class AutoTrader:
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
-                      prop: dict | None = None) -> dict:
-        """Подключает счёт подписчика. Возвращает данные счёта; при ошибке — MetaApiError с кодом:
-        E_AUTH (неверный логин/пароль/сервер), E_SRV_NOT_FOUND, REAL_NOT_ALLOWED, NO_GOLD, TIMEOUT …
-        prop — {"plan", "stage", "size"} для проп-счёта FundedNext (там свои лимиты просадки)."""
-        old = await self.db.get_trade_account(uid)
-        if old:  # повторное подключение — старый счёт убираем из MetaApi
-            await self.disconnect(uid)
+                      prop: dict | None = None, paid_until=None) -> dict:
+        """Подключает ещё один счёт подписчика (их может быть сколько угодно). Возвращает данные счёта
+        и его id (account_id); при ошибке — MetaApiError с кодом: E_AUTH (неверный логин/пароль/сервер),
+        E_SRV_NOT_FOUND, REAL_NOT_ALLOWED, NO_GOLD, TIMEOUT …
+        prop — {"plan", "stage", "size"} для проп-счёта FundedNext (там свои лимиты просадки).
+        paid_until — до какого времени оплачен счёт. Тот же счёт (логин и сервер) подключается заново
+        вместо старого и сохраняет его оплату."""
+        same = [a for a in await self.db.user_accounts(uid) if a["login"] == login and a["server"] == server]
+        for old in same:  # повторное подключение того же счёта — старую запись убираем из MetaApi
+            paid_until = paid_until or self.db.paid_until(old)
+            await self.disconnect(old["id"])
+        if paid_until is None:   # новый счёт оплачен на paid_days дней (оплату проверяет бот до подключения)
+            paid_until = _now() + timedelta(days=self.paid_days)
         await self._remove_orphans(uid)
         acc = await self.api.create_account(name=f"tg{uid}-{login}", login=login, password=password,
                                             server=server, platform=platform, magic=self.magic, region=self.region)
@@ -334,15 +346,15 @@ class AutoTrader:
         except Exception:
             await self._remove_quietly(acc_id)
             raise
-        await self.db.save_trade_account(uid, acc_id, region, platform, server, login, symbol,
-                                         info.get("broker") or "", info.get("currency") or "USD",
-                                         info.get("type") == "ACCOUNT_TRADE_MODE_DEMO")
+        aid = await self.db.save_trade_account(uid, acc_id, region, platform, server, login, symbol,
+                                               info.get("broker") or "", info.get("currency") or "USD",
+                                               info.get("type") == "ACCOUNT_TRADE_MODE_DEMO", paid_until)
         if prop:
             bal = float(info.get("balance") or prop["size"])
             eq = float(info.get("equity") or bal)
-            await self.db.set_prop(uid, prop["plan"], prop["stage"], float(prop["size"]),
+            await self.db.set_prop(aid, prop["plan"], prop["stage"], float(prop["size"]),
                                    pr.day_key(_now(), self.prop_day_tz), bal, max(float(prop["size"]), eq))
-        return {**info, "symbol": symbol, "server": server, "login": login}
+        return {**info, "symbol": symbol, "server": server, "login": login, "account_id": aid}
 
     async def _remove_orphans(self, uid: int) -> None:
         """Счета этого подписчика в MetaApi, которых нет в базе бота (прошлая попытка оборвалась), — удаляем,
@@ -353,8 +365,9 @@ class AutoTrader:
         except Exception as e:  # noqa: BLE001
             log.info("list accounts for %s: %s", uid, e)
             return
+        known = {a["meta_id"] for a in await self.db.user_accounts(uid)}   # подключённые счета не трогаем
         for a in accounts:
-            if str(a.get("name", "")).startswith(prefix):
+            if str(a.get("name", "")).startswith(prefix) and (a.get("_id") or a.get("id")) not in known:
                 log.info("removing leftover MetaApi account %s of user %s", a.get("_id") or a.get("id"), uid)
                 await self._remove_quietly(a.get("_id") or a.get("id"))
 
@@ -388,16 +401,21 @@ class AutoTrader:
             except Exception as e:  # noqa: BLE001
                 log.info("cleanup %s %s: %s", call.__name__, acc_id, e)
 
-    async def disconnect(self, uid: int) -> bool:
-        acc = await self.db.get_trade_account(uid)
+    async def disconnect(self, aid: int) -> bool:
+        """Отключает один счёт (aid — его id в базе бота)."""
+        acc = await self.db.get_account(aid)
         if not acc:
             return False
         await self._remove_quietly(acc["meta_id"])  # пароль удаляется из MetaApi вместе со счётом
-        await self.db.delete_trade_account(uid)
+        await self.db.delete_account(aid)
         return True
 
-    async def status(self, uid: int) -> dict | None:
-        acc = await self.db.get_trade_account(uid)
+    async def statuses(self, uid: int) -> list[dict]:
+        """Все счета подписчика с балансом и средствами."""
+        return [await self.status(a["id"]) for a in await self.db.user_accounts(uid)]
+
+    async def status(self, aid: int) -> dict | None:
+        acc = await self.db.get_account(aid)
         if not acc:
             return None
         try:
@@ -428,8 +446,8 @@ class AutoTrader:
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
                     if err != "DUPLICATE":  # уже открытую сделку не затираем
-                        await self.db.save_auto_trade(sid, acc["user_id"], None, 0, "error", err)
-                    return OpenResult(acc["user_id"], False, error=err)
+                        await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], None, 0, "error", err)
+                    return OpenResult(acc["user_id"], False, error=err, aid=acc["id"], login=acc["login"])
 
         return list(await asyncio.gather(*(one(a) for a in accounts)))
 
@@ -453,7 +471,7 @@ class AutoTrader:
 
     async def test_trade(self, uid: int, hold: float = 5) -> tuple[OpenResult, CloseResult | None]:
         """Проверка для админа: та же заявка, что по сигналу, но минимальным лотом; через hold секунд закрываем."""
-        acc = await self.db.get_trade_account(uid)
+        acc = await self.db.get_trade_account(uid)   # первый счёт админа
         if not acc:
             return OpenResult(uid, False, error="NO_ACCOUNT"), None
         sid = -int(asyncio.get_running_loop().time())  # отрицательный id — не путается с сигналами
@@ -462,7 +480,7 @@ class AutoTrader:
         except MetaApiError as e:
             return OpenResult(uid, False, error=f"{e.code} {e}".strip()), None
         await asyncio.sleep(hold)
-        tr = await self.db.get_auto_trade(sid, uid)
+        tr = await self.db.get_auto_trade(sid, acc["id"])
         try:
             closed = await self._close_one(tr) if tr else None
         except MetaApiError as e:
@@ -473,9 +491,10 @@ class AutoTrader:
         for p in await self.api.positions(acc["meta_id"], acc["region"]):
             if p.get("comment") == f"goldbot #{sid}":
                 vol = float(p.get("volume") or 0)
-                await self.db.save_auto_trade(sid, acc["user_id"], str(p.get("id")), vol, "open", "")
+                await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], str(p.get("id")), vol, "open", "")
                 return OpenResult(acc["user_id"], True, vol, float(p.get("openPrice") or 0),
-                                  float(p.get("stopLoss") or 0), float(p.get("takeProfit") or 0), acc["symbol"])
+                                  float(p.get("stopLoss") or 0), float(p.get("takeProfit") or 0), acc["symbol"],
+                                  aid=acc["id"], login=acc["login"])
         return None
 
     async def _ensure_deployed(self, acc_id: str) -> None:
@@ -493,7 +512,7 @@ class AutoTrader:
 
     async def _open_one(self, acc: dict, sid: int, direction: int, sl_dist: float, tp_dist: float,
                         min_lot: bool = False, strong: bool = False) -> OpenResult:
-        if await self.db.get_auto_trade(sid, acc["user_id"]):
+        if await self.db.get_auto_trade(sid, acc["id"]):
             raise MetaApiError("already opened", "DUPLICATE")
         mid, region, symbol = acc["meta_id"], acc["region"], acc["symbol"]
         info = await self.api.account_info(mid, region)
@@ -520,8 +539,8 @@ class AutoTrader:
                "volume": vol, "stopLoss": sl, "takeProfit": tp, "comment": f"goldbot #{sid}"[:26]}
         resp = await self.api.trade(mid, region, req)
         pos = str(resp.get("positionId") or resp.get("orderId") or "")
-        await self.db.save_auto_trade(sid, acc["user_id"], pos, vol, "open", "")
-        return OpenResult(acc["user_id"], True, vol, open_px, sl, tp, symbol)
+        await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], pos, vol, "open", "")
+        return OpenResult(acc["user_id"], True, vol, open_px, sl, tp, symbol, aid=acc["id"], login=acc["login"])
 
     # ── проп-счета ──────────────────────────────────────────────────────────
     async def _prop_volume(self, acc: dict, info: dict, spec: dict, sl_dist: float, strong: bool = False) -> float:
@@ -538,7 +557,7 @@ class AutoTrader:
                      if not p.get("symbol") or p.get("symbol") == acc["symbol"]]
         contract = float(spec.get("contractSize") or 100)
         if await self._day_stopped(acc):
-            await self.db.update_prop_state(acc["user_id"], prop_halt="loss")
+            await self.db.update_prop_state(acc["id"], prop_halt="loss")
             raise MetaApiError("prop day stop after a stop loss", "PROP_DAY_LOSS")
         risk = self.prop_strong_risk_pct if strong else self.prop_risk_pct
         risk = pr.scaled_risk(risk, balance, float(acc["prop_size"]), self.prop_dd_pct, self.prop_dd_mult)
@@ -557,7 +576,7 @@ class AutoTrader:
         upd = {"prop_day": today, "prop_day_balance": balance}
         if acc.get("prop_halt") in ("daily", "loss"):
             upd["prop_halt"] = ""
-        await self.db.update_prop_state(acc["user_id"], **upd)
+        await self.db.update_prop_state(acc["id"], **upd)
         return {**acc, **upd, "_new_day": acc.get("prop_halt") in ("daily", "loss")}
 
     async def _day_stopped(self, acc: dict) -> bool:
@@ -565,7 +584,7 @@ class AutoTrader:
         if self.prop_day_losses <= 0:
             return False
         since = pr.day_start(_now(), self.prop_day_tz)
-        return await self.db.stop_losses_since(acc["user_id"], since) >= self.prop_day_losses
+        return await self.db.stop_losses_since(acc["id"], since) >= self.prop_day_losses
 
     async def _close_all(self, acc: dict) -> int:
         """Закрывает позиции на счёте (prop_close: all — все, bot — только открытые ботом)."""
@@ -581,7 +600,7 @@ class AutoTrader:
                 n += 1
             except MetaApiError as e:
                 log.warning("prop close %s for %s: %s", p.get("id"), acc["user_id"], e)
-        await self.db.close_user_auto_trades(acc["user_id"])
+        await self.db.close_account_auto_trades(acc["id"])
         return n
 
     async def prop_check(self) -> list[dict]:
@@ -599,7 +618,8 @@ class AutoTrader:
         return events
 
     async def _prop_check_one(self, acc: dict) -> list[dict]:
-        uid, events = acc["user_id"], []
+        uid, aid, events = acc["user_id"], acc["id"], []
+        tag = {"uid": uid, "aid": aid, "login": acc["login"]}
         info = await self.api.account_info(acc["meta_id"], acc["region"], timeout=30)
         balance = float(info.get("balance") or 0)
         equity = float(info.get("equity") or balance)
@@ -607,7 +627,7 @@ class AutoTrader:
             return events
         acc = await self._prop_roll(acc, balance)
         if acc.pop("_new_day", False):
-            events.append({"uid": uid, "kind": "new_day"})
+            events.append({**tag, "kind": "new_day"})
         today = acc["prop_day"]
         upd: dict = {}
         if abs(balance - float(acc.get("prop_day_balance") or balance)) > 0.005 and acc.get("prop_last_day") != today:
@@ -626,24 +646,25 @@ class AutoTrader:
             if lim.room <= 0 or lim.hard_room <= float(acc["prop_size"]) * self.prop_guard_pct / 100:
                 upd["prop_halt"] = lim.binding
                 closed = await self._close_all(acc)
-                events.append({"uid": uid, "kind": "halt", "limit": lim.binding, "equity": equity,
+                events.append({**tag, "kind": "halt", "limit": lim.binding, "equity": equity,
                                "floor": lim.floor, "closed": closed, "acc": {**acc, **upd}})
             elif pr.phase_passed(acc, balance) and not await self.api.positions(acc["meta_id"], acc["region"]):
                 # этап пройден и всё закрыто: отключаемся от этого счёта, бот попросит счёт следующего этапа
                 report = {**acc, **upd, "balance": balance}
-                await self.disconnect(uid)
+                await self.disconnect(aid)
                 nxt = pr.next_stage(acc)
+                # оплаченные дни переходят на счёт следующего этапа — второй раз платить не нужно
                 await self.db.set_kv(f"prop_next:{uid}", json.dumps(
                     {"plan": acc["prop_plan"], "stage": nxt, "size": acc["prop_size"],
-                     "platform": acc.get("platform") or "mt5"}))
-                events.append({"uid": uid, "kind": "passed", "acc": report, "next": nxt})
+                     "platform": acc.get("platform") or "mt5", "paid_until": acc.get("paid_until")}))
+                events.append({**tag, "kind": "passed", "acc": report, "next": nxt})
                 return events
             elif await self._day_stopped(acc):
                 # стоп по сделке бота: до полуночи FundedNext новых сделок нет, открытые идут до своих SL/TP
                 upd["prop_halt"] = "loss"
-                events.append({"uid": uid, "kind": "loss_stop"})
+                events.append({**tag, "kind": "loss_stop"})
         if upd:
-            await self.db.update_prop_state(uid, **upd)
+            await self.db.update_prop_state(aid, **upd)
         return events
 
     async def close_signal(self, sid: int, uids: set[int] | None = None) -> list[CloseResult]:
@@ -657,22 +678,23 @@ class AutoTrader:
                     return await self._close_one(tr)
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade close #%s for %s failed: %s", sid, tr["user_id"], e)
-                    return CloseResult(tr["user_id"], False, error=getattr(e, "code", "") or str(e)[:200])
+                    return CloseResult(tr["user_id"], False, error=getattr(e, "code", "") or str(e)[:200],
+                                       aid=tr["account_id"])
 
         return list(await asyncio.gather(*(one(tr) for tr in trades)))
 
     async def _close_one(self, tr: dict) -> CloseResult:
-        uid, sid = tr["user_id"], tr["signal_id"]
-        acc = await self.db.get_trade_account(uid)
+        uid, sid, aid = tr["user_id"], tr["signal_id"], tr["account_id"]
+        acc = await self.db.get_account(aid)
         if not acc:
-            await self.db.set_auto_trade_status(sid, uid, "closed")
-            return CloseResult(uid, False, error="NO_ACCOUNT")
+            await self.db.set_auto_trade_status(sid, aid, "closed")
+            return CloseResult(uid, False, error="NO_ACCOUNT", aid=aid)
         mid, region, pos = acc["meta_id"], acc["region"], tr["position_id"]
         open_ids = {str(p.get("id")) for p in await self.api.positions(mid, region)}
         already = pos not in open_ids
         if not already:
             await self.api.trade(mid, region, {"actionType": "POSITION_CLOSE_ID", "positionId": pos})
-        await self.db.set_auto_trade_status(sid, uid, "closed")
+        await self.db.set_auto_trade_status(sid, aid, "closed")
         profit = None
         try:
             await asyncio.sleep(1)
@@ -681,7 +703,7 @@ class AutoTrader:
                 profit = round(sum(float(d.get(k) or 0) for d in deals for k in ("profit", "commission", "swap")), 2)
         except Exception as e:  # noqa: BLE001
             log.info("deals for %s: %s", pos, e)
-        return CloseResult(uid, True, profit, acc.get("currency") or "USD", already)
+        return CloseResult(uid, True, profit, acc.get("currency") or "USD", already, aid=aid, login=acc["login"])
 
 
 def _now():

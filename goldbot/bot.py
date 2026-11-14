@@ -26,7 +26,7 @@ import json
 
 from . import changelog, econ_calendar, news_alerts
 from . import prop as pr
-from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, demo_servers, sl_tp_dist
+from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, MetaApiError, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB, now
 from .chart import render_signal, render_stats
@@ -107,6 +107,8 @@ def servers_kb(lang: str, servers: list[str]) -> InlineKeyboardMarkup:
 
 def connect_error_text(lang: str, e: Exception, server: str) -> str:
     code = getattr(e, "code", "")
+    if code == "NOT_PAID":
+        return t(lang, "at_pay") + t(lang, "at_pay_each")
     key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
     if not key and isinstance(e, asyncio.TimeoutError):
@@ -268,7 +270,7 @@ class App:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
                                          config.autotrade_risk_pct, config.autotrade_max_lot,
                                          config.autotrade_symbol, config.metaapi_region,
-                                         exempt=frozenset(config.admin_ids),
+                                         exempt=frozenset(config.admin_ids), paid_days=config.autotrade_days,
                                          prop_risk_pct=config.prop_risk_pct,
                                          prop_strong_risk_pct=config.prop_strong_risk_pct, prop_guard_pct=config.prop_guard_pct,
                                          prop_max_lot=config.prop_max_lot, prop_risk_cap=config.prop_risk_cap,
@@ -504,21 +506,26 @@ class App:
             payload="sub", currency="XTR", provider_token="",
             prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days), amount=config.sub_price_stars)])
 
-    async def send_auto_invoice(self, chat_id: int, lang: str) -> None:
-        """Счёт на оплату автоторговли (отдельно от подписки на сигналы)."""
+    async def send_auto_invoice(self, chat_id: int, lang: str, acc: dict | None = None) -> None:
+        """Счёт на оплату автоторговли (отдельно от подписки на сигналы): без acc — подключение нового
+        счёта, с acc — продление этого счёта."""
+        title = (t(lang, "inv_auto_acc_title", login=acc["login"], days=config.autotrade_days) if acc
+                 else t(lang, "inv_auto_title", days=config.autotrade_days))
         await self.bot.send_invoice(
-            chat_id, title=t(lang, "inv_auto_title", days=config.autotrade_days),
-            description=t(lang, "inv_auto_desc"),
-            payload="auto", currency="XTR", provider_token="",
+            chat_id, title=title, description=t(lang, "inv_auto_desc"),
+            payload=f"auto:{acc['id']}" if acc else "auto", currency="XTR", provider_token="",
             prices=[LabeledPrice(label=t(lang, "inv_label", days=config.autotrade_days),
                                  amount=config.autotrade_price_stars)])
 
-    async def has_autotrade(self, uid: int) -> bool:
-        """Оплачена ли автоторговля (админам — всегда)."""
-        if self.is_admin(uid):
-            return True
-        until = self.db.autotrade_until(await self.db.get_user(uid))
-        return bool(until and until > now())
+    async def can_connect(self, uid: int) -> bool:
+        """Можно ли подключить новый счёт: каждый счёт оплачивается отдельно (админам — бесплатно)."""
+        return self.is_admin(uid) or await self.db.credits(uid) > 0
+
+    async def ask_payment(self, chat_id: int, uid: int, lang: str, intent: str) -> None:
+        """Счёт на оплату нового счёта; после оплаты продолжим intent: real — обычный счёт, prop — FundedNext."""
+        await self.db.set_kv(f"pay_intent:{uid}", intent)
+        await self.bot.send_message(chat_id, t(lang, "at_pay") + t(lang, "at_pay_each") + "\n\n" + self.price_line(lang))
+        await self.send_auto_invoice(chat_id, lang)
 
     def price_line(self, lang: str) -> str:
         return t(lang, "at_price", stars=config.autotrade_price_stars, usd=config.autotrade_price_usd,
@@ -594,6 +601,7 @@ class App:
             log.exception("autotrade open #%s", s.id)
             return
         langs = await self.db.user_langs()
+        multi = await self.multi_users()
         side = "🟢 BUY" if s.direction == 1 else "🔴 SELL"
         for r in results:
             lang = norm(langs.get(r.uid))
@@ -604,9 +612,18 @@ class App:
                 continue
             else:
                 text = t(lang, "at_open_fail", id=s.id, error=trade_error_text(lang, r.error))
+            if r.uid in multi:
+                text = t(lang, "at_acc_prefix", login=html.escape(r.login)) + text
             await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
         log.info("autotrade #%s: %s opened, %s failed", s.id, sum(r.ok for r in results),
                  sum(not r.ok for r in results))
+
+    async def multi_users(self) -> set[int]:
+        """Подписчики с несколькими счетами — в их сообщениях указываем номер счёта."""
+        counts: dict[int, int] = {}
+        for a in await self.db.trade_accounts():
+            counts[a["user_id"]] = counts.get(a["user_id"], 0) + 1
+        return {u for u, n in counts.items() if n > 1}
 
     async def autotrade_close(self, sid: int, uids: set[int] | None = None) -> None:
         if not self.autotrader:
@@ -617,6 +634,7 @@ class App:
             log.exception("autotrade close #%s", sid)
             return
         langs = await self.db.user_langs()
+        multi = await self.multi_users()
         for r in results:
             if not r.ok:
                 log.warning("autotrade close #%s for %s: %s", sid, r.uid, r.error)
@@ -627,8 +645,10 @@ class App:
                 sign = "+" if r.profit >= 0 else "−"
                 profit = t(lang, "at_closed_profit", pnl=f"{sign}{abs(r.profit):,.2f}".replace(",", " "),
                            currency=html.escape(r.currency))
-            await self._send(r.uid, lambda u=r.uid, x=t(lang, "at_closed", id=sid, profit=profit):
-                             self.bot.send_message(u, x))
+            text = t(lang, "at_closed", id=sid, profit=profit)
+            if r.uid in multi:
+                text = t(lang, "at_acc_prefix", login=html.escape(r.login)) + text
+            await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
 
     async def ask_autotrade(self, chat_id: int, uid: int, lang: str) -> None:
         """Один раз спрашиваем подписчика, подключить ли бота к его счёту."""
@@ -638,7 +658,7 @@ class App:
         if not u or u.get("autotrade_asked") or await self.db.get_trade_account(uid):
             return
         await self.db.set_autotrade_asked(uid)
-        text = t(lang, "at_ask") + ("" if await self.has_autotrade(uid) else "\n\n" + self.price_line(lang))
+        text = t(lang, "at_ask") + ("" if await self.can_connect(uid) else "\n\n" + self.price_line(lang))
         await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [_btn(t(lang, "btn_yes_connect"), "at:yes"), _btn(t(lang, "btn_no_thanks"), "at:no")],
             [_btn(t(lang, "btn_prop"), "at:prop")]]))
@@ -647,32 +667,46 @@ class App:
         if not self.autotrader:
             await self.bot.send_message(chat_id, t(lang, "at_unavailable"))
             return
-        acc = await self.autotrader.status(uid)
-        if not acc:
-            await self.bot.send_message(chat_id, t(lang, "at_none") + await self.paid_line(uid, lang),
-                                        reply_markup=InlineKeyboardMarkup(
-                                            inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")],
-                                                             [_btn(t(lang, "btn_prop"), "at:prop")]]))
+        accs = [a for a in await self.autotrader.statuses(uid) if a]
+        connect_rows = [[_btn(t(lang, "btn_connect"), "at:yes")], [_btn(t(lang, "btn_prop"), "at:prop")]]
+        if not accs:
+            price = "" if self.is_admin(uid) else "\n\n" + self.price_line(lang) + t(lang, "at_pay_each")
+            await self.bot.send_message(chat_id, t(lang, "at_none") + price,
+                                        reply_markup=InlineKeyboardMarkup(inline_keyboard=connect_rows))
             return
-        if await self.db.get_kv("autotrade_off") == "1":
-            state = t(lang, "at_global_off")
-        else:
-            state = t(lang, "at_on" if acc["enabled"] else "at_paused")
-        bal = acc.get("balance")
-        balance = f"{bal:,.2f} {acc.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
-        text = t(lang, "at_status", broker=html.escape(acc.get("broker") or "—"), login=acc["login"],
-                 server=html.escape(acc["server"]), kind=t(lang, "at_kind_demo" if acc["demo"] else "at_kind_real"),
-                 balance=balance, state=state, risk=f"{config.autotrade_risk_pct:g}",
-                 max_lot=f"{config.autotrade_max_lot:g}") + self.prop_status(acc, lang) \
-            + await self.paid_line(uid, lang)
-        toggle = _btn(t(lang, "btn_pause"), "at:pause") if acc["enabled"] else _btn(t(lang, "btn_resume"), "at:resume")
-        rows = [[toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]
-        # подключить другой счёт: к обычному — проп-счёт FundedNext, к проп-счёту — обычный (заменит текущий)
-        other = _btn(t(lang, "btn_connect"), "at:yes") if acc.get("prop_plan") else _btn(t(lang, "btn_prop"), "at:prop")
-        rows.insert(1, [other])
+        off = await self.db.get_kv("autotrade_off") == "1"
+        blocks, rows = [], []
+        for acc in accs:
+            state = t(lang, "at_global_off") if off else t(lang, "at_on" if acc["enabled"] else "at_paused")
+            bal = acc.get("balance")
+            balance = f"{bal:,.2f} {acc.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
+            block = t(lang, "at_acc", broker=html.escape(acc.get("broker") or "—"), login=acc["login"],
+                      server=html.escape(acc["server"]),
+                      kind=t(lang, "at_kind_demo" if acc["demo"] else "at_kind_real"), balance=balance, state=state)
+            if acc.get("prop_plan") in pr.PLANS:
+                block += self.prop_status(acc, lang)
+            else:
+                block += t(lang, "at_acc_risk", risk=f"{config.autotrade_risk_pct:g}",
+                           max_lot=f"{config.autotrade_max_lot:g}")
+            blocks.append(block + self.paid_line(uid, acc, lang))
+            login, aid = acc["login"], acc["id"]
+            row = [_btn(t(lang, "btn_pause_acc", login=login), f"at:pause:{aid}") if acc["enabled"]
+                   else _btn(t(lang, "btn_resume_acc", login=login), f"at:resume:{aid}")]
+            if not self.is_admin(uid):
+                row.append(_btn(t(lang, "btn_extend_acc", login=login), f"at:pay:{aid}"))
+            rows += [row, [_btn(t(lang, "btn_disc_acc", login=login), f"at:disc:{aid}")]]
+        text = t(lang, "at_header", n=len(accs)) + "\n\n" + "\n\n".join(blocks)
         if not self.is_admin(uid):
-            rows.insert(1, [_btn(t(lang, "btn_extend"), "at:pay")])
-        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+            text += "\n\n" + self.price_line(lang) + t(lang, "at_pay_each")
+        more = [[_btn(t(lang, "btn_connect_more"), "at:yes")], [_btn(t(lang, "btn_prop"), "at:prop")]]
+        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows + more))
+
+    def paid_line(self, uid: int, acc: dict, lang: str) -> str:
+        """Строка «Оплачено до …» для счёта в меню автоторговли."""
+        if self.is_admin(uid):
+            return t(lang, "at_until_admin")
+        until = self.db.paid_until(acc)
+        return t(lang, "at_until", until=self.fmt_dt(until)) if until and until > now() else ""
 
     # ── проп-счета FundedNext ──────────────────────────────────────────────
     @staticmethod
@@ -704,11 +738,14 @@ class App:
         if config.fundednext_url:
             rows.append([InlineKeyboardButton(text=t(lang, "btn_prop_register"), url=config.fundednext_url)])
         rows += [[_btn(t(lang, "btn_prop_have"), "at:pplan")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]
-        acc = await self.db.get_trade_account(chat_id)
-        replace = t(lang, "prop_replace_note") if acc and not acc.get("prop_plan") else ""
-        await self.bot.send_message(chat_id, t(lang, "prop_intro", discount=discount) + replace,
+        await self.bot.send_message(chat_id, t(lang, "prop_intro", discount=discount),
                                     reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
                                     disable_web_page_preview=True)
+
+    async def prop_plan_ask(self, chat_id: int, lang: str) -> None:
+        await self.bot.send_message(chat_id, t(lang, "prop_plan_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            *[[_btn(p.name, f"at:pp:{k}")] for k, p in pr.PLANS.items()],
+            [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
 
     async def prop_ask_size(self, message, lang: str, plan_key: str) -> None:
         sizes = pr.PLANS[plan_key].sizes
@@ -750,6 +787,7 @@ class App:
             [_btn(t(lang, "btn_agree"), "at:pagree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
 
     async def prop_events(self, events: list[dict]) -> None:
+        multi = await self.multi_users() if events else set()
         for e in events:
             uid = e["uid"]
             lang = await self.lang_of(uid)
@@ -780,6 +818,8 @@ class App:
                 log.info("prop: user %s passed %s %s", uid, a["prop_plan"], a.get("prop_stage"))
             else:
                 continue
+            if uid in multi or e.get("kind") == "passed":
+                text = t(lang, "at_acc_prefix", login=html.escape(e.get("login") or "")) + text
             await self._send(uid, lambda u=uid, x=text, mk=markup: self.bot.send_message(u, x, reply_markup=mk))
 
     async def prop_loop(self) -> None:
@@ -792,15 +832,6 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("prop check")
             await asyncio.sleep(20)
-
-    async def paid_line(self, uid: int, lang: str) -> str:
-        """Строка «Оплачено до …» / цена — для меню автоторговли."""
-        if self.is_admin(uid):
-            return t(lang, "at_until_admin")
-        until = self.db.autotrade_until(await self.db.get_user(uid))
-        if until and until > now():
-            return t(lang, "at_until", until=self.fmt_dt(until))
-        return "\n\n" + self.price_line(lang)
 
     async def show_servers(self, chat_id: int, lang: str, state: FSMContext, query: str) -> None:
         data = await state.get_data()
@@ -827,9 +858,22 @@ class App:
         await self.bot.send_message(chat_id, t(lang, "at_login", server=html.escape(server)))
 
     async def run_connect(self, chat_id: int, uid: int, lang: str, platform: str, server: str, login: str,
-                          password: str, prop: dict | None = None) -> None:
+                          password: str, prop: dict | None = None, paid_until: str | None = None) -> None:
+        """Подключает ещё один счёт. Новый счёт забирает одно оплаченное подключение и оплачен на
+        AUTOTRADE_DAYS дней; тот же счёт заново — сохраняет свою оплату; счёт следующего этапа FundedNext —
+        дни прошлого этапа (paid_until)."""
         try:
-            info = await self.autotrader.connect(uid, platform, server, login, password, prop=prop)
+            same = any(a["login"] == login and a["server"] == server for a in await self.db.user_accounts(uid))
+            charge = not (paid_until or same or self.is_admin(uid))   # новый счёт — одно оплаченное подключение
+            if charge and not await self.db.use_credit(uid):
+                raise MetaApiError("not paid", "NOT_PAID")
+            try:
+                info = await self.autotrader.connect(uid, platform, server, login, password, prop=prop,
+                                                     paid_until=self.db.paid_until({"paid_until": paid_until}))
+            except Exception:
+                if charge:
+                    await self.db.add_credit(uid)   # не подключился — оплаченное подключение возвращаем
+                raise
             bal = info.get("balance")
             balance = f"{bal:,.2f} {info.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
             if prop:
@@ -1033,13 +1077,35 @@ class App:
         async def paid(m: Message):
             p = m.successful_payment
             await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
-            if p.invoice_payload == "auto":   # оплата автоторговли
-                uid = m.from_user.id
-                until = await self.db.extend_autotrade(uid, config.autotrade_days)
-                lang = await self.lang_of(uid)
-                await m.answer(t(lang, "at_paid_ok", until=self.fmt_dt(until)), reply_markup=menu(lang))
-                if self.autotrader and not await self.db.get_trade_account(uid) and uid not in self._connecting:
-                    await self.show_risks(m.chat.id, lang)   # сразу продолжаем подключение счёта
+            if p.invoice_payload.startswith("auto:"):   # продление конкретного счёта
+                uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
+                aid = p.invoice_payload.split(":", 1)[1]
+                acc = await self.db.get_account(int(aid)) if aid.isdigit() else None
+                if acc and acc["user_id"] == uid:
+                    until = await self.db.extend_account(acc["id"], config.autotrade_days)
+                    await m.answer(t(lang, "at_paid_acc", login=acc["login"], until=self.fmt_dt(until)),
+                                   reply_markup=menu(lang))
+                else:   # счёт уже отключён — оплата пойдёт на подключение нового
+                    await self.db.add_credit(uid)
+                    await m.answer(t(lang, "at_paid_credit", days=config.autotrade_days), reply_markup=menu(lang))
+                return
+            if p.invoice_payload == "auto":   # оплата подключения нового счёта
+                uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
+                await self.db.add_credit(uid)
+                await m.answer(t(lang, "at_paid_credit", days=config.autotrade_days), reply_markup=menu(lang))
+                intent = await self.db.get_kv(f"pay_intent:{uid}") or "real"
+                await self.db.set_kv(f"pay_intent:{uid}", "")
+                if self.autotrader and uid not in self._connecting:   # сразу продолжаем подключение
+                    if intent == "prop":
+                        await self.prop_plan_ask(m.chat.id, lang)
+                    elif intent == "pnext":   # счёт следующего этапа FundedNext
+                        raw = await self.db.get_kv(f"prop_next:{uid}")
+                        nxt = self.stage_name(lang, (json.loads(raw) if raw else {}).get("stage"))
+                        label = t(lang, "btn_prop_next", next=nxt)
+                        await self.bot.send_message(m.chat.id, label, reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[[_btn(label, "at:pnext")]]))
+                    else:
+                        await self.show_risks(m.chat.id, lang)
                 return
             until = await self.db.extend_paid(m.from_user.id, config.sub_days)
             lang = await self.lang_of(m.from_user.id)
@@ -1283,11 +1349,9 @@ class App:
             if not self.autotrader:
                 await m.answer(t(lang, "at_unavailable"))
                 return
-            acc = await self.db.get_trade_account(uid)
-            if acc and acc.get("prop_plan"):
-                await self.autotrade_menu(m.chat.id, uid, lang)
-            else:
-                await self.prop_intro(m.chat.id, lang)
+            if any(a.get("prop_plan") for a in await self.db.user_accounts(uid)):
+                await self.autotrade_menu(m.chat.id, uid, lang)   # подключённые проп-счета и их лимиты
+            await self.prop_intro(m.chat.id, lang)
 
         @r.message(F.text.in_(variants("btn_auto")))
         @r.message(Command("autotrade"))
@@ -1367,16 +1431,19 @@ class App:
                     pass
                 await c.message.answer(t(lang, "cancelled"), reply_markup=menu(lang))
             elif action == "yes":
-                if not await self.has_autotrade(uid):   # сначала оплата, потом подключение
-                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
-                    await self.send_auto_invoice(chat, lang)
+                if not await self.can_connect(uid):   # каждый новый счёт: сначала оплата, потом подключение
+                    await self.ask_payment(chat, uid, lang, "real")
                     return
                 if uid in self._connecting:
                     await c.message.answer(t(lang, "at_busy"))
                     return
                 await self.show_risks(chat, lang)
-            elif action == "pay":
-                await self.send_auto_invoice(chat, lang)
+            elif action == "pay":   # продлить конкретный счёт
+                acc = await self.db.get_account(int(arg)) if arg.isdigit() else None
+                if acc and acc["user_id"] == uid:
+                    await self.send_auto_invoice(chat, lang, acc)
+                else:
+                    await self.ask_payment(chat, uid, lang, "real")
             elif action == "agree":
                 await state.clear()
                 await c.message.answer(t(lang, "at_platform"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1392,17 +1459,14 @@ class App:
                 await state.clear()
                 await self.prop_intro(chat, lang)
             elif action == "pplan":
-                if not await self.has_autotrade(uid):   # сначала оплата автоторговли, потом подключение
-                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
-                    await self.send_auto_invoice(chat, lang)
+                if not await self.can_connect(uid):   # каждый новый счёт: сначала оплата, потом подключение
+                    await self.ask_payment(chat, uid, lang, "prop")
                     return
                 if uid in self._connecting:
                     await c.message.answer(t(lang, "at_busy"))
                     return
                 await state.clear()
-                await c.message.answer(t(lang, "prop_plan_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    *[[_btn(p.name, f"at:pp:{k}")] for k, p in pr.PLANS.items()],
-                    [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+                await self.prop_plan_ask(chat, lang)
             elif action == "pp" and arg in pr.PLANS:
                 plan = pr.PLANS[arg]
                 await state.update_data(prop_plan=arg)
@@ -1438,13 +1502,15 @@ class App:
                 if not nxt or nxt.get("plan") not in pr.PLANS or not nxt.get("stage"):
                     await self.prop_intro(chat, lang)
                     return
-                if not await self.has_autotrade(uid):
-                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
-                    await self.send_auto_invoice(chat, lang)
+                paid = nxt.get("paid_until")   # оплаченные дни прошлого этапа переходят на новый счёт
+                still_paid = bool(paid) and (self.db.paid_until({"paid_until": paid}) or now()) > now()
+                if not still_paid and not await self.can_connect(uid):
+                    await self.ask_payment(chat, uid, lang, "pnext")
                     return
                 await state.clear()
                 await state.update_data(prop_plan=nxt["plan"], prop_stage=nxt["stage"],
-                                        prop_size=nxt["size"], platform=nxt.get("platform") or "mt5")
+                                        prop_size=nxt["size"], platform=nxt.get("platform") or "mt5",
+                                        prop_paid_until=paid if still_paid else None)
                 await c.message.answer(t(lang, "prop_next_login", stage=self.stage_name(lang, nxt["stage"]),
                                          plan=pr.PLANS[nxt["plan"]].name,
                                          size=f"{float(nxt['size']):,.0f}".replace(",", " ")))
@@ -1462,14 +1528,21 @@ class App:
                     await c.message.answer(t(lang, "at_server_manual"))
                 elif arg.isdigit() and int(arg) < len(servers):
                     await self.ask_login(chat, lang, state, servers[int(arg)])
-            elif action in ("pause", "resume"):
-                await self.db.set_trade_enabled(uid, action == "resume")
+            elif action in ("pause", "resume", "disc"):   # кнопки конкретного счёта
+                acc = await self.db.get_account(int(arg)) if arg.isdigit() else None
+                if not acc or acc["user_id"] != uid:
+                    await self.autotrade_menu(chat, uid, lang)
+                    return
+                if action == "disc":
+                    await self.autotrader.disconnect(acc["id"])
+                    await c.message.answer(t(lang, "at_acc_prefix", login=acc["login"]) + t(lang, "at_disconnected"),
+                                           reply_markup=menu(lang))
+                    return
+                await self.db.set_trade_enabled(acc["id"], action == "resume")
                 if action == "resume":   # снять остановку проп-счёта у лимита (у лимита бот остановит снова)
-                    await self.db.update_prop_state(uid, prop_halt="")
-                await c.message.answer(t(lang, "at_resumed_ok" if action == "resume" else "at_paused_ok"))
-            elif action == "disc":
-                await self.autotrader.disconnect(uid)
-                await c.message.answer(t(lang, "at_disconnected"), reply_markup=menu(lang))
+                    await self.db.update_prop_state(acc["id"], prop_halt="")
+                await c.message.answer(t(lang, "at_acc_prefix", login=acc["login"])
+                                       + t(lang, "at_resumed_ok" if action == "resume" else "at_paused_ok"))
 
         not_cmd = ~F.text.startswith("/")
 
@@ -1514,7 +1587,8 @@ class App:
             prop = ({"plan": data["prop_plan"], "stage": data.get("prop_stage") or "funded",
                      "size": float(data["prop_size"])}
                     if data.get("prop_plan") in pr.PLANS and data.get("prop_size") else None)
-            self.spawn(self.run_connect(m.chat.id, uid, lang, platform, server, login, password, prop))
+            self.spawn(self.run_connect(m.chat.id, uid, lang, platform, server, login, password, prop,
+                                        data.get("prop_paid_until") if prop else None))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
     async def calendar_loop(self) -> None:
@@ -1610,22 +1684,25 @@ class App:
         if not self.autotrader:
             return
         exempt = frozenset(config.admin_ids)
-        for uid, until in await self.db.autotrade_expiring(timedelta(days=1), exempt):
-            key = f"at_remind:{uid}:{until}"
+        for acc in await self.db.autotrade_expiring(timedelta(days=1), exempt):
+            uid, until = acc["user_id"], acc["paid_until"]
+            key = f"at_remind:{acc['id']}:{until}"
             if await self.db.get_kv(key):
                 continue
             await self.db.set_kv(key, "1")
             lang = await self.lang_of(uid)
-            await self._send(uid, lambda u=uid, lg=lang, un=until: self.bot.send_message(
-                u, t(lg, "at_expiring", until=self.fmt_dt(un)) + "\n\n" + self.price_line(lg)))
-            await self._send(uid, lambda u=uid, lg=lang: self.send_auto_invoice(u, lg))
-        for uid in await self.db.autotrade_expired_accounts(exempt):
+            await self._send(uid, lambda u=uid, lg=lang, un=until, lo=acc["login"]: self.bot.send_message(
+                u, t(lg, "at_expiring_acc", login=lo, until=self.fmt_dt(un)) + "\n\n" + self.price_line(lg)))
+            await self._send(uid, lambda u=uid, lg=lang, a=acc: self.send_auto_invoice(u, lg, a))
+        for acc in await self.db.autotrade_expired_accounts(exempt):
+            uid = acc["user_id"]
             if uid in self._connecting:
                 continue
-            await self.autotrader.disconnect(uid)
-            log.info("autotrade expired for %s: account disconnected", uid)
+            await self.autotrader.disconnect(acc["id"])
+            log.info("autotrade expired for %s: account %s disconnected", uid, acc["login"])
             lang = await self.lang_of(uid)
-            await self._send(uid, lambda u=uid, lg=lang: self.bot.send_message(u, t(lg, "at_expired")))
+            await self._send(uid, lambda u=uid, lg=lang, lo=acc["login"]: self.bot.send_message(
+                u, t(lg, "at_expired_acc", login=lo)))
 
     async def autotrade_billing_loop(self) -> None:
         while True:

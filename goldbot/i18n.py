@@ -818,7 +818,6 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
         "btn_prop": "🏆 Проп-фирма FundedNext",
         "btn_fundednext": "🏆 FundedNext",
-        "prop_replace_note": "\n\nℹ️ У вас уже подключён обычный счёт. Проп-счёт подключится вместо него: бот отключит старый счёт и будет торговать на проп-счёте.",
         "btn_prop_register": "📝 Регистрация в FundedNext",
         "btn_prop_have": "✅ У меня уже есть счёт",
         "prop_intro": "🏆 <b>Проп-счёт FundedNext</b>\n\nFundedNext даёт торговать на своих деньгах: вы проходите челлендж и получаете финансируемый счёт с долей прибыли до 95%. Бот сам торгует по сигналам и соблюдает правила FundedNext: дневной и общий лимит просадки, риск на сделку не больше 2.8%.\n\n⚠️ <b>Важно при покупке счёта:</b>\n• платформа <b>MetaTrader 4 или 5</b>;\n• размер <b>до $25 000</b>: на счетах от $50 000 FundedNext запрещает ботов;\n• обязательно добавьте дополнение <b>«EA»</b> (или «VPS & EA»). Без него торговать ботом нельзя, счёт могут закрыть.{discount}",
@@ -852,7 +851,6 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
     "en": {
         "btn_prop": "🏆 Prop firm FundedNext",
         "btn_fundednext": "🏆 FundedNext",
-        "prop_replace_note": "\n\nℹ️ You already have a regular account connected. The prop account will replace it: the bot disconnects the old account and trades on the prop account.",
         "btn_prop_register": "📝 Sign up at FundedNext",
         "btn_prop_have": "✅ I already have an account",
         "prop_intro": "🏆 <b>FundedNext prop account</b>\n\nFundedNext lets you trade its money: you pass a challenge and get a funded account with up to 95% profit split. The bot trades its signals and follows FundedNext rules: daily and overall drawdown limits, risk per trade no more than 2.8%.\n\n⚠️ <b>Important when buying the account:</b>\n• platform <b>MetaTrader 4 or 5</b>;\n• size <b>up to $25,000</b>: FundedNext does not allow bots on $50,000 and above;\n• be sure to add the <b>“EA”</b> add-on (or “VPS & EA”). Without it bot trading is not allowed and the account can be closed.{discount}",
@@ -886,7 +884,6 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
     "uz": {
         "btn_prop": "🏆 Prop firma FundedNext",
         "btn_fundednext": "🏆 FundedNext",
-        "prop_replace_note": "\n\nℹ️ Sizda oddiy hisob ulangan. Prop hisob uning oʻrniga ulanadi: bot eski hisobni uzadi va prop hisobda savdo qiladi.",
         "btn_prop_register": "📝 FundedNext’da roʻyxatdan oʻtish",
         "btn_prop_have": "✅ Menda hisob bor",
         "prop_intro": "🏆 <b>FundedNext prop hisobi</b>\n\nFundedNext oʻz pulida savdo qilish imkonini beradi: challenge’dan oʻtasiz va foydaning 95% gacha ulushi bilan moliyalashtirilgan hisob olasiz. Bot signallar boʻyicha oʻzi savdo qiladi va FundedNext qoidalariga amal qiladi: kunlik va umumiy zarar limiti, bitta savdoga xavf 2.8% dan oshmaydi.\n\n⚠️ <b>Hisob sotib olayotganda muhim:</b>\n• platforma <b>MetaTrader 4 yoki 5</b>;\n• hajmi <b>$25 000 gacha</b>: $50 000 va undan katta hisoblarda FundedNext botlarni taqiqlaydi;\n• albatta <b>«EA»</b> (yoki «VPS & EA») qoʻshimchasini qoʻshing. Usiz bot bilan savdo qilish mumkin emas, hisob yopilishi mumkin.{discount}",
@@ -946,6 +943,64 @@ PROP_GUARD_TEXTS: dict[str, dict[str, str]] = {
     },
 }
 for _lang, _texts in PROP_GUARD_TEXTS.items():
+    TEXTS[_lang].update(_texts)
+
+
+# ── несколько счетов у одного подписчика, оплата за каждый ───────────────────
+MULTI_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "at_header": "🤖 <b>Автоторговля</b> · счетов: {n}",
+        "btn_connect_more": "➕ Подключить ещё один счёт",
+        "at_acc": "🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Баланс: {balance}\n⚙️ Статус: {state}",
+        "at_acc_risk": "\n📦 Риск на сделку: {risk}%, максимум {max_lot} лота",
+        "at_pay_each": "\n\n💳 Каждый счёт оплачивается отдельно, можно подключить сколько угодно счетов.",
+        "at_paid_credit": "✅ Оплачено подключение нового счёта. {days} дней считаются с момента подключения.",
+        "at_paid_acc": "✅ Счёт <b>{login}</b> оплачен до <b>{until}</b>.",
+        "inv_auto_acc_title": "Автоторговля: счёт {login}, {days} дней",
+        "btn_pause_acc": "⏸ Пауза · {login}",
+        "btn_resume_acc": "▶️ Включить · {login}",
+        "btn_extend_acc": "💳 Продлить · {login}",
+        "btn_disc_acc": "🗑 Отключить · {login}",
+        "at_acc_prefix": "🔢 Счёт {login}\n",
+        "at_expiring_acc": "⏰ Оплата автоторговли на счёте <b>{login}</b> заканчивается <b>{until}</b>. После этого бот отключит этот счёт. Чтобы продлить, оплатите ниже.",
+        "at_expired_acc": "⛔️ Оплата автоторговли на счёте <b>{login}</b> закончилась, бот отключил этот счёт. Подключить снова: 🤖 Автоторговля.",
+    },
+    "en": {
+        "at_header": "🤖 <b>Auto trading</b> · accounts: {n}",
+        "btn_connect_more": "➕ Connect another account",
+        "at_acc": "🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Balance: {balance}\n⚙️ Status: {state}",
+        "at_acc_risk": "\n📦 Risk per trade: {risk}%, max {max_lot} lot",
+        "at_pay_each": "\n\n💳 Each account is paid separately; you can connect as many accounts as you like.",
+        "at_paid_credit": "✅ A new account connection is paid. The {days} days start when you connect it.",
+        "at_paid_acc": "✅ Account <b>{login}</b> is paid until <b>{until}</b>.",
+        "inv_auto_acc_title": "Auto trading: account {login}, {days} days",
+        "btn_pause_acc": "⏸ Pause · {login}",
+        "btn_resume_acc": "▶️ Resume · {login}",
+        "btn_extend_acc": "💳 Extend · {login}",
+        "btn_disc_acc": "🗑 Disconnect · {login}",
+        "at_acc_prefix": "🔢 Account {login}\n",
+        "at_expiring_acc": "⏰ Auto trading on account <b>{login}</b> is paid until <b>{until}</b>. After that the bot disconnects this account. To extend, pay below.",
+        "at_expired_acc": "⛔️ Auto trading on account <b>{login}</b> has expired, the bot disconnected this account. Connect again: 🤖 Auto trading.",
+    },
+    "uz": {
+        "at_header": "🤖 <b>Avtosavdo</b> · hisoblar: {n}",
+        "btn_connect_more": "➕ Yana bitta hisob ulash",
+        "at_acc": "🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Balans: {balance}\n⚙️ Holat: {state}",
+        "at_acc_risk": "\n📦 Bitta savdoga xavf: {risk}%, maksimum {max_lot} lot",
+        "at_pay_each": "\n\n💳 Har bir hisob alohida toʻlanadi, istalgancha hisob ulash mumkin.",
+        "at_paid_credit": "✅ Yangi hisobni ulash toʻlandi. {days} kun hisob ulangan paytdan boshlab hisoblanadi.",
+        "at_paid_acc": "✅ <b>{login}</b> hisobi <b>{until}</b> gacha toʻlangan.",
+        "inv_auto_acc_title": "Avtosavdo: {login} hisobi, {days} kun",
+        "btn_pause_acc": "⏸ Pauza · {login}",
+        "btn_resume_acc": "▶️ Yoqish · {login}",
+        "btn_extend_acc": "💳 Uzaytirish · {login}",
+        "btn_disc_acc": "🗑 Uzish · {login}",
+        "at_acc_prefix": "🔢 Hisob {login}\n",
+        "at_expiring_acc": "⏰ <b>{login}</b> hisobidagi avtosavdo toʻlovi <b>{until}</b> da tugaydi. Shundan soʻng bot bu hisobni uzadi. Uzaytirish uchun quyida toʻlang.",
+        "at_expired_acc": "⛔️ <b>{login}</b> hisobidagi avtosavdo toʻlovi tugadi, bot bu hisobni uzdi. Qayta ulash: 🤖 Avtosavdo.",
+    },
+}
+for _lang, _texts in MULTI_TEXTS.items():
     TEXTS[_lang].update(_texts)
 
 
