@@ -22,7 +22,10 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButto
                            InlineKeyboardMarkup, KeyboardButton, LabeledPrice, Message,
                            PreCheckoutQuery, ReplyKeyboardMarkup)
 
+import json
+
 from . import econ_calendar, news_alerts
+from . import prop as pr
 from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB, now
@@ -105,7 +108,13 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
     return t(lang, "at_err_other", error=html.escape(code or str(e) or type(e).__name__)[:150])
 
 
+def usd(x: float) -> str:
+    return f"${x:,.2f}".replace(",", " ")
+
+
 def trade_error_text(lang: str, error: str) -> str:
+    if error == "PROP_LIMIT":
+        return t(lang, "at_e_prop")
     if error in ("NO_MONEY", "TRADE_RETCODE_NO_MONEY"):
         return t(lang, "at_e_money")
     if error in ("TRADE_RETCODE_MARKET_CLOSED", "TRADE_RETCODE_TRADE_DISABLED"):
@@ -248,7 +257,13 @@ class App:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
                                          config.autotrade_risk_pct, config.autotrade_max_lot,
                                          config.autotrade_symbol, config.metaapi_region,
-                                         exempt=frozenset(config.admin_ids))
+                                         exempt=frozenset(config.admin_ids),
+                                         prop_risk_pct=config.prop_risk_pct,
+                                         prop_strong_risk_pct=config.prop_strong_risk_pct, prop_guard_pct=config.prop_guard_pct,
+                                         prop_max_lot=config.prop_max_lot, prop_risk_cap=config.prop_risk_cap,
+                                         prop_max_trade=config.prop_max_trade_pct,
+                                         prop_day_tz=config.prop_day_tz,
+                                         prop_close=config.prop_close)
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
             self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider)
@@ -560,7 +575,8 @@ class App:
             return
         sl_d, tp_d = sl_tp_dist(s.entry, s.sl, s.tp, s.sl_pips, s.tp_pips)
         try:
-            results = await self.autotrader.open_signal(s.id, s.direction, sl_d, tp_d)
+            results = await self.autotrader.open_signal(s.id, s.direction, sl_d, tp_d,
+                                                        strong=getattr(s, "strong", False))
         except Exception:  # noqa: BLE001
             log.exception("autotrade open #%s", s.id)
             return
@@ -611,7 +627,8 @@ class App:
         await self.db.set_autotrade_asked(uid)
         text = t(lang, "at_ask") + ("" if await self.has_autotrade(uid) else "\n\n" + self.price_line(lang))
         await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [_btn(t(lang, "btn_yes_connect"), "at:yes"), _btn(t(lang, "btn_no_thanks"), "at:no")]]))
+            [_btn(t(lang, "btn_yes_connect"), "at:yes"), _btn(t(lang, "btn_no_thanks"), "at:no")],
+            [_btn(t(lang, "btn_prop"), "at:prop")]]))
 
     async def autotrade_menu(self, chat_id: int, uid: int, lang: str) -> None:
         if not self.autotrader:
@@ -621,7 +638,8 @@ class App:
         if not acc:
             await self.bot.send_message(chat_id, t(lang, "at_none") + await self.paid_line(uid, lang),
                                         reply_markup=InlineKeyboardMarkup(
-                                            inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")]]))
+                                            inline_keyboard=[[_btn(t(lang, "btn_connect"), "at:yes")],
+                                                             [_btn(t(lang, "btn_prop"), "at:prop")]]))
             return
         if await self.db.get_kv("autotrade_off") == "1":
             state = t(lang, "at_global_off")
@@ -632,12 +650,122 @@ class App:
         text = t(lang, "at_status", broker=html.escape(acc.get("broker") or "—"), login=acc["login"],
                  server=html.escape(acc["server"]), kind=t(lang, "at_kind_demo" if acc["demo"] else "at_kind_real"),
                  balance=balance, state=state, risk=f"{config.autotrade_risk_pct:g}",
-                 max_lot=f"{config.autotrade_max_lot:g}") + await self.paid_line(uid, lang)
+                 max_lot=f"{config.autotrade_max_lot:g}") + self.prop_status(acc, lang) \
+            + await self.paid_line(uid, lang)
         toggle = _btn(t(lang, "btn_pause"), "at:pause") if acc["enabled"] else _btn(t(lang, "btn_resume"), "at:resume")
         rows = [[toggle], [_btn(t(lang, "btn_disconnect"), "at:disc")]]
         if not self.is_admin(uid):
             rows.insert(1, [_btn(t(lang, "btn_extend"), "at:pay")])
         await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    # ── проп-счета FundedNext ──────────────────────────────────────────────
+    @staticmethod
+    def stage_name(lang: str, stage: str | None) -> str:
+        return t(lang, f"prop_stage_{stage}") if stage in ("phase1", "phase2", "funded") else "—"
+
+    def prop_status(self, acc: dict, lang: str) -> str:
+        """Строки о лимитах FundedNext в меню автоторговли (пусто для обычного счёта)."""
+        if acc.get("prop_plan") not in pr.PLANS:
+            return ""
+        plan = pr.PLANS[acc["prop_plan"]]
+        size = float(acc["prop_size"])
+        equity = acc.get("equity")
+        lim = pr.limits(acc, float(equity if equity is not None else size), config.prop_risk_cap)
+        goal = pr.target_balance(acc)
+        halt = acc.get("prop_halt") or ""
+        return t(lang, "prop_status", plan=plan.name, stage=self.stage_name(lang, acc.get("prop_stage")),
+                 size=f"{size:,.0f}".replace(",", " "), day_loss=usd(lim.day_loss),
+                 day_limit=usd(lim.day_limit), day_left=usd(max(0.0, lim.day_limit - lim.day_loss)),
+                 floor=usd(lim.total_floor), days=f"{int(acc.get('prop_days') or 0)}/{plan.min_days}"
+                 if plan.min_days and goal else str(int(acc.get("prop_days") or 0)),
+                 target=t(lang, "prop_status_target", goal=usd(goal)) if goal else "",
+                 halt=t(lang, f"prop_status_halt_{halt}") if halt in ("daily", "total") else "")
+
+    async def prop_intro(self, chat_id: int, lang: str) -> None:
+        discount = (t(lang, "prop_discount", code=html.escape(config.fundednext_code),
+                      pct=html.escape(config.fundednext_discount)) if config.fundednext_code else "")
+        rows = []
+        if config.fundednext_url:
+            rows.append([InlineKeyboardButton(text=t(lang, "btn_prop_register"), url=config.fundednext_url)])
+        rows += [[_btn(t(lang, "btn_prop_have"), "at:pplan")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]
+        await self.bot.send_message(chat_id, t(lang, "prop_intro", discount=discount),
+                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+                                    disable_web_page_preview=True)
+
+    async def prop_ask_size(self, message, lang: str, plan_key: str) -> None:
+        sizes = pr.PLANS[plan_key].sizes
+        btns = [_btn(f"${x // 1000}K", f"at:pz:{x}") for x in sizes]
+        await message.answer(t(lang, "prop_size_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            btns[i:i + 3] for i in range(0, len(btns), 3)] + [[_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+
+    async def prop_rules(self, chat_id: int, lang: str, plan_key: str, stage: str, size: float) -> None:
+        plan = pr.PLANS[plan_key]
+        cap = config.prop_risk_cap
+        risk = min(config.prop_risk_pct, config.prop_max_trade_pct)
+        n = lambda x: f"{x:,.0f}".replace(",", " ")  # noqa: E731
+        acc = {"prop_plan": plan_key, "prop_size": size, "prop_day_balance": size, "prop_peak": size}
+        lim = pr.limits(acc, size, cap)
+        if plan.trailing:
+            total = t(lang, "prop_total_trailing", pct=f"{plan.total_pct:g}")
+        else:
+            total = t(lang, "prop_total_static", pct=f"{plan.total_pct:g}", floor=n(size * (1 - plan.total_pct / 100)))
+        pct = plan.targets.get(stage)
+        target = (t(lang, "prop_target", pct=f"{pct:g}", goal=n(size * (1 + pct / 100))) if pct
+                  else t(lang, "prop_target_none"))
+        text = t(lang, "prop_rules", plan=plan.name, stage=self.stage_name(lang, stage), size=n(size),
+                 daily=f"{plan.daily_pct:g}%" if plan.daily_pct else t(lang, "prop_none"), total=total,
+                 target=target, days=str(plan.min_days) if pct and plan.min_days else t(lang, "prop_none"),
+                 risk=f"{risk:g}", risk_usd=n(size * risk / 100),
+                 strong=f"{min(config.prop_strong_risk_pct, config.prop_max_trade_pct):g}",
+                 strong_usd=n(size * min(config.prop_strong_risk_pct, config.prop_max_trade_pct) / 100), max_trade=f"{config.prop_max_trade_pct:g}",
+                 max_trade_usd=n(size * config.prop_max_trade_pct / 100),
+                 day_cap=f"{lim.day_limit / size * 100:g}", day_cap_usd=n(lim.day_limit),
+                 guard_usd=n(size * config.prop_guard_pct / 100),
+                 reset=f"{pr.reset_time(config.display_tz, now(), config.prop_day_tz)} ({config.display_tz})")
+        await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [_btn(t(lang, "btn_agree"), "at:pagree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+
+    async def prop_events(self, events: list[dict]) -> None:
+        for e in events:
+            uid = e["uid"]
+            lang = await self.lang_of(uid)
+            markup = None
+            if e["kind"] == "new_day":
+                text = t(lang, "prop_new_day")
+            elif e["kind"] == "halt":
+                text = t(lang, "prop_halt_daily" if e["limit"] == "daily" else "prop_halt_total",
+                         equity=usd(e["equity"]), floor=usd(e["floor"]), closed=e["closed"])
+            elif e["kind"] == "passed":
+                a = e["acc"]
+                size = float(a["prop_size"])
+                bal = float(a["balance"])
+                nxt = self.stage_name(lang, e.get("next"))
+                text = t(lang, "prop_passed", stage=self.stage_name(lang, a.get("prop_stage")),
+                         plan=pr.PLANS[a["prop_plan"]].name, size=f"{size:,.0f}".replace(",", " "),
+                         balance=usd(bal), profit=f"{(bal / size - 1) * 100:.2f}",
+                         target=f"{pr.PLANS[a['prop_plan']].targets.get(a.get('prop_stage'), 0):g}",
+                         days=int(a.get("prop_days") or 0),
+                         worst=f"{float(a.get('prop_worst_day') or 0) / size * 100:.2f}",
+                         dd=f"{max(0.0, size - float(a.get('prop_min_equity') or size)) / size * 100:.2f}",
+                         next=nxt)
+                if e.get("next"):
+                    markup = InlineKeyboardMarkup(inline_keyboard=[[_btn(t(lang, "btn_prop_next", next=nxt),
+                                                                         "at:pnext")]])
+                log.info("prop: user %s passed %s %s", uid, a["prop_plan"], a.get("prop_stage"))
+            else:
+                continue
+            await self._send(uid, lambda u=uid, x=text, mk=markup: self.bot.send_message(u, x, reply_markup=mk))
+
+    async def prop_loop(self) -> None:
+        """Каждые 20 с: средства проп-счетов против лимитов FundedNext, торговые дни, прохождение этапа."""
+        if not self.autotrader:
+            return
+        while True:
+            try:
+                await self.prop_events(await self.autotrader.prop_check())
+            except Exception:  # noqa: BLE001
+                log.exception("prop check")
+            await asyncio.sleep(20)
 
     async def paid_line(self, uid: int, lang: str) -> str:
         """Строка «Оплачено до …» / цена — для меню автоторговли."""
@@ -664,7 +792,8 @@ class App:
             return
         await state.set_state(None)
         await state.update_data(servers=servers)
-        await self.bot.send_message(chat_id, t(lang, "at_servers"), reply_markup=servers_kb(lang, servers))
+        hint = "prop_servers" if data.get("prop_plan") else "at_servers"
+        await self.bot.send_message(chat_id, t(lang, hint), reply_markup=servers_kb(lang, servers))
 
     async def ask_login(self, chat_id: int, lang: str, state: FSMContext, server: str) -> None:
         await state.update_data(server=server)
@@ -672,14 +801,21 @@ class App:
         await self.bot.send_message(chat_id, t(lang, "at_login", server=html.escape(server)))
 
     async def run_connect(self, chat_id: int, uid: int, lang: str, platform: str, server: str, login: str,
-                          password: str) -> None:
+                          password: str, prop: dict | None = None) -> None:
         try:
-            info = await self.autotrader.connect(uid, platform, server, login, password)
+            info = await self.autotrader.connect(uid, platform, server, login, password, prop=prop)
             bal = info.get("balance")
             balance = f"{bal:,.2f} {info.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
-            text = t(lang, "at_connected", broker=html.escape(info.get("broker") or "—"), login=login,
-                     server=html.escape(server), balance=balance, symbol=html.escape(info["symbol"]),
-                     risk=f"{config.autotrade_risk_pct:g}")
+            if prop:
+                await self.db.set_kv(f"prop_next:{uid}", "")
+                text = t(lang, "prop_connected", plan=pr.PLANS[prop["plan"]].name,
+                         stage=self.stage_name(lang, prop["stage"]),
+                         size=f"{float(prop['size']):,.0f}".replace(",", " "), login=login,
+                         server=html.escape(server), balance=balance)
+            else:
+                text = t(lang, "at_connected", broker=html.escape(info.get("broker") or "—"), login=login,
+                         server=html.escape(server), balance=balance, symbol=html.escape(info["symbol"]),
+                         risk=f"{config.autotrade_risk_pct:g}")
             log.info("autotrade: user %s connected %s@%s", uid, login, server)
         except Exception as e:  # noqa: BLE001
             log.warning("autotrade connect for %s (%s@%s) failed: %s %s %s", uid, login, server,
@@ -1175,7 +1311,71 @@ class App:
                     [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
             elif action == "pf" and arg in ("mt4", "mt5"):
                 await state.update_data(platform=arg)
-                await c.message.answer(t(lang, "at_broker"), reply_markup=broker_kb(lang))
+                if (await state.get_data()).get("prop_plan"):   # проп-счёт: сразу серверы FundedNext
+                    await self.show_servers(chat, lang, state, "FundedNext")
+                else:
+                    await c.message.answer(t(lang, "at_broker"), reply_markup=broker_kb(lang))
+            elif action == "prop":
+                await state.clear()
+                await self.prop_intro(chat, lang)
+            elif action == "pplan":
+                if not await self.has_autotrade(uid):   # сначала оплата автоторговли, потом подключение
+                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
+                    await self.send_auto_invoice(chat, lang)
+                    return
+                if uid in self._connecting:
+                    await c.message.answer(t(lang, "at_busy"))
+                    return
+                await state.clear()
+                await c.message.answer(t(lang, "prop_plan_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    *[[_btn(p.name, f"at:pp:{k}")] for k, p in pr.PLANS.items()],
+                    [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+            elif action == "pp" and arg in pr.PLANS:
+                plan = pr.PLANS[arg]
+                await state.update_data(prop_plan=arg)
+                if len(plan.stages) == 1:   # Instant — сразу финансируемый
+                    await state.update_data(prop_stage=plan.stages[0])
+                    await self.prop_ask_size(c.message, lang, arg)
+                else:
+                    await c.message.answer(t(lang, "prop_stage_ask", plan=plan.name),
+                                           reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                               *[[_btn(self.stage_name(lang, st), f"at:ps:{st}")] for st in plan.stages],
+                                               [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+            elif action == "ps":
+                plan_key = (await state.get_data()).get("prop_plan")
+                if plan_key in pr.PLANS and arg in pr.PLANS[plan_key].stages:
+                    await state.update_data(prop_stage=arg)
+                    await self.prop_ask_size(c.message, lang, plan_key)
+            elif action == "pz" and arg.isdigit():
+                data = await state.get_data()
+                plan_key, stage = data.get("prop_plan"), data.get("prop_stage")
+                if plan_key in pr.PLANS and int(arg) in pr.PLANS[plan_key].sizes and stage:
+                    await state.update_data(prop_size=int(arg))
+                    await self.prop_rules(chat, lang, plan_key, stage, int(arg))
+            elif action == "pagree":
+                if not (await state.get_data()).get("prop_size"):
+                    await c.message.answer(t(lang, "cancelled"), reply_markup=menu(lang))
+                    return
+                await c.message.answer(t(lang, "at_platform"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [_btn("MetaTrader 5", "at:pf:mt5"), _btn("MetaTrader 4", "at:pf:mt4")],
+                    [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
+            elif action == "pnext":   # этап пройден — подключаем счёт следующего этапа
+                raw = await self.db.get_kv(f"prop_next:{uid}")
+                nxt = json.loads(raw) if raw else None
+                if not nxt or nxt.get("plan") not in pr.PLANS or not nxt.get("stage"):
+                    await self.prop_intro(chat, lang)
+                    return
+                if not await self.has_autotrade(uid):
+                    await c.message.answer(t(lang, "at_pay") + "\n\n" + self.price_line(lang))
+                    await self.send_auto_invoice(chat, lang)
+                    return
+                await state.clear()
+                await state.update_data(prop_plan=nxt["plan"], prop_stage=nxt["stage"],
+                                        prop_size=nxt["size"], platform=nxt.get("platform") or "mt5")
+                await c.message.answer(t(lang, "prop_next_login", stage=self.stage_name(lang, nxt["stage"]),
+                                         plan=pr.PLANS[nxt["plan"]].name,
+                                         size=f"{float(nxt['size']):,.0f}".replace(",", " ")))
+                await self.show_servers(chat, lang, state, "FundedNext")
             elif action == "br":
                 if arg == "other":
                     await state.set_state(AutoStates.broker_name)
@@ -1191,6 +1391,8 @@ class App:
                     await self.ask_login(chat, lang, state, servers[int(arg)])
             elif action in ("pause", "resume"):
                 await self.db.set_trade_enabled(uid, action == "resume")
+                if action == "resume":   # снять остановку проп-счёта у лимита (у лимита бот остановит снова)
+                    await self.db.update_prop_state(uid, prop_halt="")
                 await c.message.answer(t(lang, "at_resumed_ok" if action == "resume" else "at_paused_ok"))
             elif action == "disc":
                 await self.autotrader.disconnect(uid)
@@ -1236,7 +1438,10 @@ class App:
                 return
             self._connecting.add(uid)
             await m.answer(t(lang, "at_connecting", login=login, server=html.escape(server)))
-            self.spawn(self.run_connect(m.chat.id, uid, lang, platform, server, login, password))
+            prop = ({"plan": data["prop_plan"], "stage": data.get("prop_stage") or "funded",
+                     "size": float(data["prop_size"])}
+                    if data.get("prop_plan") in pr.PLANS and data.get("prop_size") else None)
+            self.spawn(self.run_connect(m.chat.id, uid, lang, platform, server, login, password, prop))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
     async def calendar_loop(self) -> None:
@@ -1381,6 +1586,7 @@ class App:
             asyncio.create_task(self.market_status_loop()),
             asyncio.create_task(self.morning_review_loop()),
             asyncio.create_task(self.autotrade_billing_loop()),
+            asyncio.create_task(self.prop_loop()),
         ]
         try:
             await self.dp.start_polling(self.bot)

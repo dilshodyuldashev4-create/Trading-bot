@@ -609,7 +609,7 @@ class TelegramDialogTests(unittest.TestCase):
                     await tap("lang:ru")
                     await tap("cap:1000")
                     self.assertIn("Подключить бота к вашему торговому счёту", texts(session)[-1])
-                    self.assertEqual(kb_data(session), ["at:yes", "at:no"])
+                    self.assertEqual(kb_data(session), ["at:yes", "at:no", "at:prop"])
                     self.assertIn("1500 ⭐", texts(session)[-1])          # в вопросе есть цена
                     await tap("at:yes")
                     # без оплаты подключать нельзя: сначала счёт на оплату автоторговли
