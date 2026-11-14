@@ -66,7 +66,18 @@ CREATE TABLE IF NOT EXISTS trade_accounts (
     currency TEXT,
     demo INTEGER NOT NULL DEFAULT 1,
     enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    prop_plan TEXT,
+    prop_stage TEXT,
+    prop_size REAL,
+    prop_day TEXT,
+    prop_day_balance REAL,
+    prop_peak REAL,
+    prop_halt TEXT,
+    prop_days INTEGER,
+    prop_last_day TEXT,
+    prop_min_equity REAL,
+    prop_worst_day REAL
 );
 CREATE TABLE IF NOT EXISTS auto_trades (
     signal_id INTEGER NOT NULL,
@@ -79,6 +90,13 @@ CREATE TABLE IF NOT EXISTS auto_trades (
     PRIMARY KEY (signal_id, user_id)
 );
 """
+
+
+# колонки проп-счёта (prop_plan пусто — обычный счёт)
+PROP_COLUMNS = (("prop_plan", "TEXT"), ("prop_stage", "TEXT"), ("prop_size", "REAL"), ("prop_day", "TEXT"),
+                ("prop_day_balance", "REAL"), ("prop_peak", "REAL"), ("prop_halt", "TEXT"),
+                ("prop_days", "INTEGER"), ("prop_last_day", "TEXT"), ("prop_min_equity", "REAL"),
+                ("prop_worst_day", "REAL"))
 
 
 def now() -> datetime:
@@ -119,6 +137,11 @@ class DB:
         for c in ("mfe", "mae"):  # макс. ход в плюс / в минус по сделке, пипсы
             if c not in scols:
                 await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} REAL DEFAULT 0")
+        cur = await self.conn.execute("PRAGMA table_info(trade_accounts)")
+        tcols = [r[1] for r in await cur.fetchall()]
+        for c, typ in PROP_COLUMNS:  # проп-счёт FundedNext: тип, этап, размер и состояние лимитов
+            if c not in tcols:
+                await self.conn.execute(f"ALTER TABLE trade_accounts ADD COLUMN {c} {typ}")
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -351,6 +374,29 @@ class DB:
             "INSERT OR REPLACE INTO trade_accounts (user_id, meta_id, region, platform, server, login, symbol, "
             "broker, currency, demo, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
             (uid, meta_id, region, platform, server, login, symbol, broker, currency, int(demo), _iso(now())))
+        await self.conn.commit()
+
+    async def set_prop(self, uid: int, plan: str, stage: str, size: float, day: str, day_balance: float,
+                       peak: float) -> None:
+        await self.conn.execute(
+            "UPDATE trade_accounts SET prop_plan=?, prop_stage=?, prop_size=?, prop_day=?, prop_day_balance=?, "
+            "prop_peak=?, prop_halt='', prop_days=0, prop_last_day='', prop_min_equity=?, prop_worst_day=0 "
+            "WHERE user_id=?", (plan, stage, size, day, day_balance, peak, min(peak, day_balance), uid))
+        await self.conn.commit()
+
+    async def update_prop_state(self, uid: int, **fields) -> None:
+        """prop_day, prop_day_balance, prop_peak, prop_halt, prop_days, prop_last_day, prop_min_equity …"""
+        allowed = {"prop_day", "prop_day_balance", "prop_peak", "prop_halt", "prop_days", "prop_last_day",
+                   "prop_min_equity", "prop_worst_day", "prop_stage"}
+        keys = [k for k in fields if k in allowed]
+        if not keys:
+            return
+        await self.conn.execute(f"UPDATE trade_accounts SET {', '.join(k + '=?' for k in keys)} WHERE user_id=?",
+                                (*(fields[k] for k in keys), uid))
+        await self.conn.commit()
+
+    async def close_user_auto_trades(self, uid: int) -> None:
+        await self.conn.execute("UPDATE auto_trades SET status='closed' WHERE user_id=? AND status='open'", (uid,))
         await self.conn.commit()
 
     async def get_trade_account(self, uid: int) -> dict | None:

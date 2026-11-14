@@ -111,6 +111,22 @@ class Config:
     autotrade_price_stars: int = int(os.getenv("AUTOTRADE_PRICE_STARS", "1500"))
     autotrade_price_usd: str = os.getenv("AUTOTRADE_PRICE_USD", "30")  # только для текста «≈ $30»
     autotrade_days: int = int(os.getenv("AUTOTRADE_DAYS", "30"))
+    # проп-счета FundedNext, всё в % от размера счёта: риск на сделку и на сильный сигнал (больше PROP_MAX_TRADE_PCT ≤ 2.8 %
+    # бот не ставит), за день все сделки вместе — не больше PROP_RISK_CAP ≤ 3 %, подушка до лимитов
+    # FundedNext (ближе — бот закрывает сделки и останавливается), что закрывать у лимита:
+    # all — всё на счёте / bot — только сделки бота / none — ничего
+    prop_risk_pct: float = float(os.getenv("PROP_RISK_PCT", "0.5"))
+    prop_strong_risk_pct: float = float(os.getenv("PROP_STRONG_RISK_PCT", "1"))  # сильный сигнал
+    prop_max_trade_pct: float = min(float(os.getenv("PROP_MAX_TRADE_PCT", "2.8")), 2.8)
+    prop_risk_cap: float = min(float(os.getenv("PROP_RISK_CAP", "3")), 3.0)
+    prop_guard_pct: float = float(os.getenv("PROP_GUARD_PCT", "0.5"))
+    prop_max_lot: float = float(os.getenv("PROP_MAX_LOT", "5"))
+    prop_close: str = os.getenv("PROP_CLOSE", "all")
+    prop_day_tz: str = os.getenv("PROP_DAY_TZ", "Europe/Athens")   # полночь сервера FundedNext
+    # кнопка «Регистрация в FundedNext» и промокод на скидку при первой покупке
+    fundednext_url: str = os.getenv("FUNDEDNEXT_URL", "https://fundednext.com")
+    fundednext_code: str = os.getenv("FUNDEDNEXT_CODE", "REFHGUTBT")
+    fundednext_discount: str = os.getenv("FUNDEDNEXT_DISCOUNT", "5%")
     # 1 — анализировать рынок по свечам и цене с подключённого в боте счёта админа (через MetaApi), а
     # Twelve Data / goldapi — запасной источник, на который бот переключается сразу, если MetaApi не ответил
     market_from_broker: bool = os.getenv("MARKET_FROM_BROKER", "1") not in ("0", "false", "no", "")

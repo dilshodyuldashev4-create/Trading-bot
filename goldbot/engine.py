@@ -39,6 +39,7 @@ class NewSignal:
     render: Optional[Callable[..., bytes]] = None  # картинка с подписями для конкретного подписчика
     sl_pips: float = 0     # стоп и тейк этого сигнала в пипсах (по ATR у каждого свои)
     tp_pips: float = 0
+    strong: bool = False   # сильный сигнал: сильный фон новостей в ту же сторону (на проп-счёте риск больше)
 
     @property
     def text(self) -> str:
@@ -522,7 +523,8 @@ class SignalEngine:
                        per_lang(lambda lang: format_signal(st, d, entry, sl, tp, sl_p, tp_p, when, lang)
                                 + news_line(info, d, lang)
                                 + (news_event_line(ev, self.tz, lang) if news_mode else "")),
-                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw), sl_p, tp_p)
+                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw), sl_p, tp_p,
+                       strong=side == d and strength == "strong")
         await self.on_signal(ns)
         return ns
 

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import re
@@ -19,6 +20,7 @@ from typing import Any
 
 import aiohttp
 
+from . import prop as pr
 from .data import PIP
 from .market import Provider, _frame
 
@@ -292,11 +294,22 @@ class AutoTrader:
     concurrency: int = 10
     retry_delays: tuple[float, ...] = (5.0, 20.0)
     exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
+    # проп-счета FundedNext
+    prop_risk_pct: float = 0.5        # риск на сделку, % от размера счёта (больше 2.8 % не бывает)
+    prop_strong_risk_pct: float = 1.0  # риск на сильный сигнал (сильный фон новостей в ту же сторону)
+    prop_guard_pct: float = 0.5       # подушка до лимитов FundedNext, % от размера счёта
+    prop_max_lot: float = 5.0
+    prop_risk_cap: float = 3.0        # за день все сделки вместе — не больше 3 % счёта
+    prop_max_trade: float = 2.8       # потолок риска одной сделки, % счёта
+    prop_day_tz: str = "Europe/Athens"  # полночь сервера FundedNext
+    prop_close: str = "all"           # что закрывать у лимита: all — всё на счёте, bot — только свои, none — ничего
 
     # ── подключение ────────────────────────────────────────────────────────
-    async def connect(self, uid: int, platform: str, server: str, login: str, password: str) -> dict:
+    async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
+                      prop: dict | None = None) -> dict:
         """Подключает счёт подписчика. Возвращает данные счёта; при ошибке — MetaApiError с кодом:
-        E_AUTH (неверный логин/пароль/сервер), E_SRV_NOT_FOUND, REAL_NOT_ALLOWED, NO_GOLD, TIMEOUT …"""
+        E_AUTH (неверный логин/пароль/сервер), E_SRV_NOT_FOUND, REAL_NOT_ALLOWED, NO_GOLD, TIMEOUT …
+        prop — {"plan", "stage", "size"} для проп-счёта FundedNext (там свои лимиты просадки)."""
         old = await self.db.get_trade_account(uid)
         if old:  # повторное подключение — старый счёт убираем из MetaApi
             await self.disconnect(uid)
@@ -309,7 +322,8 @@ class AutoTrader:
                 await self.api.deploy(acc_id)
             info = await self._wait_connected(acc_id)
             region = info.pop("_region")
-            if self.demo_only and info.get("type") not in ("ACCOUNT_TRADE_MODE_DEMO", "ACCOUNT_TRADE_MODE_CONTEST"):
+            # проп-счёт — деньги фирмы, а не подписчика: его подключаем и при AUTOTRADE_DEMO_ONLY
+            if self.demo_only and not prop and info.get("type") not in ("ACCOUNT_TRADE_MODE_DEMO", "ACCOUNT_TRADE_MODE_CONTEST"):
                 raise MetaApiError("real account", "REAL_NOT_ALLOWED")
             symbol = pick_symbol(await self.api.symbols(acc_id, region), self.symbol_override)
             if not symbol:
@@ -320,6 +334,11 @@ class AutoTrader:
         await self.db.save_trade_account(uid, acc_id, region, platform, server, login, symbol,
                                          info.get("broker") or "", info.get("currency") or "USD",
                                          info.get("type") == "ACCOUNT_TRADE_MODE_DEMO")
+        if prop:
+            bal = float(info.get("balance") or prop["size"])
+            eq = float(info.get("equity") or bal)
+            await self.db.set_prop(uid, prop["plan"], prop["stage"], float(prop["size"]),
+                                   pr.day_key(_now(), self.prop_day_tz), bal, max(float(prop["size"]), eq))
         return {**info, "symbol": symbol, "server": server, "login": login}
 
     async def _remove_orphans(self, uid: int) -> None:
@@ -388,18 +407,20 @@ class AutoTrader:
 
     # ── сделки ─────────────────────────────────────────────────────────────
     async def open_signal(self, sid: int, direction: int, sl_dist: float, tp_dist: float,
-                          uids: set[int] | None = None) -> list[OpenResult]:
-        """Открывает сделку по сигналу на всех включённых счетах (uids — только у этих подписчиков)."""
+                          uids: set[int] | None = None, strong: bool = False) -> list[OpenResult]:
+        """Открывает сделку по сигналу на всех включённых счетах (uids — только у этих подписчиков).
+        strong — сильный сигнал: на проп-счетах риск prop_strong_risk_pct вместо prop_risk_pct."""
         if await self.db.get_kv("autotrade_off") == "1":
             return []
         accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
-                    if uids is None or a["user_id"] in uids]
+                    if (uids is None or a["user_id"] in uids)
+                    and not (a.get("prop_plan") and a.get("prop_halt"))]  # проп-счёт у лимита — не торгуем
         sem = asyncio.Semaphore(self.concurrency)
 
         async def one(acc: dict) -> OpenResult:
             async with sem:
                 try:
-                    return await self._open_retry(acc, sid, direction, sl_dist, tp_dist)
+                    return await self._open_retry(acc, sid, direction, sl_dist, tp_dist, strong=strong)
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
@@ -410,7 +431,7 @@ class AutoTrader:
         return list(await asyncio.gather(*(one(a) for a in accounts)))
 
     async def _open_retry(self, acc: dict, sid: int, direction: int, sl_dist: float,
-                          tp_dist: float, min_lot: bool = False) -> OpenResult:
+                          tp_dist: float, min_lot: bool = False, strong: bool = False) -> OpenResult:
         """Сбой связи с MetaApi или терминал не в сети — проверяем, что счёт развёрнут, и пробуем ещё."""
         for attempt in range(len(self.retry_delays) + 1):
             try:
@@ -418,7 +439,7 @@ class AutoTrader:
                     found = await self._find_open(acc, sid)
                     if found:
                         return found
-                return await self._open_one(acc, sid, direction, sl_dist, tp_dist, min_lot)
+                return await self._open_one(acc, sid, direction, sl_dist, tp_dist, min_lot, strong)
             except MetaApiError as e:
                 if not _retryable(e) or attempt == len(self.retry_delays):
                     raise
@@ -468,7 +489,7 @@ class AutoTrader:
                 log.warning("deploy %s: %s", acc_id, e)
 
     async def _open_one(self, acc: dict, sid: int, direction: int, sl_dist: float, tp_dist: float,
-                        min_lot: bool = False) -> OpenResult:
+                        min_lot: bool = False, strong: bool = False) -> OpenResult:
         if await self.db.get_auto_trade(sid, acc["user_id"]):
             raise MetaApiError("already opened", "DUPLICATE")
         mid, region, symbol = acc["meta_id"], acc["region"], acc["symbol"]
@@ -477,8 +498,11 @@ class AutoTrader:
             spec = await self.api.specification(mid, region, symbol)
         except Exception:  # noqa: BLE001
             spec = {}
-        vol = calc_volume(float(info.get("equity") or info.get("balance") or 0), info.get("currency") or "USD",
-                          sl_dist, self.risk_pct, self.max_lot, spec)
+        if acc.get("prop_plan") and not min_lot:
+            vol = await self._prop_volume(acc, info, spec, sl_dist, strong)
+        else:
+            vol = calc_volume(float(info.get("equity") or info.get("balance") or 0),
+                              info.get("currency") or "USD", sl_dist, self.risk_pct, self.max_lot, spec)
         if min_lot and vol > 0:
             vol = round(float(spec.get("minVolume") or 0.01), 2)
         if vol <= 0:
@@ -495,6 +519,114 @@ class AutoTrader:
         pos = str(resp.get("positionId") or resp.get("orderId") or "")
         await self.db.save_auto_trade(sid, acc["user_id"], pos, vol, "open", "")
         return OpenResult(acc["user_id"], True, vol, open_px, sl, tp, symbol)
+
+    # ── проп-счета ──────────────────────────────────────────────────────────
+    async def _prop_volume(self, acc: dict, info: dict, spec: dict, sl_dist: float, strong: bool = False) -> float:
+        """Лот на проп-счёте: не больше prop_risk_pct % (≤ 2.8 %) и так, чтобы стоп этой сделки вместе со
+        стопами уже открытых не довёл счёт до дневного или общего лимита FundedNext."""
+        balance = float(info.get("balance") or 0)
+        equity = float(info.get("equity") or balance)
+        acc = await self._prop_roll(acc, balance)
+        goal = pr.target_balance(acc)
+        if goal is not None and balance + 1e-6 >= goal:
+            # цель этапа уже есть: дальше только минимальный лот, чтобы набрать торговые дни и не потерять результат
+            return round(float(spec.get("minVolume") or 0.01), 2)
+        positions = [p for p in await self.api.positions(acc["meta_id"], acc["region"])
+                     if not p.get("symbol") or p.get("symbol") == acc["symbol"]]
+        contract = float(spec.get("contractSize") or 100)
+        risk = self.prop_strong_risk_pct if strong else self.prop_risk_pct
+        budget, reason = pr.risk_budget(acc, equity, positions, risk, self.prop_guard_pct, contract,
+                                        min(self.prop_risk_cap, pr.DAILY_CAP_PCT), self.prop_max_trade)
+        vol = pr.volume_for(budget, sl_dist, spec, self.prop_max_lot)
+        if vol <= 0:
+            raise MetaApiError(f"prop limit ({reason}, budget {budget:.2f})", "PROP_LIMIT")
+        return vol
+
+    async def _prop_roll(self, acc: dict, balance: float) -> dict:
+        """Новый торговый день FundedNext: запоминаем баланс на начало дня, снимаем дневную остановку."""
+        today = pr.day_key(_now(), self.prop_day_tz)
+        if acc.get("prop_day") == today:
+            return acc
+        upd = {"prop_day": today, "prop_day_balance": balance}
+        if acc.get("prop_halt") == "daily":
+            upd["prop_halt"] = ""
+        await self.db.update_prop_state(acc["user_id"], **upd)
+        return {**acc, **upd, "_new_day": acc.get("prop_halt") == "daily"}
+
+    async def _close_all(self, acc: dict) -> int:
+        """Закрывает позиции на счёте (prop_close: all — все, bot — только открытые ботом)."""
+        if self.prop_close == "none":
+            return 0
+        n = 0
+        for p in await self.api.positions(acc["meta_id"], acc["region"]):
+            if self.prop_close == "bot" and not str(p.get("comment") or "").startswith("goldbot"):
+                continue
+            try:
+                await self.api.trade(acc["meta_id"], acc["region"],
+                                     {"actionType": "POSITION_CLOSE_ID", "positionId": str(p.get("id"))})
+                n += 1
+            except MetaApiError as e:
+                log.warning("prop close %s for %s: %s", p.get("id"), acc["user_id"], e)
+        await self.db.close_user_auto_trades(acc["user_id"])
+        return n
+
+    async def prop_check(self) -> list[dict]:
+        """Проверка проп-счетов (раз в ~20 с). Следит за средствами с учётом открытых сделок; у лимита
+        закрывает сделки и останавливает торговлю; отмечает торговые дни и прохождение этапа.
+        Возвращает события для сообщений подписчикам: halt / new_day / passed."""
+        events: list[dict] = []
+        accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
+                    if a.get("prop_plan") in pr.PLANS]
+        for acc in accounts:
+            try:
+                events += await self._prop_check_one(acc)
+            except Exception as e:  # noqa: BLE001
+                log.info("prop check for %s: %s", acc["user_id"], e)
+        return events
+
+    async def _prop_check_one(self, acc: dict) -> list[dict]:
+        uid, events = acc["user_id"], []
+        info = await self.api.account_info(acc["meta_id"], acc["region"], timeout=30)
+        balance = float(info.get("balance") or 0)
+        equity = float(info.get("equity") or balance)
+        if balance <= 0:
+            return events
+        acc = await self._prop_roll(acc, balance)
+        if acc.pop("_new_day", False):
+            events.append({"uid": uid, "kind": "new_day"})
+        today = acc["prop_day"]
+        upd: dict = {}
+        if abs(balance - float(acc.get("prop_day_balance") or balance)) > 0.005 and acc.get("prop_last_day") != today:
+            upd["prop_days"] = int(acc.get("prop_days") or 0) + 1   # сегодня была закрытая сделка
+            upd["prop_last_day"] = today
+        if equity > float(acc.get("prop_peak") or 0):
+            upd["prop_peak"] = equity
+        if equity < float(acc.get("prop_min_equity") or equity + 1):
+            upd["prop_min_equity"] = equity
+        day_loss = float(acc.get("prop_day_balance") or balance) - equity
+        if day_loss > float(acc.get("prop_worst_day") or 0):
+            upd["prop_worst_day"] = day_loss
+        acc = {**acc, **upd}
+        lim = pr.limits(acc, equity, min(self.prop_risk_cap, pr.DAILY_CAP_PCT))
+        if not acc.get("prop_halt"):
+            if lim.room <= 0 or lim.hard_room <= float(acc["prop_size"]) * self.prop_guard_pct / 100:
+                upd["prop_halt"] = lim.binding
+                closed = await self._close_all(acc)
+                events.append({"uid": uid, "kind": "halt", "limit": lim.binding, "equity": equity,
+                               "floor": lim.floor, "closed": closed, "acc": {**acc, **upd}})
+            elif pr.phase_passed(acc, balance) and not await self.api.positions(acc["meta_id"], acc["region"]):
+                # этап пройден и всё закрыто: отключаемся от этого счёта, бот попросит счёт следующего этапа
+                report = {**acc, **upd, "balance": balance}
+                await self.disconnect(uid)
+                nxt = pr.next_stage(acc)
+                await self.db.set_kv(f"prop_next:{uid}", json.dumps(
+                    {"plan": acc["prop_plan"], "stage": nxt, "size": acc["prop_size"],
+                     "platform": acc.get("platform") or "mt5"}))
+                events.append({"uid": uid, "kind": "passed", "acc": report, "next": nxt})
+                return events
+        if upd:
+            await self.db.update_prop_state(uid, **upd)
+        return events
 
     async def close_signal(self, sid: int, uids: set[int] | None = None) -> list[CloseResult]:
         """Закрывает по рынку всё, что ещё открыто по сигналу (uids — только у этих подписчиков)."""
@@ -532,6 +664,11 @@ class AutoTrader:
         except Exception as e:  # noqa: BLE001
             log.info("deals for %s: %s", pos, e)
         return CloseResult(uid, True, profit, acc.get("currency") or "USD", already)
+
+
+def _now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
 
 
 class BrokerMarket(Provider):
