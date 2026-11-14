@@ -24,6 +24,24 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-14.2",
+        "ru": [
+            "➕ Можно подключить сколько угодно счетов: обычные у брокера и проп-счета FundedNext",
+            "💳 Каждый счёт оплачивается отдельно, у каждого своя дата оплаты и свои кнопки "
+            "«Пауза», «Продлить» и «Отключить» в «Автоторговле»",
+        ],
+        "en": [
+            "➕ Connect as many accounts as you like: regular broker accounts and FundedNext prop accounts",
+            "💳 Each account is paid separately and has its own paid-until date and its own "
+            "“Pause”, “Extend” and “Disconnect” buttons in “Auto trading”",
+        ],
+        "uz": [
+            "➕ Istalgancha hisob ulash mumkin: brokerdagi oddiy hisoblar va FundedNext prop hisoblari",
+            "💳 Har bir hisob alohida to‘lanadi, har birining o‘z to‘lov sanasi va «Avtosavdo»da "
+            "o‘z «Pauza», «Uzaytirish» va «Uzish» tugmalari bor",
+        ],
+    },
+    {
         "version": "2026-11-14",
         "ru": [
             "🏆 Отдельная кнопка «FundedNext» в меню: бот торгует на проп-счёте по правилам FundedNext "
