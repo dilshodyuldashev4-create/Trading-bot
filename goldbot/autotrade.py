@@ -303,6 +303,9 @@ class AutoTrader:
     prop_max_trade: float = 2.8       # потолок риска одной сделки, % счёта
     prop_day_tz: str = "Europe/Athens"  # полночь сервера FundedNext
     prop_close: str = "all"           # что закрывать у лимита: all — всё на счёте, bot — только свои, none — ничего
+    prop_day_losses: int = pr.DAY_LOSSES  # после стольких Stop Loss за день — до завтра без новых сделок (0 — выкл.)
+    prop_dd_pct: float = pr.DD_PCT    # баланс ниже размера счёта на столько % — риск × prop_dd_mult (0 — выкл.)
+    prop_dd_mult: float = pr.DD_MULT
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
@@ -534,7 +537,11 @@ class AutoTrader:
         positions = [p for p in await self.api.positions(acc["meta_id"], acc["region"])
                      if not p.get("symbol") or p.get("symbol") == acc["symbol"]]
         contract = float(spec.get("contractSize") or 100)
+        if await self._day_stopped(acc):
+            await self.db.update_prop_state(acc["user_id"], prop_halt="loss")
+            raise MetaApiError("prop day stop after a stop loss", "PROP_DAY_LOSS")
         risk = self.prop_strong_risk_pct if strong else self.prop_risk_pct
+        risk = pr.scaled_risk(risk, balance, float(acc["prop_size"]), self.prop_dd_pct, self.prop_dd_mult)
         budget, reason = pr.risk_budget(acc, equity, positions, risk, self.prop_guard_pct, contract,
                                         min(self.prop_risk_cap, pr.DAILY_CAP_PCT), self.prop_max_trade)
         vol = pr.volume_for(budget, sl_dist, spec, self.prop_max_lot)
@@ -548,10 +555,17 @@ class AutoTrader:
         if acc.get("prop_day") == today:
             return acc
         upd = {"prop_day": today, "prop_day_balance": balance}
-        if acc.get("prop_halt") == "daily":
+        if acc.get("prop_halt") in ("daily", "loss"):
             upd["prop_halt"] = ""
         await self.db.update_prop_state(acc["user_id"], **upd)
-        return {**acc, **upd, "_new_day": acc.get("prop_halt") == "daily"}
+        return {**acc, **upd, "_new_day": acc.get("prop_halt") in ("daily", "loss")}
+
+    async def _day_stopped(self, acc: dict) -> bool:
+        """Сегодня (по времени FundedNext) уже было prop_day_losses сделок бота, закрытых по Stop Loss."""
+        if self.prop_day_losses <= 0:
+            return False
+        since = pr.day_start(_now(), self.prop_day_tz)
+        return await self.db.stop_losses_since(acc["user_id"], since) >= self.prop_day_losses
 
     async def _close_all(self, acc: dict) -> int:
         """Закрывает позиции на счёте (prop_close: all — все, bot — только открытые ботом)."""
@@ -624,6 +638,10 @@ class AutoTrader:
                      "platform": acc.get("platform") or "mt5"}))
                 events.append({"uid": uid, "kind": "passed", "acc": report, "next": nxt})
                 return events
+            elif await self._day_stopped(acc):
+                # стоп по сделке бота: до полуночи FundedNext новых сделок нет, открытые идут до своих SL/TP
+                upd["prop_halt"] = "loss"
+                events.append({"uid": uid, "kind": "loss_stop"})
         if upd:
             await self.db.update_prop_state(uid, **upd)
         return events
