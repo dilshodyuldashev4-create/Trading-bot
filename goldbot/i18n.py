@@ -915,6 +915,33 @@ PROP_TEXTS: dict[str, dict[str, str]] = {
 for _lang, _texts in PROP_TEXTS.items():
     TEXTS[_lang].update(_texts)
 
+# защита проп-счёта: стоп дня после Stop Loss и меньший риск в просадке (reports/challenge_research.md)
+PROP_GUARD_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "prop_rules_loss": "🛡 <b>Защита счёта</b>\n• после {n}-го Stop Loss за день бот до полуночи FundedNext новые сделки не открывает: убытки обычно идут сериями внутри одного дня;",
+        "prop_rules_dd": "• если баланс опустился ниже начального на {dd}% (${dd_usd}), риск на сделку уменьшается с {risk}% до {low}%, пока баланс не вернётся выше.",
+        "prop_loss_stop": "🛡 Сделка закрылась по Stop Loss. Чтобы не потерять больше за день, бот до полуночи FundedNext новые сделки на проп-счёте не открывает. Завтра продолжит сам.",
+        "prop_status_halt_loss": "\n🛡 Сегодня был Stop Loss: до полуночи FundedNext бот новые сделки не открывает.",
+        "at_e_prop_loss": "сегодня уже был Stop Loss, до полуночи FundedNext новые сделки на проп-счёте не открываются",
+    },
+    "en": {
+        "prop_rules_loss": "🛡 <b>Account protection</b>\n• after stop loss number {n} in a day the bot opens no new trades until FundedNext midnight: losses usually come in streaks within one day;",
+        "prop_rules_dd": "• if the balance falls {dd}% (${dd_usd}) below the starting balance, risk per trade drops from {risk}% to {low}% until the balance recovers.",
+        "prop_loss_stop": "🛡 A trade closed at Stop Loss. To avoid losing more today, the bot opens no new trades on your prop account until FundedNext midnight. It resumes by itself tomorrow.",
+        "prop_status_halt_loss": "\n🛡 There was a Stop Loss today: no new trades until FundedNext midnight.",
+        "at_e_prop_loss": "there was already a Stop Loss today, no new prop account trades until FundedNext midnight",
+    },
+    "uz": {
+        "prop_rules_loss": "🛡 <b>Hisob himoyasi</b>\n• kun davomida {n}-Stop Loss’dan keyin bot FundedNext yarim tunigacha yangi savdo ochmaydi: zararlar odatda bir kun ichida ketma-ket keladi;",
+        "prop_rules_dd": "• balans boshlangʻichdan {dd}% (${dd_usd}) pastga tushsa, bitta savdoga xavf {risk}% dan {low}% gacha kamayadi, balans tiklanguncha.",
+        "prop_loss_stop": "🛡 Savdo Stop Loss bilan yopildi. Bugun koʻproq yoʻqotmaslik uchun bot FundedNext yarim tunigacha prop hisobda yangi savdo ochmaydi. Ertaga oʻzi davom etadi.",
+        "prop_status_halt_loss": "\n🛡 Bugun Stop Loss boʻldi: FundedNext yarim tunigacha yangi savdo ochilmaydi.",
+        "at_e_prop_loss": "bugun Stop Loss boʻldi, FundedNext yarim tunigacha prop hisobda yangi savdo ochilmaydi",
+    },
+}
+for _lang, _texts in PROP_GUARD_TEXTS.items():
+    TEXTS[_lang].update(_texts)
+
 
 def norm(lang: str | None) -> str:
     return lang if lang in TEXTS else DEFAULT

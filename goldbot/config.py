@@ -123,6 +123,11 @@ class Config:
     prop_max_lot: float = float(os.getenv("PROP_MAX_LOT", "5"))
     prop_close: str = os.getenv("PROP_CLOSE", "all")
     prop_day_tz: str = os.getenv("PROP_DAY_TZ", "Europe/Athens")   # полночь сервера FundedNext
+    # защита проп-счёта (см. reports/challenge_research.md): после стольких Stop Loss за день — до завтра без новых
+    # сделок (0 — выкл.); баланс ниже размера счёта на PROP_DD_PCT % — риск × PROP_DD_MULT (0 — выкл.)
+    prop_day_losses: int = int(os.getenv("PROP_DAY_LOSSES", "1"))
+    prop_dd_pct: float = float(os.getenv("PROP_DD_PCT", "2"))
+    prop_dd_mult: float = float(os.getenv("PROP_DD_MULT", "0.25"))
     # кнопка «Регистрация в FundedNext» и промокод на скидку при первой покупке
     fundednext_url: str = os.getenv("FUNDEDNEXT_URL", "https://fundednext.com")
     fundednext_code: str = os.getenv("FUNDEDNEXT_CODE", "REFHGUTBT")

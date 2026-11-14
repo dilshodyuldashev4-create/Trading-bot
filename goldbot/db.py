@@ -395,6 +395,14 @@ class DB:
                                 (*(fields[k] for k in keys), uid))
         await self.conn.commit()
 
+    async def stop_losses_since(self, uid: int, since: datetime) -> int:
+        """Сколько сделок автоторговли подписчика закрылось по Stop Loss начиная с since."""
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) FROM auto_trades a JOIN signals s ON s.id = a.signal_id "
+            "WHERE a.user_id=? AND a.position_id IS NOT NULL AND a.position_id != '' "
+            "AND s.status='sl' AND s.closed_at>=?", (uid, _iso(since)))
+        return int((await cur.fetchone())[0])
+
     async def close_user_auto_trades(self, uid: int) -> None:
         await self.conn.execute("UPDATE auto_trades SET status='closed' WHERE user_id=? AND status='open'", (uid,))
         await self.conn.commit()

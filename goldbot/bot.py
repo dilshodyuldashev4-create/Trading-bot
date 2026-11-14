@@ -115,6 +115,8 @@ def usd(x: float) -> str:
 def trade_error_text(lang: str, error: str) -> str:
     if error == "PROP_LIMIT":
         return t(lang, "at_e_prop")
+    if error == "PROP_DAY_LOSS":
+        return t(lang, "at_e_prop_loss")
     if error in ("NO_MONEY", "TRADE_RETCODE_NO_MONEY"):
         return t(lang, "at_e_money")
     if error in ("TRADE_RETCODE_MARKET_CLOSED", "TRADE_RETCODE_TRADE_DISABLED"):
@@ -263,7 +265,9 @@ class App:
                                          prop_max_lot=config.prop_max_lot, prop_risk_cap=config.prop_risk_cap,
                                          prop_max_trade=config.prop_max_trade_pct,
                                          prop_day_tz=config.prop_day_tz,
-                                         prop_close=config.prop_close)
+                                         prop_close=config.prop_close,
+                                         prop_day_losses=config.prop_day_losses,
+                                         prop_dd_pct=config.prop_dd_pct, prop_dd_mult=config.prop_dd_mult)
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
             self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider)
@@ -679,7 +683,7 @@ class App:
                  floor=usd(lim.total_floor), days=f"{int(acc.get('prop_days') or 0)}/{plan.min_days}"
                  if plan.min_days and goal else str(int(acc.get("prop_days") or 0)),
                  target=t(lang, "prop_status_target", goal=usd(goal)) if goal else "",
-                 halt=t(lang, f"prop_status_halt_{halt}") if halt in ("daily", "total") else "")
+                 halt=t(lang, f"prop_status_halt_{halt}") if halt in ("daily", "total", "loss") else "")
 
     async def prop_intro(self, chat_id: int, lang: str) -> None:
         discount = (t(lang, "prop_discount", code=html.escape(config.fundednext_code),
@@ -722,6 +726,12 @@ class App:
                  day_cap=f"{lim.day_limit / size * 100:g}", day_cap_usd=n(lim.day_limit),
                  guard_usd=n(size * config.prop_guard_pct / 100),
                  reset=f"{pr.reset_time(config.display_tz, now(), config.prop_day_tz)} ({config.display_tz})")
+        if config.prop_day_losses > 0:
+            text += "\n\n" + t(lang, "prop_rules_loss", n=config.prop_day_losses)
+        if config.prop_dd_pct > 0:
+            low = min(config.prop_risk_pct, config.prop_max_trade_pct) * config.prop_dd_mult
+            text += "\n" + t(lang, "prop_rules_dd", dd=f"{config.prop_dd_pct:g}", dd_usd=n(size * config.prop_dd_pct / 100),
+                              risk=f"{risk:g}", low=f"{low:g}")
         await self.bot.send_message(chat_id, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [_btn(t(lang, "btn_agree"), "at:pagree")], [_btn(t(lang, "btn_cancel"), "at:cancel")]]))
 
@@ -732,6 +742,8 @@ class App:
             markup = None
             if e["kind"] == "new_day":
                 text = t(lang, "prop_new_day")
+            elif e["kind"] == "loss_stop":
+                text = t(lang, "prop_loss_stop")
             elif e["kind"] == "halt":
                 text = t(lang, "prop_halt_daily" if e["limit"] == "daily" else "prop_halt_total",
                          equity=usd(e["equity"]), floor=usd(e["floor"]), closed=e["closed"])
