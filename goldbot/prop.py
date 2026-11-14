@@ -64,6 +64,30 @@ def day_key(t: datetime, tz: str = "Europe/Athens") -> str:
     return t.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d")
 
 
+# Защита по итогам симуляции челленджей (reports/challenge_research.md, история XAUUSD 12.2023–08.2026):
+# * после первого Stop Loss за торговый день бот до полуночи FundedNext новые сделки на проп-счёте не открывает
+#   (убытки идут сериями внутри дня: после первого стопа средний результат следующих сделок того дня в минусе);
+# * баланс ниже начального на DD_PCT % — риск на сделку × DD_MULT, пока баланс не вернётся выше.
+# 2-Step при 0.5 %: без защиты не проходит ~1 попытка из 5, с ней — 0 из ~640 попыток в истории.
+DAY_LOSSES = 1
+DD_PCT = 2.0
+DD_MULT = 0.25
+
+
+def day_start(t: datetime, tz: str = "Europe/Athens") -> datetime:
+    """Начало текущего торгового дня FundedNext (полночь по времени сервера) — для сравнения с временем сделок."""
+    local = t.astimezone(ZoneInfo(tz))
+    return datetime(local.year, local.month, local.day, tzinfo=ZoneInfo(tz))
+
+
+def scaled_risk(risk_pct: float, balance: float, size: float, dd_pct: float = DD_PCT,
+                mult: float = DD_MULT) -> float:
+    """Риск на сделку с учётом просадки: баланс ниже размера счёта на dd_pct % — риск × mult (dd_pct 0 — выкл.)."""
+    if dd_pct > 0 and size > 0 and balance <= size * (1 - dd_pct / 100):
+        return risk_pct * mult
+    return risk_pct
+
+
 def reset_time(tz_show: str, t: datetime, tz: str = "Europe/Athens") -> str:
     """Во сколько по часам tz_show начинается следующий торговый день FundedNext (например «03:00»)."""
     from datetime import timedelta
