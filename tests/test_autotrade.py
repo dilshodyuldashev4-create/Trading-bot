@@ -314,10 +314,10 @@ class AutoTraderTests(unittest.TestCase):
                 await db.set_kv("autotrade_off", "1")
                 self.assertEqual(await tr.open_signal(1, 1, 20, 30), [])
                 await db.set_kv("autotrade_off", "0")
-                await db.conn.execute("UPDATE users SET autotrade_until='2020-01-01T00:00:00+00:00' WHERE id=1")
-                await db.conn.commit()                   # оплата автоторговли кончилась — не торгуем
+                await db.conn.execute("UPDATE trade_accounts SET paid_until='2020-01-01T00:00:00+00:00'")
+                await db.conn.commit()                   # оплата счёта кончилась — не торгуем
                 self.assertEqual(await tr.open_signal(2, 1, 20, 30), [])
-                self.assertEqual(await db.autotrade_expired_accounts(), [1])
+                self.assertEqual([a["user_id"] for a in await db.autotrade_expired_accounts()], [1])
                 self.assertEqual(await db.autotrade_expired_accounts(frozenset({1})), [])  # админ
                 tr.exempt = frozenset({1})               # админу оплата не нужна
                 self.assertEqual(len(await tr.open_signal(2, 1, 20, 30)), 1)
@@ -332,12 +332,20 @@ class AutoTraderTests(unittest.TestCase):
                 api = FakeApi()
                 tr = trader(db, api)
                 await tr.connect(1, "mt5", "S", "1", "p")
-                await tr.connect(1, "mt4", "S2", "9", "p")   # переподключение убирает старый счёт
+                await db.extend_account(1, 10)               # продлили счёт
+                await tr.connect(1, "mt4", "S2", "9", "p")   # второй счёт — первый остаётся
+                self.assertEqual(api.removed, [])
+                self.assertEqual([a["login"] for a in await db.user_accounts(1)], ["1", "9"])
+                paid = (await db.get_account(1))["paid_until"]
+                await tr.connect(1, "mt5", "S", "1", "p")    # тот же счёт заново: старая запись убрана, оплата та же
                 self.assertEqual(api.removed, ["acc1"])
-                self.assertTrue(await tr.disconnect(1))
+                accs = await db.user_accounts(1)
+                self.assertEqual([a["login"] for a in accs], ["9", "1"])
+                self.assertEqual(accs[1]["paid_until"], paid)
+                self.assertTrue(await tr.disconnect(accs[0]["id"]))
                 self.assertEqual(api.removed, ["acc1", "acc2"])
-                self.assertIsNone(await db.get_trade_account(1))
-                self.assertFalse(await tr.disconnect(1))
+                self.assertEqual([a["login"] for a in await db.user_accounts(1)], ["1"])
+                self.assertFalse(await tr.disconnect(accs[0]["id"]))
                 await db.close()
         run(go())
 
@@ -386,15 +394,15 @@ class BillingTests(unittest.TestCase):
                 app.db, app.bot, app._connecting = db, FakeBot(), set()
                 app.autotrader = trader(db, api)
                 await app.autotrader.connect(1, "mt5", "S", "1", "p")
-                await db.conn.execute("UPDATE users SET autotrade_until=? WHERE id=1",
+                await db.conn.execute("UPDATE trade_accounts SET paid_until=? WHERE id=1",
                                       ((now() + timedelta(hours=5)).isoformat(),))
                 await db.conn.commit()
                 await app.autotrade_billing()
                 await app.autotrade_billing()   # напоминание только один раз
-                self.assertEqual([x for u, x in app.bot.sent if u == 1 and x.startswith("INVOICE")], ["INVOICE auto"])
+                self.assertEqual([x for u, x in app.bot.sent if u == 1 and x.startswith("INVOICE")], ["INVOICE auto:1"])
                 self.assertEqual(len([x for u, x in app.bot.sent if "заканчивается" in x]), 1)
                 self.assertIsNotNone(await db.get_trade_account(1))
-                await db.conn.execute("UPDATE users SET autotrade_until=? WHERE id=1",
+                await db.conn.execute("UPDATE trade_accounts SET paid_until=? WHERE id=1",
                                       ((now() - timedelta(minutes=1)).isoformat(),))
                 await db.conn.commit()
                 await app.autotrade_billing()
@@ -621,7 +629,7 @@ class TelegramDialogTests(unittest.TestCase):
                         "message_id": 900, "date": 0, "chat": chat, "from": user, "successful_payment": {
                             "currency": "XTR", "total_amount": 1500, "invoice_payload": "auto",
                             "telegram_payment_charge_id": "ch1", "provider_payment_charge_id": "p1"}}}))
-                    self.assertTrue(app.db.autotrade_until(await app.db.get_user(42)))
+                    self.assertEqual(await app.db.credits(42), 1)   # одно оплаченное подключение
                     self.assertIn("демо-счета", texts(session)[-1])     # после оплаты сразу шаг подключения
                     await tap("at:agree")
                     await tap("at:pf:mt5")
@@ -645,19 +653,32 @@ class TelegramDialogTests(unittest.TestCase):
                     acc = await app.db.get_trade_account(42)
                     self.assertEqual((acc["login"], acc["symbol"]), ("98765432", "XAUUSDm"))
                     self.assertNotIn("Secret", str(await app.db.all_users()))
+                    self.assertEqual(await app.db.credits(42), 0)   # подключение использовано
+                    self.assertTrue(app.db.paid_until(acc) > now() + timedelta(days=29))
 
                     await msg("🤖 Автоторговля")                     # кнопка меню: статус и управление
                     self.assertIn("98765432", texts(session)[-1])
-                    self.assertEqual(kb_data(session), ["at:pause", "at:pay", "at:prop", "at:disc"])
+                    aid = acc["id"]
+                    self.assertEqual(kb_data(session), [f"at:pause:{aid}", f"at:pay:{aid}", f"at:disc:{aid}",
+                                                        "at:yes", "at:prop"])
                     self.assertIn("Оплачено до", texts(session)[-1])
+                    self.assertIn("Подключить ещё один счёт", str(session.log[-1].reply_markup))
+                    # ещё один счёт — снова оплата
+                    await tap("at:yes")
+                    inv = [m for m in session.log if isinstance(m, SendInvoice)][-1]
+                    self.assertEqual(inv.payload, "auto")
+                    self.assertIn("Каждый счёт оплачивается отдельно", texts(session)[-1])
+                    # продление этого счёта — отдельный счёт на оплату
+                    await tap(f"at:pay:{aid}")
+                    inv = [m for m in session.log if isinstance(m, SendInvoice)][-1]
+                    self.assertEqual(inv.payload, f"auto:{aid}")
                     # отдельная кнопка меню FundedNext: видна и при подключённом счёте
                     await msg("🏆 FundedNext")
                     self.assertIn("REFHGUTBT", texts(session)[-1])
-                    self.assertIn("подключится вместо него", texts(session)[-1])
                     self.assertIn("at:pplan", kb_data(session))
-                    await tap("at:pause")
+                    await tap(f"at:pause:{aid}")
                     self.assertEqual((await app.db.get_trade_account(42))["enabled"], 0)
-                    await tap("at:disc")
+                    await tap(f"at:disc:{aid}")
                     self.assertIsNone(await app.db.get_trade_account(42))
                     self.assertIn("acc1", api.removed)
 

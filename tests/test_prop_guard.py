@@ -128,6 +128,12 @@ class GuardTraderTests(unittest.TestCase):
 
         app.lang_of, app._send = lang_of, _send
 
+        class FakeDB:
+            async def trade_accounts(self):
+                return []
+
+        app.db = FakeDB()
+
         async def go():
             await app.prop_rules(1, "ru", "2step", "phase1", 25_000)
             await app.prop_events([{"uid": 1, "kind": "loss_stop"}])
