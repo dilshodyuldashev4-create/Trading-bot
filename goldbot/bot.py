@@ -986,7 +986,8 @@ class App:
             except Exception:  # noqa: BLE001
                 log.exception("expected setup")
                 text = t(lang, "quotes_fail")
-            price = t(lang, "price_now", price=f"{self.engine.last_price:.2f}") if self.engine.last_price else ""
+            now_price = await self.engine.fresh_price()   # цена на момент ответа, а не прошлой проверки
+            price = t(lang, "price_now", price=f"{now_price:.2f}") if now_price else ""
             opened = await self.db.open_signals()
             active = ""
             if opened:

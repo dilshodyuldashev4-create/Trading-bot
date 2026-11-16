@@ -711,9 +711,26 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def quote_age(body: dict) -> float | None:
+    """Сколько секунд назад пришла котировка MetaApi (поле time, UTC); None — время неизвестно."""
+    from datetime import datetime
+    raw = body.get("time") if isinstance(body, dict) else None
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        return None
+    return (_now() - ts).total_seconds()
+
+
 class BrokerMarket(Provider):
     """Свечи и цена XAUUSD прямо с MetaTrader-счёта через MetaApi (тот же график, что в MT5 у брокера).
     source() → {"meta_id", "region", "symbol"} счёта, с которого берём данные (None — счёта нет)."""
+
+    max_quote_age = 120   # секунд: старше — котировка зависла, берём запасной источник
 
     def __init__(self, api: MetaApi, source):
         self.api, self.source = api, source
@@ -745,6 +762,11 @@ class BrokerMarket(Provider):
         p = float(body.get("bid") or 0)   # графики в MetaTrader строятся по bid
         if p <= 0:
             raise MetaApiError(f"no price: {body}", "NO_DATA")
+        age = quote_age(body)
+        if age is not None and age > self.max_quote_age:
+            # MetaApi отдаёт последнюю запомненную котировку, даже если связь терминала с брокером
+            # подвисла: цена «замирает» на минуты и расходится с живым графиком MT5
+            raise MetaApiError(f"stale quote: {age:.0f} s old ({body.get('time')})", "STALE")
         return p
 
 
