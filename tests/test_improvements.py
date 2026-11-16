@@ -212,8 +212,8 @@ class CardAndPropTextTests(unittest.TestCase):
         self.assertIn("безубыток", done)
         self.assertNotIn("Сделка идёт", done)
         self.assertIn("Stop Loss", botmod.card_status("en", s, "sl", 1990.0, "UTC"))
-        one = botmod.lot_plan(1000, 100, 300)["lot"]
-        self.assertGreater(botmod.lot_plan(1000, 100, 300, size=1.5)["lot"], one)
+        one = botmod.lot_plan(10000, 100, 300)["lot"]
+        self.assertGreater(botmod.lot_plan(10000, 100, 300, size=1.5)["lot"], one)
         self.assertIn("Сильный сигнал", botmod.lot_text("ru", 1000, 100, 300, size=1.5))
         self.assertNotIn("Сильный сигнал", botmod.lot_text("ru", 1000, 100, 300, size=0.75))
 
