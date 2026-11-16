@@ -187,6 +187,11 @@ class Config:
     live_card_min: int = int(os.getenv("LIVE_CARD_MIN", "5"))
     # ссылка на независимую статистику счёта (Myfxbook и т.п.) — кнопка в «Статистика» (пусто — нет кнопки)
     myfxbook_url: str = os.getenv("MYFXBOOK_URL", "")
+    # Telegram-канал: туда же уходит всё, что получают подписчики (сигналы, итоги, отчёты, новости).
+    # Обычно задавать не нужно: добавьте бота админом в канал, и он подключит его сам (/channel).
+    # Можно указать вручную: @имя_канала или числовой ID (-100…). CHANNEL_LANG — язык постов: ru, en, uz
+    channel_id: str = os.getenv("CHANNEL_ID", "")
+    channel_lang: str = os.getenv("CHANNEL_LANG", "ru")
 
 
 config = Config()

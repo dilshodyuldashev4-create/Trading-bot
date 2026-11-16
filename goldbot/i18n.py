@@ -1154,6 +1154,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "осталось {left}.\n\nНичего не трогайте руками: бот сам доведёт этап и соблюдёт лимиты."),
         "myfxbook_text": "✅ Независимая статистика реального счёта бота (Myfxbook): её нельзя подправить вручную.",
         "btn_myfxbook": "✅ Проверенная статистика",
+        "chan_cta": "\n\n🤖 Сигналы с лотом под ваш депозит и автоторговля: @{bot}",
     },
     "en": {
         "sig_strong": "\n💪 <b>Strong signal</b>: two strategies agree, the lot is {x} times the usual",
@@ -1175,6 +1176,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "{left} to go.\n\nDon't trade by hand: the bot will finish the phase and keep the limits."),
         "myfxbook_text": "✅ Independent statistics of the bot's real account (Myfxbook): they can't be edited by hand.",
         "btn_myfxbook": "✅ Verified statistics",
+        "chan_cta": "\n\n🤖 Signals with a lot sized to your deposit, and auto-trading: @{bot}",
     },
     "uz": {
         "sig_strong": "\n💪 <b>Kuchli signal</b>: ikki strategiya bir xil, lot odatdagidan {x} baravar katta",
@@ -1196,6 +1198,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "qoldi {left}.\n\nQoʻlda savdo qilmang: bot bosqichni oʻzi yakunlaydi va limitlarga rioya qiladi."),
         "myfxbook_text": "✅ Bot real hisobining mustaqil statistikasi (Myfxbook): uni qoʻlda oʻzgartirib boʻlmaydi.",
         "btn_myfxbook": "✅ Tasdiqlangan statistika",
+        "chan_cta": "\n\n🤖 Depozitingizga mos lotli signallar va avtosavdo: @{bot}",
     },
 }
 for _lang, _texts in EXTRA_TEXTS.items():
