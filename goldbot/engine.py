@@ -19,7 +19,7 @@ from .chart import render_signal
 from .data import PIP
 from .db import DB
 from .i18n import DEFAULT, per_lang, t
-from .indicators import atr
+from .indicators import adx, atr
 from .live_strategy import STRATEGIES, LiveStrategy, daily_trend_side, expected_setup, resolve_keys
 from .market import TF_MINUTES, Provider
 
@@ -44,6 +44,8 @@ class NewSignal:
     tp1: Optional[float] = None  # фиксация части прибыли (None — без фиксации)
     tp1_pips: float = 0
     part: float = 0               # какая доля позиции закрывается на tp1
+    prop_only: bool = False       # только для проп-счетов (пробой при сильном разгоне рынка, ADX)
+    size: float = 1.0             # множитель лота на обычных счетах и в сигнале (согласие стратегий)
 
     @property
     def text(self) -> str:
@@ -198,6 +200,16 @@ class SignalEngine:
         # закрывать сделку в прибыли, если стратегия бота дала сигнал в обратную сторону (разворот)
         self.reversal_close = False
         self.reversal_min_pips = 10.0
+        # тренд или боковик: стратегии adx_keys при ADX(14) ≥ adx_max дают сигнал только для проп-счетов
+        # (has_prop() — есть ли включённые проп-счета; нет — сигнал пропускается)
+        self.adx_max = 0.0
+        self.adx_keys: tuple[str, ...] = ()
+        self.has_prop: Optional[Callable[[], Awaitable[bool]]] = None
+        # согласие стратегий: другая стратегия дала сигнал в ту же сторону за confluence_min минут
+        self.confluence_min = 0
+        self.confluence_single = 1.0
+        self.confluence_strong = 1.0
+        self.recent: dict[str, tuple[pd.Timestamp, int]] = {}   # стратегия → (свеча, направление) последнего сигнала
         self.last_ok = time.monotonic()   # когда проверка рынка последний раз прошла без ошибки
         self.last_error = ""
 
@@ -551,10 +563,12 @@ class SignalEngine:
         await self.db.set_kv(self._kv_bar(st.key), bar.isoformat())
         if last_bar is None:
             return None  # не шлём старый сигнал при первом запуске
-        if self.reversal_close and open_dirs:
-            rd = await self.direction(df, now, st)
-            if rd and -rd in open_dirs:
-                await self.reversal_check(rd, open_keys, open_dirs)
+        raw = await self.direction(df, now, st)
+        prop_only = bool(raw) and self.adx_filtered(st, df)
+        if raw and not prop_only:
+            self.recent[st.key] = (bar, raw)
+        if self.reversal_close and open_dirs and raw and not prop_only and -raw in open_dirs:
+            await self.reversal_check(raw, open_keys, open_dirs)
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
         if st.key in open_keys:
@@ -570,8 +584,11 @@ class SignalEngine:
                 log.info("signal skipped (%s): release of %s at %s", st.key, hot.get("title"), hot.get("ts"))
                 return None  # момент выхода новости: резкие движения в обе стороны
 
-        d = await self.direction(df, now, st)
+        d = raw
         if d == 0:
+            return None
+        if prop_only and not (self.has_prop and await self.has_prop()):
+            log.info("signal skipped (%s): ADX %.0f ≥ %g, no prop accounts", st.key, self.last_adx, self.adx_max)
             return None
         open_dirs = open_dirs if open_dirs is not None else set()
         if -d in open_dirs:
@@ -607,7 +624,10 @@ class SignalEngine:
         tp = entry + d * tp_p * PIP
         tp1 = entry + d * tp1_p * PIP if tp1_p else None
         part = self.partial_pct if tp1 else 0.0
-        sid = await self.db.add_signal(st.key, d, entry, sl, tp, tp1, part)
+        size = self.size_for(st.key, bar, d)
+        sid = await self.db.add_signal(st.key, d, entry, sl, tp, tp1, part, prop_only=prop_only, size=size)
+        if prop_only:
+            log.info("signal #%s (%s) only for prop accounts: ADX %.0f ≥ %g", sid, st.key, self.last_adx, self.adx_max)
         open_keys.add(st.key)
         open_dirs.add(d)
         fresh_dirs.add(d)
@@ -620,9 +640,28 @@ class SignalEngine:
                                 + news_line(info, d, lang)
                                 + (news_event_line(ev, self.tz, lang) if news_mode else "")),
                        lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, tp1=tp1, **kw), sl_p, tp_p,
-                       strong=side == d and strength == "strong", tp1=tp1, tp1_pips=tp1_p, part=part)
+                       strong=side == d and strength == "strong", tp1=tp1, tp1_pips=tp1_p, part=part,
+                       prop_only=prop_only, size=size)
         await self.on_signal(ns)
         return ns
+
+    def adx_filtered(self, st: LiveStrategy, df: pd.DataFrame) -> bool:
+        """Пробой при сильном разгоне рынка (ADX ≥ adx_max) — сигнал только для проп-счетов (reports/ideas_research.md)."""
+        if self.adx_max <= 0 or st.key not in self.adx_keys or len(df) < 30:
+            return False
+        self.last_adx = float(adx(df, 14)[-1])
+        return self.last_adx >= self.adx_max
+
+    last_adx = 0.0
+
+    def size_for(self, key: str, bar: pd.Timestamp, d: int) -> float:
+        """Множитель лота: другая стратегия за confluence_min минут дала сигнал в ту же сторону — confluence_strong,
+        иначе confluence_single (reports/profit_research.md)."""
+        if self.confluence_min <= 0:
+            return 1.0
+        win = pd.Timedelta(minutes=self.confluence_min)
+        agree = any(k != key and v[1] == d and pd.Timedelta(0) <= bar - v[0] < win for k, v in self.recent.items())
+        return self.confluence_strong if agree else self.confluence_single
 
     async def direction(self, df: pd.DataFrame, now: pd.Timestamp, st: LiveStrategy | None = None) -> int:
         """Сигнал на последней закрытой свече: 1 BUY, -1 SELL, 0 нет.

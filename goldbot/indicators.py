@@ -17,6 +17,20 @@ def rsi(s: pd.Series, n: int = 14) -> pd.Series:
     return (100 - 100 / (1 + rs)).fillna(50)
 
 
+def adx(df: pd.DataFrame, n: int = 14) -> np.ndarray:
+    """ADX Уайлдера: сила тренда (выше 25 — сильное движение в одну сторону)."""
+    h, l, c = df["high"], df["low"], df["close"]
+    up, dn = h.diff(), -l.diff()
+    pdm = pd.Series(np.where((up > dn) & (up > 0), up, 0.0), index=df.index)
+    mdm = pd.Series(np.where((dn > up) & (dn > 0), dn, 0.0), index=df.index)
+    tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+    a = tr.ewm(alpha=1 / n, adjust=False).mean()
+    pdi = 100 * pdm.ewm(alpha=1 / n, adjust=False).mean() / a
+    mdi = 100 * mdm.ewm(alpha=1 / n, adjust=False).mean() / a
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan)
+    return dx.ewm(alpha=1 / n, adjust=False).mean().to_numpy()
+
+
 def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     pc = df["close"].shift()
     tr = pd.concat([df["high"] - df["low"], (df["high"] - pc).abs(), (df["low"] - pc).abs()], axis=1).max(axis=1)

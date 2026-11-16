@@ -144,6 +144,16 @@ class DB:
         for c, typ in (("tp1", "REAL"), ("part", "REAL DEFAULT 0"), ("part_at", "TEXT")):
             if c not in scols:
                 await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} {typ}")
+        # prop_only — сигнал только для проп-счетов (фильтр ADX), size — множитель лота (согласие стратегий)
+        for c, typ in (("prop_only", "INTEGER NOT NULL DEFAULT 0"), ("size", "REAL NOT NULL DEFAULT 1")):
+            if c not in scols:
+                await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} {typ}")
+        cur = await self.conn.execute("PRAGMA table_info(signal_lots)")
+        lcols = [r[1] for r in await cur.fetchall()]
+        # живая карточка: сообщение, его подпись и нажал ли подписчик «Принять»/«Отклонить»
+        for c, typ in (("msg_id", "INTEGER"), ("caption", "TEXT"), ("decided", "INTEGER NOT NULL DEFAULT 0")):
+            if c not in lcols:
+                await self.conn.execute(f"ALTER TABLE signal_lots ADD COLUMN {c} {typ}")
         if "autotrade_credits" not in cols:  # оплаченные, но ещё не подключённые счета
             await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_credits INTEGER NOT NULL DEFAULT 0")
         cur = await self.conn.execute("PRAGMA table_info(trade_accounts)")
@@ -287,11 +297,11 @@ class DB:
             "blocked": "SELECT COUNT(*) FROM users WHERE blocked=1",
             "paid": f"SELECT COUNT(*) FROM users WHERE paid_until>'{t}'",
             "trial": f"SELECT COUNT(*) FROM users WHERE trial_until>'{t}' AND (paid_until IS NULL OR paid_until<='{t}')",
-            "signals": "SELECT COUNT(*) FROM signals",
-            "tp": "SELECT COUNT(*) FROM signals WHERE status='tp'",
-            "sl": "SELECT COUNT(*) FROM signals WHERE status='sl'",
+            "signals": "SELECT COUNT(*) FROM signals WHERE prop_only=0",
+            "tp": "SELECT COUNT(*) FROM signals WHERE status='tp' AND prop_only=0",
+            "sl": "SELECT COUNT(*) FROM signals WHERE status='sl' AND prop_only=0",
             # закрыты в плюсе после фиксации части: в безубыток или при развороте
-            "be": "SELECT COUNT(*) FROM signals WHERE status IN ('be','rev')",
+            "be": "SELECT COUNT(*) FROM signals WHERE status IN ('be','rev') AND prop_only=0",
             "revenue": "SELECT COALESCE(SUM(amount),0) FROM payments",
         }
         out = {}
@@ -317,10 +327,12 @@ class DB:
 
     # ── сигналы ─────────────────────────────────────────────────────────────
     async def add_signal(self, strategy: str, direction: int, entry: float, sl: float, tp: float,
-                         tp1: float | None = None, part: float = 0) -> int:
+                         tp1: float | None = None, part: float = 0, prop_only: bool = False,
+                         size: float = 1.0) -> int:
         cur = await self.conn.execute(
-            "INSERT INTO signals (created_at, strategy, direction, entry, sl, tp, tp1, part) VALUES (?,?,?,?,?,?,?,?)",
-            (_iso(now()), strategy, direction, entry, sl, tp, tp1, part))
+            "INSERT INTO signals (created_at, strategy, direction, entry, sl, tp, tp1, part, prop_only, size) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (_iso(now()), strategy, direction, entry, sl, tp, tp1, part, int(prop_only), size))
         await self.conn.commit()
         return cur.lastrowid
 
@@ -340,9 +352,9 @@ class DB:
         return at
 
     async def signals_between(self, a: datetime, b: datetime) -> list[dict]:
-        """Сигналы, созданные в [a, b)."""
-        cur = await self.conn.execute("SELECT * FROM signals WHERE created_at>=? AND created_at<? ORDER BY id",
-                                      (_iso(a), _iso(b)))
+        """Сигналы подписчикам, созданные в [a, b) (без сигналов только для проп-счетов)."""
+        cur = await self.conn.execute("SELECT * FROM signals WHERE created_at>=? AND created_at<? AND prop_only=0 "
+                                      "ORDER BY id", (_iso(a), _iso(b)))
         return [dict(r) for r in await cur.fetchall()]
 
     async def lots_between(self, a: datetime, b: datetime) -> list[dict]:
@@ -357,11 +369,26 @@ class DB:
                                 (status, _iso(now()), exit_price, sid))
         await self.conn.commit()
 
-    async def add_signal_lot(self, sid: int, uid: int, lot: float) -> None:
-        """Какой лот бот показал подписчику в сигнале — по нему потом считаем его результат."""
-        await self.conn.execute("INSERT OR REPLACE INTO signal_lots (signal_id, user_id, lot) VALUES (?,?,?)",
-                                (sid, uid, lot))
+    async def add_signal_lot(self, sid: int, uid: int, lot: float, msg_id: int | None = None,
+                             caption: str | None = None) -> None:
+        """Какой лот бот показал подписчику в сигнале — по нему потом считаем его результат.
+        msg_id и caption — сообщение с сигналом и его подпись (для живой карточки)."""
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO signal_lots (signal_id, user_id, lot, msg_id, caption) VALUES (?,?,?,?,?)",
+            (sid, uid, lot, msg_id, caption))
         await self.conn.commit()
+
+    async def signal_cards(self, sid: int) -> list[dict]:
+        """Карточки сигнала у подписчиков: user_id, msg_id, caption, declined (только с сохранённым сообщением)."""
+        cur = await self.conn.execute(
+            "SELECT user_id, msg_id, caption, declined, decided FROM signal_lots WHERE signal_id=? AND msg_id IS NOT NULL",
+            (sid,))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def card_msg(self, sid: int, uid: int) -> int | None:
+        cur = await self.conn.execute("SELECT msg_id FROM signal_lots WHERE signal_id=? AND user_id=?", (sid, uid))
+        row = await cur.fetchone()
+        return row[0] if row else None
 
     async def signal_lots(self, sid: int) -> dict[int, float]:
         """Кто получил сигнал и с каким лотом — без тех, кто нажал «Отклонить»."""
@@ -372,8 +399,8 @@ class DB:
     async def set_decision(self, sid: int, uid: int, declined: bool, lot: float = 0) -> None:
         """«Принять» / «Отклонить» под сигналом."""
         await self.conn.execute(
-            "INSERT INTO signal_lots (signal_id, user_id, lot, declined) VALUES (?,?,?,?) "
-            "ON CONFLICT(signal_id, user_id) DO UPDATE SET declined=excluded.declined",
+            "INSERT INTO signal_lots (signal_id, user_id, lot, declined, decided) VALUES (?,?,?,?,1) "
+            "ON CONFLICT(signal_id, user_id) DO UPDATE SET declined=excluded.declined, decided=1",
             (sid, uid, lot, int(declined)))
         await self.conn.commit()
 
@@ -389,11 +416,12 @@ class DB:
     async def closed_since(self, since: datetime) -> list[str]:
         """Статусы сигналов, созданных после since и уже закрытых, от последнего к первому."""
         cur = await self.conn.execute(
-            "SELECT status FROM signals WHERE created_at>=? AND status!='open' ORDER BY id DESC", (_iso(since),))
+            "SELECT status FROM signals WHERE created_at>=? AND status!='open' AND prop_only=0 ORDER BY id DESC",
+            (_iso(since),))
         return [r[0] for r in await cur.fetchall()]
 
     async def last_signals(self, n: int = 10) -> list[dict]:
-        cur = await self.conn.execute("SELECT * FROM signals ORDER BY id DESC LIMIT ?", (n,))
+        cur = await self.conn.execute("SELECT * FROM signals WHERE prop_only=0 ORDER BY id DESC LIMIT ?", (n,))
         return [dict(r) for r in await cur.fetchall()]
 
     # ── календарь ───────────────────────────────────────────────────────────
@@ -573,6 +601,18 @@ class DB:
         else:
             cur = await self.conn.execute("SELECT * FROM auto_trades WHERE signal_id=?", (sid,))
         return [dict(r) for r in await cur.fetchall()]
+
+    async def open_auto_trades(self) -> list[dict]:
+        """Все сделки автоторговли со статусом open или error, с данными их сигнала."""
+        cur = await self.conn.execute(
+            "SELECT t.*, s.status AS signal_status, s.direction, s.entry, s.sl, s.tp, s.part_at, s.created_at "
+            "AS signal_at, s.closed_at AS signal_closed_at, s.prop_only, s.size FROM auto_trades t JOIN signals s ON s.id=t.signal_id "
+            "WHERE t.status IN ('open','error') AND t.signal_id>0")
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_auto_trade(self, sid: int, aid: int) -> None:
+        await self.conn.execute("DELETE FROM auto_trades WHERE signal_id=? AND account_id=?", (sid, aid))
+        await self.conn.commit()
 
     async def set_auto_trade_status(self, sid: int, aid: int, status: str) -> None:
         await self.conn.execute("UPDATE auto_trades SET status=? WHERE signal_id=? AND account_id=?",

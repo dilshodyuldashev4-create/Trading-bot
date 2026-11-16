@@ -207,8 +207,8 @@ class ComboTrendTests(unittest.TestCase):
                 key_of = {}
                 orig = db.add_signal
 
-                async def add_signal(strategy, *a):
-                    sid = await orig(strategy, *a)
+                async def add_signal(strategy, *a, **kw):
+                    sid = await orig(strategy, *a, **kw)
                     key_of[sid] = strategy
                     return sid
                 db.add_signal = add_signal

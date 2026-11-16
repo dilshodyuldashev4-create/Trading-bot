@@ -57,6 +57,18 @@ class Config:
     # 1 — закрывать сделку в прибыли, когда стратегия бота даёт сигнал в обратную сторону (разворот)
     reversal_close: bool = os.getenv("REVERSAL_CLOSE", "1") not in ("0", "false", "no", "")
     reversal_min_pips: float = float(os.getenv("REVERSAL_MIN_PIPS", "10"))
+    # тренд или боковик (reports/ideas_research.md): стратегии пробоя ADX_KEYS не дают сигнал подписчикам и
+    # на обычные счета, когда ADX(14) их таймфрейма ≥ ADX_MAX (рынок уже разогнан). На проп-счетах — как раньше:
+    # такой сигнал торгуется только там (по симуляции челленджей фильтр на проп-счетах хуже). 0 — выключено
+    adx_max: float = float(os.getenv("ADX_MAX", "25"))
+    adx_keys: tuple[str, ...] = tuple(
+        x.strip() for x in os.getenv("ADX_KEYS", "squeeze,donchian").split(",") if x.strip())
+    # две стратегии согласны (reports/profit_research.md): другая стратегия дала сигнал в ту же сторону за
+    # последние CONFLUENCE_MIN минут — лот × CONFLUENCE_STRONG, иначе × CONFLUENCE_SINGLE (обычные счета и лот
+    # в сигнале; проп-счета — как раньше). 1 и 1 — выключено
+    confluence_min: int = int(os.getenv("CONFLUENCE_MIN", "60"))
+    confluence_single: float = float(os.getenv("CONFLUENCE_SINGLE", "0.75"))
+    confluence_strong: float = float(os.getenv("CONFLUENCE_STRONG", "1.5"))
     # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
@@ -154,6 +166,9 @@ class Config:
     prop_tp_r: float = float(os.getenv("PROP_TP_R", "1.5"))
     # 1 — на проп-счетах тоже фиксация части, безубыток и закрытие при развороте (тогда PROP_TP_R не используется)
     prop_partial: bool = os.getenv("PROP_PARTIAL", "0") not in ("0", "false", "no", "")
+    # прогноз челленджа: медиана дней до цели этапа по симуляции (reports/challenge_research.md, обе защиты)
+    # в профиле проп-счёта и сообщения, когда пройдено 50 % и 90 % цели
+    prop_milestones: bool = os.getenv("PROP_MILESTONES", "1") not in ("0", "false", "no", "")
     # кнопка «Регистрация в FundedNext» и промокод на скидку при первой покупке
     fundednext_url: str = os.getenv("FUNDEDNEXT_URL", "https://fundednext.com")
     fundednext_code: str = os.getenv("FUNDEDNEXT_CODE", "REFHGUTBT")
@@ -161,6 +176,17 @@ class Config:
     # 1 — анализировать рынок по свечам и цене с подключённого в боте счёта админа (через MetaApi), а
     # Twelve Data / goldapi — запасной источник, на который бот переключается сразу, если MetaApi не ответил
     market_from_broker: bool = os.getenv("MARKET_FROM_BROKER", "1") not in ("0", "false", "no", "")
+    # защита от широкого спреда: спред у брокера больше AUTOTRADE_MAX_SPREAD_PCT % стопа — бот ждёт до
+    # AUTOTRADE_SPREAD_WAIT секунд, пока он станет нормальным, иначе сделку на этом счёте не открывает (0 — выкл.)
+    autotrade_max_spread_pct: float = float(os.getenv("AUTOTRADE_MAX_SPREAD_PCT", "10"))
+    autotrade_spread_wait: int = int(os.getenv("AUTOTRADE_SPREAD_WAIT", "60"))
+    # сверка счетов: раз в столько секунд бот сверяет сделки на счетах с сигналами (0 — выкл.)
+    reconcile_sec: int = int(os.getenv("RECONCILE_SEC", "60"))
+    # живая карточка: сигнал у подписчика обновляется (ход сделки, фиксация, итог) раз в LIVE_CARD_MIN минут
+    live_card: bool = os.getenv("LIVE_CARD", "1") not in ("0", "false", "no", "")
+    live_card_min: int = int(os.getenv("LIVE_CARD_MIN", "5"))
+    # ссылка на независимую статистику счёта (Myfxbook и т.п.) — кнопка в «Статистика» (пусто — нет кнопки)
+    myfxbook_url: str = os.getenv("MYFXBOOK_URL", "")
 
 
 config = Config()

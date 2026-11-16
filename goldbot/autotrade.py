@@ -16,7 +16,7 @@ import logging
 import math
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
@@ -340,6 +340,17 @@ class AutoTrader:
     # проп-счетах не делаются: по симуляции челленджей (reports/challenge_research.md) с ними хуже
     prop_tp_r: float = 0.0
     prop_partial: bool = False        # True — на проп-счетах так же, как на обычных
+    # спред у брокера больше max_spread_pct % стопа — ждём до spread_wait секунд, потом сделку не открываем
+    max_spread_pct: float = 0.0
+    spread_wait: float = 60
+    spread_poll: float = 5
+    # сверка: повторное открытие неоткрывшейся сделки — не позже стольких секунд после сигнала, не больше
+    # стольких попыток и только пока цена ушла от входа сигнала меньше чем на reopen_max_r стопа
+    reopen_within: float = 600
+    reopen_tries: int = 2
+    reopen_max_r: float = 0.3
+    prop_milestones: bool = True      # сообщения «пройдено 50 % / 90 % цели этапа»
+    _reopen: dict = field(default_factory=dict)   # (сигнал, счёт) → сколько раз сверка уже открывала заново
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
@@ -456,13 +467,16 @@ class AutoTrader:
 
     # ── сделки ─────────────────────────────────────────────────────────────
     async def open_signal(self, sid: int, direction: int, sl_dist: float, tp_dist: float,
-                          uids: set[int] | None = None, strong: bool = False) -> list[OpenResult]:
+                          uids: set[int] | None = None, strong: bool = False, prop_only: bool = False,
+                          size: float = 1.0) -> list[OpenResult]:
         """Открывает сделку по сигналу на всех включённых счетах (uids — только у этих подписчиков).
-        strong — сильный сигнал: на проп-счетах риск prop_strong_risk_pct вместо prop_risk_pct."""
+        strong — сильный сигнал: на проп-счетах риск prop_strong_risk_pct вместо prop_risk_pct.
+        prop_only — только на проп-счетах; size — множитель риска на обычных счетах (согласие стратегий)."""
         if await self.db.get_kv("autotrade_off") == "1":
             return []
         accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
                     if (uids is None or a["user_id"] in uids)
+                    and (a.get("prop_plan") or not prop_only)
                     and not (a.get("prop_plan") and a.get("prop_halt"))]  # проп-счёт у лимита — не торгуем
         sem = asyncio.Semaphore(self.concurrency)
 
@@ -471,7 +485,7 @@ class AutoTrader:
                 try:
                     td = (sl_dist * self.prop_tp_r if acc.get("prop_plan") and self.prop_tp_r > 0
                           and not self.prop_partial else tp_dist)
-                    return await self._open_retry(acc, sid, direction, sl_dist, td, strong=strong)
+                    return await self._open_retry(acc, sid, direction, sl_dist, td, strong=strong, size=size)
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
@@ -482,7 +496,8 @@ class AutoTrader:
         return list(await asyncio.gather(*(one(a) for a in accounts)))
 
     async def _open_retry(self, acc: dict, sid: int, direction: int, sl_dist: float,
-                          tp_dist: float, min_lot: bool = False, strong: bool = False) -> OpenResult:
+                          tp_dist: float, min_lot: bool = False, strong: bool = False,
+                          size: float = 1.0) -> OpenResult:
         """Сбой связи с MetaApi или терминал не в сети — проверяем, что счёт развёрнут, и пробуем ещё."""
         for attempt in range(len(self.retry_delays) + 1):
             try:
@@ -490,7 +505,7 @@ class AutoTrader:
                     found = await self._find_open(acc, sid)
                     if found:
                         return found
-                return await self._open_one(acc, sid, direction, sl_dist, tp_dist, min_lot, strong)
+                return await self._open_one(acc, sid, direction, sl_dist, tp_dist, min_lot, strong, size)
             except MetaApiError as e:
                 if not _retryable(e) or attempt == len(self.retry_delays):
                     raise
@@ -541,7 +556,7 @@ class AutoTrader:
                 log.warning("deploy %s: %s", acc_id, e)
 
     async def _open_one(self, acc: dict, sid: int, direction: int, sl_dist: float, tp_dist: float,
-                        min_lot: bool = False, strong: bool = False) -> OpenResult:
+                        min_lot: bool = False, strong: bool = False, size: float = 1.0) -> OpenResult:
         if await self.db.get_auto_trade(sid, acc["id"]):
             raise MetaApiError("already opened", "DUPLICATE")
         mid, region, symbol = acc["meta_id"], acc["region"], acc["symbol"]
@@ -554,12 +569,13 @@ class AutoTrader:
             vol = await self._prop_volume(acc, info, spec, sl_dist, strong)
         else:
             vol = calc_volume(float(info.get("equity") or info.get("balance") or 0),
-                              info.get("currency") or "USD", sl_dist, self.risk_pct, self.max_lot, spec)
+                              info.get("currency") or "USD", sl_dist, self.risk_pct * (1.0 if min_lot else size),
+                              self.max_lot, spec)
         if min_lot and vol > 0:
             vol = round(float(spec.get("minVolume") or 0.01), 2)
         if vol <= 0:
             raise MetaApiError("no money", "NO_MONEY")
-        px = await self.api.price(mid, region, symbol)
+        px = await self._fair_price(mid, region, symbol, sl_dist, min_lot)
         # SL/TP от цены брокера: у бота и у брокера котировки отличаются на несколько долларов
         open_px = float(px["ask"] if direction == 1 else px["bid"])
         digits = spec.get("digits")
@@ -571,6 +587,116 @@ class AutoTrader:
         pos = str(resp.get("positionId") or resp.get("orderId") or "")
         await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], pos, vol, "open", "")
         return OpenResult(acc["user_id"], True, vol, open_px, sl, tp, symbol, aid=acc["id"], login=acc["login"])
+
+    async def _fair_price(self, mid: str, region: str, symbol: str, sl_dist: float, test: bool = False) -> dict:
+        """Цена брокера с нормальным спредом: спред больше max_spread_pct % стопа (скачок на новости, ночной
+        ролловер) — ждём до spread_wait секунд, не стал нормальным — MetaApiError SPREAD."""
+        px = await self.api.price(mid, region, symbol)
+        if self.max_spread_pct <= 0 or test or sl_dist <= 0:
+            return px
+        waited = 0.0
+        while True:
+            spread = float(px.get("ask") or 0) - float(px.get("bid") or 0)
+            if spread <= sl_dist * self.max_spread_pct / 100:
+                return px
+            if waited >= self.spread_wait:
+                raise MetaApiError(f"spread {spread:.2f} > {self.max_spread_pct:g}% of stop {sl_dist:.2f}", "SPREAD")
+            await asyncio.sleep(self.spread_poll)
+            waited += self.spread_poll
+            px = await self.api.price(mid, region, symbol)
+
+    # ── сверка счетов с сигналами ───────────────────────────────────────────
+    async def reconcile(self, price: float | None = None) -> list[dict]:
+        """Раз в минуту: на каждом счёте сделки бота совпадают с сигналами. Возвращает события:
+        sl_fixed — у сделки не было Stop Loss, бот поставил; zombie — сигнал закрыт, а сделка ещё открыта
+        (обычный счёт), бот закрыл; reopened / reopen_failed — сделка по свежему сигналу не открылась, бот повторил."""
+        if await self.db.get_kv("autotrade_off") == "1":
+            return []
+        rows = await self.db.open_auto_trades()
+        if not rows:
+            return []
+        accounts = {a["id"]: a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)}
+        events: list[dict] = []
+        by_acc: dict[int, list[dict]] = {}
+        for r in rows:
+            if r["account_id"] in accounts:
+                by_acc.setdefault(r["account_id"], []).append(r)
+        for aid, trs in by_acc.items():
+            acc = accounts[aid]
+            try:
+                events += await self._reconcile_one(acc, trs, price)
+            except Exception as e:  # noqa: BLE001
+                log.info("reconcile %s (%s): %s", acc["login"], acc["user_id"], e)
+        return events
+
+    async def _reconcile_one(self, acc: dict, trs: list[dict], price: float | None) -> list[dict]:
+        mid, region = acc["meta_id"], acc["region"]
+        tag = {"uid": acc["user_id"], "aid": acc["id"], "login": acc["login"]}
+        positions = {str(p.get("id")): p for p in await self.api.positions(mid, region)}
+        events: list[dict] = []
+        spec: dict | None = None
+        for tr in trs:
+            sid = tr["signal_id"]
+            if tr["status"] == "open":
+                pos = positions.get(str(tr["position_id"]))
+                if pos is None:
+                    continue   # брокер закрыл по SL/TP — итог бот пришлёт, когда закроется сигнал
+                if tr["signal_status"] != "open":
+                    if acc.get("prop_plan") and not self.prop_partial:
+                        continue
+                    if _fresh(tr.get("signal_closed_at"), 120):
+                        continue   # сигнал только что закрылся — его сделки сейчас закрывает сам бот   # проп-счёт после безубытка/разворота сигнала ведёт свои SL/TP у брокера
+                    res = await self._close_one(tr)
+                    events.append({**tag, "kind": "zombie", "sid": sid, "profit": res.profit,
+                                   "currency": res.currency})
+                    continue
+                if not float(pos.get("stopLoss") or 0):
+                    if spec is None:
+                        try:
+                            spec = await self.api.specification(mid, region, acc["symbol"])
+                        except Exception:  # noqa: BLE001
+                            spec = {}
+                    d = 1 if "BUY" in str(pos.get("type") or "").upper() else -1
+                    op = float(pos.get("openPrice") or 0)
+                    dist = abs(tr["entry"] - tr["sl"])
+                    stop = op if tr.get("part_at") and (not acc.get("prop_plan") or self.prop_partial) else op - d * dist
+                    req = {"actionType": "POSITION_MODIFY", "positionId": str(pos.get("id")),
+                           "stopLoss": round_price(stop, spec.get("digits"))}
+                    if pos.get("takeProfit"):
+                        req["takeProfit"] = float(pos["takeProfit"])
+                    await self.api.trade(mid, region, req)
+                    events.append({**tag, "kind": "sl_fixed", "sid": sid, "stop": req["stopLoss"]})
+                continue
+            # status == "error": сделка не открылась — повторяем, пока сигнал свежий и цена недалеко от входа
+            if tr["signal_status"] != "open" or (tr.get("error") or "") in NO_REOPEN:
+                continue
+            if (tr.get("prop_only") and not acc.get("prop_plan")) or (acc.get("prop_plan") and acc.get("prop_halt")):
+                continue
+            tries = self._reopen.get((sid, acc["id"]), 0)
+            if tries >= self.reopen_tries or not _fresh(tr["signal_at"], self.reopen_within):
+                continue
+            dist = abs(tr["entry"] - tr["sl"])
+            if price is not None and dist and tr["direction"] * (price - tr["entry"]) > self.reopen_max_r * dist:
+                continue   # цена ушла к тейку — поздно входить
+            self._reopen[(sid, acc["id"])] = tries + 1
+            mine = next((p for p in positions.values() if p.get("comment") == f"goldbot #{sid}"), None)
+            if mine is not None:   # ордер дошёл до брокера, хоть ответ и потерялся — просто запоминаем сделку
+                await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], str(mine.get("id")),
+                                              float(mine.get("volume") or 0), "open", "")
+                continue
+            await self.db.delete_auto_trade(sid, acc["id"])
+            td = abs(tr["tp"] - tr["entry"])
+            if acc.get("prop_plan") and self.prop_tp_r > 0 and not self.prop_partial:
+                td = dist * self.prop_tp_r
+            size = float(tr.get("size") or 1.0)
+            try:
+                res = await self._open_retry(acc, sid, tr["direction"], dist, td, size=size)
+                events.append({**tag, "kind": "reopened", "sid": sid, "result": res})
+            except Exception as e:  # noqa: BLE001
+                err = getattr(e, "code", "") or str(e)[:200]
+                await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], None, 0, "error", err)
+                events.append({**tag, "kind": "reopen_failed", "sid": sid, "error": err})
+        return events
 
     # ── проп-счета ──────────────────────────────────────────────────────────
     async def _prop_volume(self, acc: dict, info: dict, spec: dict, sl_dist: float, strong: bool = False) -> float:
@@ -693,9 +819,27 @@ class AutoTrader:
                 # стоп по сделке бота: до полуночи FundedNext новых сделок нет, открытые идут до своих SL/TP
                 upd["prop_halt"] = "loss"
                 events.append({**tag, "kind": "loss_stop"})
+        if self.prop_milestones and not acc.get("prop_halt") and not upd.get("prop_halt"):
+            events += await self._milestones(acc, balance, tag)
         if upd:
             await self.db.update_prop_state(aid, **upd)
         return events
+
+    async def _milestones(self, acc: dict, balance: float, tag: dict) -> list[dict]:
+        """Пройдено 50 % / 90 % цели этапа — одно сообщение на каждую отметку (самую высокую из новых)."""
+        frac = pr.progress(acc, balance)
+        if frac is None or frac >= 1:
+            return []   # цель уже есть — о прохождении этапа отдельное сообщение
+        base = f"prop_ms:{acc['id']}:{acc.get('prop_stage')}"
+        for m in (90, 50):
+            if frac * 100 >= m:
+                if await self.db.get_kv(f"{base}:{m}"):
+                    return []
+                for lower in (90, 50):
+                    if lower <= m:
+                        await self.db.set_kv(f"{base}:{lower}", "1")
+                return [{**tag, "kind": "milestone", "pct": m, "frac": frac, "balance": balance, "acc": acc}]
+        return []
 
     async def partial_signal(self, sid: int, fraction: float) -> list[PartialResult]:
         """Фиксация части прибыли по сигналу: на каждом счёте закрыть fraction позиции и перенести стоп в безубыток."""
@@ -786,6 +930,23 @@ class AutoTrader:
 def _now():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
+
+
+# ошибки, после которых сверка не открывает сделку повторно: нет денег, лимиты проп-счёта, счёт не тот
+NO_REOPEN = {"NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DUPLICATE", "NO_ACCOUNT",
+             "REAL_NOT_ALLOWED", "TRADE_RETCODE_TRADE_DISABLED"}
+
+
+def _fresh(iso: str | None, within: float) -> bool:
+    """Сигнал создан не раньше чем within секунд назад."""
+    from datetime import datetime
+    if not iso:
+        return False
+    try:
+        ts = datetime.fromisoformat(iso)
+    except ValueError:
+        return False
+    return (_now() - ts).total_seconds() <= within
 
 
 def quote_age(body: dict) -> float | None:
