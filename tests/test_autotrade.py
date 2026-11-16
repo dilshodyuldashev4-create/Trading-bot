@@ -757,9 +757,11 @@ class MarketFeedTests(unittest.TestCase):
                     {"time": "2026-11-12T10:15:00.000Z", "open": 2, "high": 3, "low": 1, "close": 2.5, "tickVolume": 8},
                     {"time": "2026-11-12T10:00:00.000Z", "open": 1, "high": 2, "low": 0.5, "close": 1.5, "tickVolume": 7}])
 
+            quote = {"symbol": "XAUUSD", "bid": 4131.8, "ask": 4132.0}
+
             async def price(req):
                 assert req.query.get("keepSubscription") == "true"
-                return web.json_response({"symbol": "XAUUSD", "bid": 4131.8, "ask": 4132.0})
+                return web.json_response(quote)
 
             app = web.Application()
             app.router.add_get("/users/current/accounts/m1/historical-market-data/symbols/XAUUSD/timeframes/{tf}/candles",
@@ -787,6 +789,14 @@ class MarketFeedTests(unittest.TestCase):
                     return None
                 with self.assertRaises(at.MetaApiError):
                     await at.BrokerMarket(api, none).price()   # счёта нет → запасной источник
+
+                # котировка зависла (связь терминала с брокером подвисла) → ошибка, цену берёт запасной источник
+                quote["time"] = "2020-01-01T00:00:00.000Z"
+                with self.assertRaises(at.MetaApiError) as e:
+                    await bm.price()
+                self.assertEqual(e.exception.code, "STALE")
+                quote["time"] = at._now().isoformat().replace("+00:00", "Z")
+                self.assertEqual(await bm.price(), 4131.8)
             finally:
                 at.CLIENT, at.MARKET = old
                 await api.close()

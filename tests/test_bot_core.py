@@ -78,6 +78,34 @@ class EngineTests(unittest.TestCase):
         run(go())
 
 
+class FreshPriceTests(unittest.TestCase):
+    def test_signal_button_shows_live_price_not_last_check(self):
+        """Ответ на «Сигнал» берёт цену в момент ответа: last_price из прошлой проверки мог устареть на минуты."""
+        class Prov(Replay):
+            def __init__(self):
+                self.p, self.fail = 3872.45, False
+
+            async def price(self):
+                if self.fail:
+                    raise RuntimeError("down")
+                return self.p
+
+        async def go():
+            async def nop(*a):
+                pass
+            prov = Prov()
+            eng = SignalEngine(None, prov, "combo", 30, 60, "Asia/Tashkent", nop, nop)
+            self.assertEqual(await eng.fresh_price(), 3872.45)
+            prov.p = 3867.88
+            self.assertEqual(await eng.fresh_price(), 3872.45)   # только что обновили — без лишнего запроса
+            eng.last_price_at -= 60                               # прошла минута
+            self.assertEqual(await eng.fresh_price(), 3867.88)
+            prov.fail = True
+            eng.last_price_at -= 60
+            self.assertEqual(await eng.fresh_price(), 3867.88)   # источник молчит — последняя известная
+        run(go())
+
+
 class MiscTests(unittest.TestCase):
     def test_chart(self):
         df = m5_frame(1)

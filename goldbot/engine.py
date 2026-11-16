@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
@@ -153,6 +154,7 @@ class SignalEngine:
         self.dfs: dict[str, pd.DataFrame] = {}                 # таймфрейм → последние закрытые свечи
         self.last_df: pd.DataFrame | None = None
         self.last_price: float | None = None
+        self.last_price_at = 0.0   # time.monotonic() последнего обновления last_price
         self.retry_at: dict[str, pd.Timestamp] = {}  # когда снова запрашивать свечи, если новой ещё нет
         self._trend: tuple[pd.Timestamp, int] | None = None  # (день UTC, дневной тренд)
         self.news_pause_min = 0              # пауза новых сигналов вокруг новостей США (0 — выкл.)
@@ -406,13 +408,28 @@ class SignalEngine:
             pass
         return ", ".join(parts)
 
+    def _set_price(self, price: float) -> None:
+        self.last_price, self.last_price_at = price, time.monotonic()
+
+    async def fresh_price(self, max_age: float = 3, timeout: float = 6) -> float | None:
+        """Текущая цена прямо сейчас, а не из прошлой проверки рынка: проверка идёт раз в CHECK_INTERVAL
+        секунд и может надолго задержаться (свечи, оценка новостей, рассылка), и last_price устаревает
+        на минуты. Если источник не ответил — последняя известная цена."""
+        if self.last_price is not None and time.monotonic() - self.last_price_at < max_age:
+            return self.last_price
+        try:
+            self._set_price(await asyncio.wait_for(self.provider.price(), timeout))
+        except Exception as e:  # noqa: BLE001
+            log.warning("fresh price failed (%s: %s), using the last one", type(e).__name__, e)
+        return self.last_price
+
     async def tick(self, now: pd.Timestamp | None = None) -> NewSignal | None:
         now = now or pd.Timestamp.now(tz="UTC")
         if not market_open(now):
             return None
         await self._load_last_bar()
         price = await self.provider.price()
-        self.last_price = price
+        self._set_price(price)
         await self.check_open(price)
         await self.news_close_check(now, price)
 
@@ -508,7 +525,8 @@ class SignalEngine:
             log.info("signal skipped (%s): %s news background against %s", st.key, strength,
                      "BUY" if d == 1 else "SELL")
             return None
-        entry = price
+        # до этого места могли пройти секунды и минуты (свечи, оценка новостей) — вход по свежей цене
+        entry = await self.fresh_price() or price
         sl_p, tp_p = self.sl_tp_pips(df)
         sl = entry - d * sl_p * PIP
         tp = entry + d * tp_p * PIP
