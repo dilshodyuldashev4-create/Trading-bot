@@ -197,3 +197,23 @@ def phase_passed(acc: dict, balance: float) -> bool:
     goal = target_balance(acc)
     plan = PLANS[acc["prop_plan"]]
     return goal is not None and balance + 1e-6 >= goal and int(acc.get("prop_days") or 0) >= plan.min_days
+
+
+# Сколько календарных дней обычно занимает этап (медиана симуляции на истории с защитами бота,
+# reports/challenge_research.md, риск 0.5 %). Для прогноза в профиле проп-счёта; не обещание.
+TYPICAL_DAYS = {("2step", "phase1"): 45, ("2step", "phase2"): 28, ("1step", "phase1"): 53,
+                ("lite", "phase1"): 45}
+
+
+def progress(acc: dict, balance: float) -> float | None:
+    """Доля цели этапа, которая уже набрана (0 — ноль прибыли, 1 — цель; может быть < 0). None — цели нет."""
+    goal = target_balance(acc)
+    size = float(acc["prop_size"])
+    if goal is None or goal <= size:
+        return None
+    return (balance - size) / (goal - size)
+
+
+def progress_bar(frac: float, n: int = 10) -> str:
+    k = max(0, min(n, int(round(frac * n))))
+    return "▰" * k + "▱" * (n - k)

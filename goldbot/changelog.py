@@ -24,6 +24,30 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-17.2",
+        "ru": [
+            "📈 Пробои больше не входят, когда рынок уже сильно разогнан: на истории так меньше лишних стопов",
+            "💪 Сильный сигнал: если две стратегии согласны, лот больше, одиночный сигнал — меньше",
+            "🃏 Живая карточка: сигнал сам обновляется — ход сделки, фиксация части, итог",
+            "🛡 Автоторговля не входит при слишком широком спреде и раз в минуту проверяет сделки на счетах",
+            "🏆 FundedNext: в профиле видно, сколько цели этапа уже набрано, и сообщения на 50 % и 90 %",
+        ],
+        "en": [
+            "📈 Breakouts no longer enter when the market is already overextended: fewer needless stops on history",
+            "💪 Strong signal: when two strategies agree the lot is bigger, a single signal uses a smaller lot",
+            "🃏 Live card: the signal updates itself with the trade progress, partial take and result",
+            "🛡 Auto trading skips entries at a too wide spread and checks the trades on accounts every minute",
+            "🏆 FundedNext: the profile shows how much of the phase target is done, plus messages at 50% and 90%",
+        ],
+        "uz": [
+            "📈 Bozor juda tezlashganda breakout strategiyalari kirmaydi: tarixda ortiqcha stoplar kamaydi",
+            "💪 Kuchli signal: ikki strategiya bir xil boʻlsa lot kattaroq, yakka signalda kichikroq",
+            "🃏 Jonli karta: signal oʻzi yangilanadi — bitim holati, qisman olish va natija",
+            "🛡 Avtosavdo spred juda keng boʻlsa kirmaydi va har daqiqada hisoblardagi bitimlarni tekshiradi",
+            "🏆 FundedNext: profilda bosqich maqsadining qancha qismi bajarilgani va 50 % hamda 90 % da xabar",
+        ],
+    },
+    {
         "version": "2026-11-17",
         "ru": [
             "💰 Фиксация прибыли: когда цена проходит столько же, сколько до стопа, бот пишет «закройте половину "

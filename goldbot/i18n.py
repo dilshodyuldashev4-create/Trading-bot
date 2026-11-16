@@ -1130,3 +1130,73 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _texts in MANAGE_TEXTS.items():
     TEXTS[_lang].update(_texts)
+
+
+# согласие стратегий, живая карточка, защита от спреда, сверка счетов, прогноз челленджа, Myfxbook
+EXTRA_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "sig_strong": "\n💪 <b>Сильный сигнал</b>: две стратегии согласны, лот больше обычного в {x} раза",
+        "card_partial": "✅ <b>Зафиксировано {pct}%</b> на {tp1}, стоп остатка в безубытке ({entry})",
+        "card_live": "⏳ <b>Сделка идёт</b>: {r}R ({pips} пипсов), цена {price} · обновлено {time}",
+        "card_tp": "🏁 <b>Закрыта по Take Profit</b>: {pips} пипсов",
+        "card_sl": "🏁 <b>Закрыта по Stop Loss</b>: {pips} пипсов",
+        "card_be": "🏁 <b>Остаток закрыт в безубыток</b>: итог {pips} пипсов",
+        "card_rev": "🏁 <b>Закрыта на развороте</b>: {pips} пипсов",
+        "card_news": "🏁 <b>Закрыта перед новостью</b>: {pips} пипсов",
+        "at_e_spread": "у брокера слишком широкий спред (скачок на новости или ночью), бот не стал входить по плохой цене",
+        "rc_sl_fixed": "🛡 Сделка #{id}: у неё не было Stop Loss, бот поставил его: <b>{stop}</b>.",
+        "rc_zombie": "🧹 Сделка #{id}: сигнал уже закрыт, а сделка оставалась открытой. Бот закрыл её.{profit}",
+        "rc_reopened": ("🔁 Сделка #{id} сначала не открылась, бот открыл её повторно: лот <b>{lot}</b>, "
+                        "цена {price}, SL {sl}, TP {tp}."),
+        "prop_progress": "\n📈 Цель этапа: {bar} {done}% (прибыль {profit}% из {target}%, осталось {left})",
+        "prop_typical": "\n⏱ Обычно этап занимает около {days} дней (по проверке бота на истории; это не обещание)",
+        "prop_milestone": ("🎯 <b>Пройдено {pct}% цели этапа</b>\n{bar}\nПрибыль {profit}% из {target}%, "
+                           "осталось {left}.\n\nНичего не трогайте руками: бот сам доведёт этап и соблюдёт лимиты."),
+        "myfxbook_text": "✅ Независимая статистика реального счёта бота (Myfxbook): её нельзя подправить вручную.",
+        "btn_myfxbook": "✅ Проверенная статистика",
+    },
+    "en": {
+        "sig_strong": "\n💪 <b>Strong signal</b>: two strategies agree, the lot is {x} times the usual",
+        "card_partial": "✅ <b>{pct}% taken</b> at {tp1}, stop of the rest at breakeven ({entry})",
+        "card_live": "⏳ <b>Trade running</b>: {r}R ({pips} pips), price {price} · updated {time}",
+        "card_tp": "🏁 <b>Closed at Take Profit</b>: {pips} pips",
+        "card_sl": "🏁 <b>Closed at Stop Loss</b>: {pips} pips",
+        "card_be": "🏁 <b>The rest closed at breakeven</b>: total {pips} pips",
+        "card_rev": "🏁 <b>Closed on reversal</b>: {pips} pips",
+        "card_news": "🏁 <b>Closed before the news</b>: {pips} pips",
+        "at_e_spread": "the broker spread is too wide (news or night spike), the bot did not enter at a bad price",
+        "rc_sl_fixed": "🛡 Trade #{id} had no Stop Loss, the bot set it: <b>{stop}</b>.",
+        "rc_zombie": "🧹 Trade #{id}: the signal was already closed but the trade stayed open. The bot closed it.{profit}",
+        "rc_reopened": ("🔁 Trade #{id} did not open at first, the bot opened it again: lot <b>{lot}</b>, "
+                        "price {price}, SL {sl}, TP {tp}."),
+        "prop_progress": "\n📈 Phase target: {bar} {done}% (profit {profit}% of {target}%, {left} to go)",
+        "prop_typical": "\n⏱ A phase usually takes about {days} days (bot test on history; not a promise)",
+        "prop_milestone": ("🎯 <b>{pct}% of the phase target reached</b>\n{bar}\nProfit {profit}% of {target}%, "
+                           "{left} to go.\n\nDon't trade by hand: the bot will finish the phase and keep the limits."),
+        "myfxbook_text": "✅ Independent statistics of the bot's real account (Myfxbook): they can't be edited by hand.",
+        "btn_myfxbook": "✅ Verified statistics",
+    },
+    "uz": {
+        "sig_strong": "\n💪 <b>Kuchli signal</b>: ikki strategiya bir xil, lot odatdagidan {x} baravar katta",
+        "card_partial": "✅ <b>{pct}% olindi</b> {tp1} da, qolgan qism stopi zararsizlikda ({entry})",
+        "card_live": "⏳ <b>Bitim davom etmoqda</b>: {r}R ({pips} pips), narx {price} · yangilandi {time}",
+        "card_tp": "🏁 <b>Take Profit bilan yopildi</b>: {pips} pips",
+        "card_sl": "🏁 <b>Stop Loss bilan yopildi</b>: {pips} pips",
+        "card_be": "🏁 <b>Qolgan qism zararsiz yopildi</b>: jami {pips} pips",
+        "card_rev": "🏁 <b>Burilishda yopildi</b>: {pips} pips",
+        "card_news": "🏁 <b>Yangilikdan oldin yopildi</b>: {pips} pips",
+        "at_e_spread": "brokerda spred juda keng (yangilik yoki tungi sakrash), bot yomon narxda kirmadi",
+        "rc_sl_fixed": "🛡 Bitim #{id} da Stop Loss yoʻq edi, bot uni qoʻydi: <b>{stop}</b>.",
+        "rc_zombie": "🧹 Bitim #{id}: signal allaqachon yopilgan, bitim esa ochiq qolgan edi. Bot uni yopdi.{profit}",
+        "rc_reopened": ("🔁 Bitim #{id} avval ochilmadi, bot uni qayta ochdi: lot <b>{lot}</b>, "
+                        "narx {price}, SL {sl}, TP {tp}."),
+        "prop_progress": "\n📈 Bosqich maqsadi: {bar} {done}% (foyda {profit}%, maqsad {target}%, qoldi {left})",
+        "prop_typical": "\n⏱ Bosqich odatda taxminan {days} kun davom etadi (botning tarixdagi sinovi; vaʼda emas)",
+        "prop_milestone": ("🎯 <b>Bosqich maqsadining {pct}% i bajarildi</b>\n{bar}\nFoyda {profit}%, maqsad {target}%, "
+                           "qoldi {left}.\n\nQoʻlda savdo qilmang: bot bosqichni oʻzi yakunlaydi va limitlarga rioya qiladi."),
+        "myfxbook_text": "✅ Bot real hisobining mustaqil statistikasi (Myfxbook): uni qoʻlda oʻzgartirib boʻlmaydi.",
+        "btn_myfxbook": "✅ Tasdiqlangan statistika",
+    },
+}
+for _lang, _texts in EXTRA_TEXTS.items():
+    TEXTS[_lang].update(_texts)
