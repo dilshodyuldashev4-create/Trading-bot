@@ -41,6 +41,9 @@ class NewSignal:
     sl_pips: float = 0     # стоп и тейк этого сигнала в пипсах (по ATR у каждого свои)
     tp_pips: float = 0
     strong: bool = False   # сильный сигнал: сильный фон новостей в ту же сторону (на проп-счёте риск больше)
+    tp1: Optional[float] = None  # фиксация части прибыли (None — без фиксации)
+    tp1_pips: float = 0
+    part: float = 0               # какая доля позиции закрывается на tp1
 
     @property
     def text(self) -> str:
@@ -51,6 +54,7 @@ OnSignal = Callable[[NewSignal], Awaitable[None]]
 OnClose = Callable[[dict, str, float], Awaitable[None]]
 OnDayClosed = Callable[[int], Awaitable[None]]  # сколько стопов подряд
 OnLate = Callable[[dict, float, float], Awaitable[None]]  # сигнал, цена, на сколько пипсов ушла
+OnPartial = Callable[[dict, float], Awaitable[None]]       # сигнал, цена: часть прибыли зафиксирована
 
 
 def market_open(now: pd.Timestamp) -> bool:
@@ -115,6 +119,14 @@ def format_signal(strategy: LiveStrategy, d: int, entry: float, sl: float, tp: f
              note=t(lang, f"note_{strategy.key}"))
 
 
+def with_partial(text: str, tp1: float | None, tp1_pips: float, part: float, lang: str = "ru") -> str:
+    """Строка «где зафиксировать часть прибыли» перед строкой риск/прибыль сигнала."""
+    if not tp1 or not part:
+        return text
+    line = t(lang, "sig_partial", pct=f"{100 * part:.0f}", tp1=f"{tp1:.2f}", tp1_pips=f"{tp1_pips:.0f}")
+    return text.replace("⚖️", line + "⚖️", 1) if "⚖️" in text else text + "\n" + line
+
+
 def news_event_line(ev: dict, tz: str, lang: str = "ru") -> str:
     """Предупреждение в сигнале, данном рядом с важной новостью."""
     try:
@@ -177,6 +189,17 @@ class SignalEngine:
         # стоп/тейк по волатильности: множители ATR(14) таймфрейма стратегии (0 — фиксированные пипсы)
         self.sl_atr = self.tp_atr = 0.0
         self.sl_min_pips = 50.0
+        # фиксация части прибыли (reports/manage_research.md): цена прошла partial_r стопов — закрыть partial_pct
+        # позиции и перенести стоп остатка в безубыток; тейк остатка — final_r стопов (0 — тейк из sl_tp_pips)
+        self.partial_r = 0.0
+        self.partial_pct = 0.5
+        self.final_r = 0.0
+        self.on_partial: Optional[OnPartial] = None
+        # закрывать сделку в прибыли, если стратегия бота дала сигнал в обратную сторону (разворот)
+        self.reversal_close = False
+        self.reversal_min_pips = 10.0
+        self.last_ok = time.monotonic()   # когда проверка рынка последний раз прошла без ошибки
+        self.last_error = ""
 
     def sl_tp_pips(self, df: pd.DataFrame) -> tuple[float, float]:
         """Стоп и тейк в пипсах для нового сигнала: по ATR(14) последних закрытых свечей или фиксированные."""
@@ -185,6 +208,16 @@ class SignalEngine:
         a = float(atr(df, 14).iloc[-1]) / PIP
         sl = max(self.sl_min_pips, round(self.sl_atr * a / 10) * 10)
         return sl, round(sl * self.tp_atr / self.sl_atr / 10) * 10
+
+    def targets(self, df: pd.DataFrame) -> tuple[float, float, float]:
+        """Стоп, тейк и уровень фиксации части прибыли (0 — без фиксации) в пипсах."""
+        sl, tp = self.sl_tp_pips(df)
+        if self.partial_r <= 0 or self.partial_pct <= 0:
+            return sl, tp, 0.0
+        if self.final_r > 0:
+            tp = round(sl * self.final_r / 10) * 10
+        tp1 = round(sl * self.partial_r / 10) * 10
+        return sl, tp, (tp1 if 0 < tp1 < tp else 0.0)
 
     @property
     def multi(self) -> bool:
@@ -205,15 +238,16 @@ class SignalEngine:
         return self.dfs.get(st.timeframe) if st is not None and st.timeframe in self.dfs else self.last_df
 
     @staticmethod
-    def _range_since(s: dict, bars: pd.DataFrame | None) -> tuple[float, float] | None:
+    def _range_since(s: dict, bars: pd.DataFrame | None, since: str | None = None) -> tuple[float, float] | None:
         """Максимум и минимум свечей, начавшихся после открытия сигнала (минуту люфта даём на задержку
         сигнала после закрытия свечи). Нужен, чтобы не пропустить тейк или стоп, которые цена задела
-        тенью между двумя опросами цены."""
-        if bars is None or bars.empty or not s.get("created_at"):
+        тенью между двумя опросами цены. since — с этого момента (после фиксации части) и без люфта."""
+        start = since or s.get("created_at")
+        if bars is None or bars.empty or not start:
             return None
-        created = pd.Timestamp(s["created_at"])
+        created = pd.Timestamp(start)
         created = created.tz_convert(None) if created.tzinfo else created
-        part = bars[bars.index >= created - pd.Timedelta(minutes=1)]
+        part = bars[bars.index >= created - pd.Timedelta(minutes=0 if since else 1)]
         if part.empty:
             return None
         return float(part["high"].max()), float(part["low"].min())
@@ -236,10 +270,25 @@ class SignalEngine:
                 s["mfe"], s["mae"] = mfe, mae
                 await self.db.set_excursion(s["id"], mfe, mae)
             status = None
-            if d * (worst - s["sl"]) <= 0:
-                status = "sl"
+            done = bool(s.get("part_at"))
+            if done:   # часть зафиксирована: стоп остатка — цена входа, и смотрим только свечи после фиксации
+                worst = price
+                rng2 = self._range_since(s, bars, s["part_at"])
+                if rng2 is not None:
+                    worst = min(price, rng2[1]) if d == 1 else max(price, rng2[0])
+            stop = s["entry"] if done else s["sl"]
+            if d * (worst - stop) <= 0:
+                status = "be" if done else "sl"
             elif d * (best - s["tp"]) >= 0:
                 status = "tp"
+                if s.get("tp1") and s.get("part") and not done:
+                    s["part_at"] = await self.db.set_partial(s["id"])  # по пути к тейку прошли и фиксацию
+            elif s.get("tp1") and s.get("part") and not done and d * (best - s["tp1"]) >= 0:
+                s["part_at"] = await self.db.set_partial(s["id"])
+                log.info("signal #%s: %.0f%% fixed at %.2f, stop to breakeven", s["id"], 100 * s["part"], s["tp1"])
+                if self.on_partial:
+                    await self.on_partial(s, price)
+                continue
             if status:
                 await self.db.close_signal(s["id"], status)
                 await self.on_close(s, status, price)
@@ -448,6 +497,28 @@ class SignalEngine:
             await self.check_open(price, cache[min(cache, key=lambda tf: TF_MINUTES[tf])])
         return result
 
+    async def reversal_check(self, d: int, open_keys: set, open_dirs: set) -> int:
+        """Стратегия дала сигнал d: открытые сделки в обратную сторону, которые в прибыли, закрываем по рынку."""
+        opened = [s for s in await self.db.open_signals() if s["direction"] == -d]
+        if not opened:
+            return 0
+        price = await self.fresh_price()
+        if price is None:
+            return 0
+        n = 0
+        for s in opened:
+            moved = s["direction"] * (price - s["entry"]) / PIP
+            if moved < self.reversal_min_pips:
+                continue   # не в прибыли — сделку ведут стоп и безубыток
+            await self.db.close_signal(s["id"], "rev", price)
+            log.info("signal #%s closed on reversal at %.2f (%+.0f pips)", s["id"], price, moved)
+            await self.on_close(s, "rev", price)
+            open_keys.discard(s["strategy"])
+            n += 1
+        if n and not any(s["direction"] == -d for s in await self.db.open_signals()):
+            open_dirs.discard(-d)
+        return n
+
     async def _candles(self, tf: str, now: pd.Timestamp, cache: dict) -> pd.DataFrame:
         if tf not in cache:
             cache[tf] = closed_bars(await self.provider.candles(tf, CANDLES), tf, now)
@@ -480,6 +551,10 @@ class SignalEngine:
         await self.db.set_kv(self._kv_bar(st.key), bar.isoformat())
         if last_bar is None:
             return None  # не шлём старый сигнал при первом запуске
+        if self.reversal_close and open_dirs:
+            rd = await self.direction(df, now, st)
+            if rd and -rd in open_dirs:
+                await self.reversal_check(rd, open_keys, open_dirs)
         if await self.day_closed(now):
             return None  # торговый день закрыт после серии стопов — ждём завтра
         if st.key in open_keys:
@@ -527,22 +602,25 @@ class SignalEngine:
             return None
         # до этого места могли пройти секунды и минуты (свечи, оценка новостей) — вход по свежей цене
         entry = await self.fresh_price() or price
-        sl_p, tp_p = self.sl_tp_pips(df)
+        sl_p, tp_p, tp1_p = self.targets(df)
         sl = entry - d * sl_p * PIP
         tp = entry + d * tp_p * PIP
-        sid = await self.db.add_signal(st.key, d, entry, sl, tp)
+        tp1 = entry + d * tp1_p * PIP if tp1_p else None
+        part = self.partial_pct if tp1 else 0.0
+        sid = await self.db.add_signal(st.key, d, entry, sl, tp, tp1, part)
         open_keys.add(st.key)
         open_dirs.add(d)
         fresh_dirs.add(d)
         when = now.tz_convert(self.tz).strftime("%d.%m.%Y %H:%M")
         title = f"XAUUSD {tf.replace('min', 'm')} · #{sid}"
-        img = render_signal(df, d, entry, sl, tp, title, tz=self.tz)
+        img = render_signal(df, d, entry, sl, tp, title, tz=self.tz, tp1=tp1)
         ns = NewSignal(sid, d, entry, sl, tp, img,
-                       per_lang(lambda lang: format_signal(st, d, entry, sl, tp, sl_p, tp_p, when, lang)
+                       per_lang(lambda lang: with_partial(format_signal(st, d, entry, sl, tp, sl_p, tp_p, when, lang),
+                                                          tp1, tp1_p, part, lang)
                                 + news_line(info, d, lang)
                                 + (news_event_line(ev, self.tz, lang) if news_mode else "")),
-                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, **kw), sl_p, tp_p,
-                       strong=side == d and strength == "strong")
+                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, tp1=tp1, **kw), sl_p, tp_p,
+                       strong=side == d and strength == "strong", tp1=tp1, tp1_pips=tp1_p, part=part)
         await self.on_signal(ns)
         return ns
 
@@ -588,8 +666,11 @@ class SignalEngine:
         while True:
             try:
                 await self.tick()
+                self.last_ok = time.monotonic()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 — бот не должен падать из-за сети
-                log.exception("market check failed")
+            except Exception as e:  # noqa: BLE001 — бот не должен падать из-за сети
+                self.last_error = f"{type(e).__name__}: {e}"[:300]
+                # не ERROR: о долгом сбое админу сообщает проверка «рынок не проверяется N минут»
+                log.warning("market check failed", exc_info=True)
             await asyncio.sleep(interval)

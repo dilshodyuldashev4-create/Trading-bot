@@ -24,6 +24,30 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-17",
+        "ru": [
+            "💰 Фиксация прибыли: когда цена проходит столько же, сколько до стопа, бот пишет «закройте половину "
+            "и перенесите стоп в безубыток», остаток идёт к дальнему тейку",
+            "🔄 Если начинается разворот (сигнал в обратную сторону), бот пишет закрыть сделку в прибыли",
+            "🤖 На счетах автоторговли бот делает всё это сам",
+            "📅 Каждое воскресенье — итоги недели с картинкой",
+        ],
+        "en": [
+            "💰 Profit taking: when price has moved as far as the stop distance, the bot says “close half and move "
+            "the stop to breakeven”, the rest goes to a farther take profit",
+            "🔄 If a reversal starts (a signal in the opposite direction), the bot says to close the trade in profit",
+            "🤖 On auto trading accounts the bot does all of this itself",
+            "📅 Every Sunday: weekly results with a picture",
+        ],
+        "uz": [
+            "💰 Foydani olish: narx stopgacha boʻlgan masofaga yetganda bot «yarmini yoping va stopni zararsizlikka "
+            "oʻtkazing» deb yozadi, qolgani uzoqroq takega boradi",
+            "🔄 Burilish boshlansa (teskari signal), bot bitimni foyda bilan yopishni yozadi",
+            "🤖 Avtosavdo hisoblarida bot bularning hammasini oʻzi qiladi",
+            "📅 Har yakshanba — rasmli hafta natijalari",
+        ],
+    },
+    {
         "version": "2026-11-14.2",
         "ru": [
             "➕ Можно подключить сколько угодно счетов: обычные у брокера и проп-счета FundedNext",

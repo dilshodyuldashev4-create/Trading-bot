@@ -17,7 +17,8 @@ GREEN, RED, GOLD, CYAN = "#26c281", "#f23645", "#ffd600", "#00bcd4"
 def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp: float,
                   title: str, bars: int = 70, tz: str | None = None, lot: str | None = None,
                   sl_note: str = "", tp_note: str = "",
-                  mfe: float | None = None, mae: float | None = None, pip: float = 0.10) -> bytes:
+                  mfe: float | None = None, mae: float | None = None, pip: float = 0.10,
+                  tp1: float | None = None, tp1_note: str = "") -> bytes:
     """lot — «LOT 0.02» у линии входа для конкретного подписчика; sl_note/tp_note — суммы в $ у линий.
     mfe/mae — макс. ход в плюс и в минус по закрытой сделке (пипсы): рисуются пунктиром с подписью."""
     data = df.iloc[-bars:].copy()
@@ -37,7 +38,10 @@ def render_signal(df: pd.DataFrame, direction: int, entry: float, sl: float, tp:
     x0, x1 = len(data) - 1, len(data) + pad - 1
     ax.fill_between([x0, x1], entry, tp, color=GREEN, alpha=0.18)
     ax.fill_between([x0, x1], entry, sl, color=RED, alpha=0.18)
-    for y, c, label, note in ((tp, CYAN, "TP", tp_note), (entry, GOLD, "ВХОД", lot or ""), (sl, RED, "SL", sl_note)):
+    lines = [(tp, CYAN, "TP", tp_note), (entry, GOLD, "ВХОД", lot or ""), (sl, RED, "SL", sl_note)]
+    if tp1:   # фиксация части прибыли и перенос стопа в безубыток
+        lines.insert(1, (tp1, GREEN, "TP1", tp1_note))
+    for y, c, label, note in lines:
         ax.hlines(y, x0, x1, colors=c, linewidth=1.6)
         ax.text(x1, y, f" {label} {y:.2f}" + (f"  {note}" if note else ""), color="black", fontsize=10, fontweight="bold", va="center",
                 ha="left", bbox=dict(boxstyle="round,pad=0.3", fc=c, ec="none"))
@@ -77,7 +81,7 @@ STATS_LABELS = {
 
 
 def render_stats(rows: list[dict], lang: str = "ru", tz: str = "UTC", pip: float = 0.10,
-                 last: int = 10) -> bytes:
+                 last: int = 10, title: str | None = None) -> bytes:
     """Картинка-отчёт: карточки (сигналы, винрейт, TP/SL, итог), кривая результата, таблица последних сделок.
 
     rows — сигналы из БД, от новых к старым.
@@ -90,16 +94,17 @@ def render_stats(rows: list[dict], lang: str = "ru", tz: str = "UTC", pip: float
     L = STATS_LABELS.get(lang, STATS_LABELS["ru"])
     CARD, MUTED = "#171e2a", "#8a93a6"
     chron = list(reversed(rows))
-    closed = [r for r in chron if r["status"] in ("tp", "sl")]
-    res = [(abs(r["tp"] - r["entry"]) if r["status"] == "tp" else -abs(r["sl"] - r["entry"])) / pip for r in closed]
-    n_tp = sum(1 for r in closed if r["status"] == "tp")
+    from .results import signal_pips
+    closed = [r for r in chron if r["status"] in ("tp", "sl", "be", "rev")]
+    res = [signal_pips(r) for r in closed]
+    n_tp = sum(1 for v in res if v > 0)   # в плюсе: тейк, безубыток после фиксации, закрытие при развороте
     n_sl = len(closed) - n_tp
     wr = f"{100 * n_tp / len(closed):.0f}%" if closed else "—"
     total = sum(res)
 
     fig = plt.figure(figsize=(10, 11.5), facecolor=BG)
     fig.text(0.05, 0.965, "XAUUSD", color=GOLD, fontsize=26, fontweight="bold", va="top")
-    fig.text(0.05, 0.925, L["title"], color=TXT, fontsize=15, va="top")
+    fig.text(0.05, 0.925, title or L["title"], color=TXT, fontsize=15, va="top")
     fig.text(0.95, 0.955, datetime.now(ZoneInfo(tz)).strftime("%d.%m.%Y %H:%M"), color=MUTED,
              fontsize=11, ha="right", va="top")
 
@@ -142,8 +147,10 @@ def render_stats(rows: list[dict], lang: str = "ru", tz: str = "UTC", pip: float
                                               transform=fig.transFigure, fc=CARD, ec="none"))
         when = datetime.fromisoformat(r["created_at"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
         buy = r["direction"] == 1
-        if r["status"] == "tp":
-            result, rc = f"✓ TP +{abs(r['tp'] - r['entry']) / pip:.0f}", GREEN
+        if r["status"] in ("tp", "be", "rev"):
+            v = signal_pips(r)
+            tag = {"tp": "TP", "be": "BE", "rev": "REV"}[r["status"]]
+            result, rc = f"✓ {tag} {v:+.0f}", GREEN if v >= 0 else RED
         elif r["status"] == "sl":
             result, rc = f"✗ SL −{abs(r['sl'] - r['entry']) / pip:.0f}", RED
         elif r["status"] == "news" and r.get("exit_price"):

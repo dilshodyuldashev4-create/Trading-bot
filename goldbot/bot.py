@@ -6,7 +6,9 @@ import csv
 import html
 import io
 import logging
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -36,6 +38,8 @@ from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
 from .market import Failover, make_provider
 from .news import NewsService
+from .results import WIN, part_pips, signal_pips
+from .health import AlertHandler, Watch, backup_db
 
 log = logging.getLogger(__name__)
 
@@ -146,19 +150,23 @@ def capital_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def lot_plan(capital: float, sl_pips: float = 0, tp_pips: float = 0) -> dict:
-    """Лот подписчика и что он теряет/зарабатывает по стопу/тейку (пипсы сигнала; 0 — из настроек)."""
+def lot_plan(capital: float, sl_pips: float = 0, tp_pips: float = 0, tp1_pips: float = 0, part: float = 0) -> dict:
+    """Лот подписчика и что он теряет/зарабатывает по стопу/тейку (пипсы сигнала; 0 — из настроек).
+    С фиксацией части (tp1_pips, part) прибыль до тейка — часть на tp1 и остаток на тейке."""
     sl_pips, tp_pips = sl_pips or config.sl_pips, tp_pips or config.tp_pips
     lot = lot_for(capital, config.lot_mode, config.lot_risk_pct, sl_pips)
     loss, profit = money(lot, sl_pips), money(lot, tp_pips)
+    if tp1_pips and part:
+        profit = money(lot, tp1_pips) * part + money(lot, tp_pips) * (1 - part)
     return {"lot": lot, "loss": loss, "profit": profit, "loss_pct": 100 * loss / capital}
 
 
-def lot_text(lang: str, capital: float | None, sl_pips: float = 0, tp_pips: float = 0) -> str:
+def lot_text(lang: str, capital: float | None, sl_pips: float = 0, tp_pips: float = 0,
+             tp1_pips: float = 0, part: float = 0) -> str:
     """Блок «Ваш лот» для подписи сигнала."""
     if not capital:
         return t(lang, "sig_nocap")
-    p = lot_plan(capital, sl_pips, tp_pips)
+    p = lot_plan(capital, sl_pips, tp_pips, tp1_pips, part)
     pct = f"{p['loss_pct']:.1f}".rstrip("0").rstrip(".")
     text = t(lang, "sig_lot", lot=f"{p['lot']:.2f}", cap=fmt_usd(capital), loss=fmt_usd(p["loss"]),
              loss_pct=pct, profit=fmt_usd(p["profit"]))
@@ -201,24 +209,27 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
     from datetime import datetime
     if not rows:
         return t(lang, "stats_empty")
-    tp = [r for r in rows if r["status"] == "tp"]
+    win = [r for r in rows if r["status"] in WIN]   # тейк, безубыток после фиксации, разворот
     sl = [r for r in rows if r["status"] == "sl"]
-    nw = [r for r in rows if r["status"] == "news" and r.get("exit_price")]
-    pips = lambda a, b: abs(a - b) / PIP  # noqa: E731
-    news_pips = lambda r: r["direction"] * (r["exit_price"] - r["entry"]) / PIP  # noqa: E731
-    total = (sum(pips(r["tp"], r["entry"]) for r in tp) - sum(pips(r["sl"], r["entry"]) for r in sl)
-             + sum(news_pips(r) for r in nw))
-    closed = len(tp) + len(sl)
+    total = sum(v for v in (signal_pips(r) for r in rows) if v is not None)
+    closed = len(win) + len(sl)
     n_open = sum(1 for r in rows if r["status"] == "open")
-    out = t(lang, "stats_head", total=len(rows), tp=len(tp), sl=len(sl), open=n_open,
-            wr=f"{100 * len(tp) / closed:.0f}%" if closed else "—", pips=f"{total:+.0f}")
+    out = t(lang, "stats_head", total=len(rows), tp=len(win), sl=len(sl), open=n_open,
+            wr=f"{100 * len(win) / closed:.0f}%" if closed else "—", pips=f"{total:+.0f}")
     for r in rows[:15]:
+        v = signal_pips(r)
         if r["status"] == "tp":
-            res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{pips(r['tp'], r['entry']):.0f}")
+            res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{v:.0f}")
         elif r["status"] == "sl":
-            res = t(lang, "stats_sl", exit=f"{r['sl']:.2f}", pips=f"{pips(r['sl'], r['entry']):.0f}")
-        elif r["status"] == "news" and r.get("exit_price"):
-            res = t(lang, "stats_news", exit=f"{r['exit_price']:.2f}", pips=f"{news_pips(r):+.0f}")
+            res = t(lang, "stats_sl", exit=f"{r['sl']:.2f}", pips=f"{-v:.0f}")
+        elif r["status"] == "be":
+            res = t(lang, "stats_be", tp1=f"{r['tp1']:.2f}", pips=f"{v:+.0f}")
+        elif r["status"] == "rev" and v is not None:
+            res = t(lang, "stats_rev", exit=f"{r['exit_price']:.2f}", pips=f"{v:+.0f}")
+        elif r["status"] == "news" and v is not None:
+            res = t(lang, "stats_news", exit=f"{r['exit_price']:.2f}", pips=f"{v:+.0f}")
+        elif r["status"] == "open" and r.get("part_at"):
+            res = t(lang, "stats_open_part", tp1=f"{r['tp1']:.2f}")
         else:
             res = t(lang, "stats_open")
         when = datetime.fromisoformat(r["created_at"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
@@ -228,10 +239,11 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
 
 
 def signal_caption(lang: str, text: str, capital: float | None, direction: int, entry: float,
-                   sl_pips: float = 0, tp_pips: float = 0) -> str:
+                   sl_pips: float = 0, tp_pips: float = 0, tp1_pips: float = 0, part: float = 0) -> str:
     """Подпись к фото сигнала для конкретного подписчика: его лот, до какой цены входить, правила."""
     rules = t(lang, "sig_rules", n=config.max_sl_streak) if config.max_sl_streak > 0 else ""
-    return with_lot(text, lot_text(lang, capital, sl_pips, tp_pips) + late_hint(lang, direction, entry)) + rules
+    return with_lot(text, lot_text(lang, capital, sl_pips, tp_pips, tp1_pips, part)
+                    + late_hint(lang, direction, entry)) + rules
 
 
 def with_lot(caption: str, block: str) -> str:
@@ -242,6 +254,7 @@ def with_lot(caption: str, block: str) -> str:
 
 class App:
     autotrader: AutoTrader | None = None
+    alerts: AlertHandler | None = None
 
     def __init__(self) -> None:
         self.bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -256,6 +269,11 @@ class App:
                                    self.broadcast_day_closed, config.max_sl_streak)
         self.engine.sl_atr, self.engine.tp_atr = config.sl_atr, config.tp_atr
         self.engine.sl_min_pips = config.sl_min_pips
+        self.engine.partial_r, self.engine.final_r = config.partial_r, config.final_tp_r
+        self.engine.partial_pct = max(0.0, min(config.partial_pct, 90.0)) / 100
+        self.engine.on_partial = self.broadcast_partial
+        self.engine.reversal_close = config.reversal_close
+        self.engine.reversal_min_pips = config.reversal_min_pips
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
         self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
@@ -278,7 +296,9 @@ class App:
                                          prop_day_tz=config.prop_day_tz,
                                          prop_close=config.prop_close,
                                          prop_day_losses=config.prop_day_losses,
-                                         prop_dd_pct=config.prop_dd_pct, prop_dd_mult=config.prop_dd_mult)
+                                         prop_dd_pct=config.prop_dd_pct, prop_dd_mult=config.prop_dd_mult,
+                                         prop_tp_r=config.prop_tp_r if config.partial_r > 0 else 0.0,
+                                         prop_partial=config.prop_partial)
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
             self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider,
@@ -338,12 +358,16 @@ class App:
         async def image_for(capital: float | None) -> bytes:
             if not capital or s.render is None:
                 return s.image
-            p = lot_plan(capital, s.sl_pips, s.tp_pips)
+            p = lot_plan(capital, s.sl_pips, s.tp_pips, s.tp1_pips, s.part)
             if p["lot"] not in images:
+                extra = {}
+                if s.tp1 and s.part:   # у линии TP1 — сколько даст фиксация части, у TP — остаток
+                    extra = {"tp1_note": f"{100 * s.part:.0f}% +${fmt_usd(money(p['lot'], s.tp1_pips) * s.part)}",
+                             "tp_note": f"+${fmt_usd(money(p['lot'], s.tp_pips) * (1 - s.part))}"}
                 try:
                     images[p["lot"]] = await asyncio.to_thread(
                         s.render, lot=f"LOT {p['lot']:.2f}",
-                        sl_note=f"−${fmt_usd(p['loss'])}", tp_note=f"+${fmt_usd(p['profit'])}")
+                        sl_note=f"−${fmt_usd(p['loss'])}", **{"tp_note": f"+${fmt_usd(p['profit'])}", **extra})
                 except Exception:  # noqa: BLE001
                     log.exception("lot chart")
                     images[p["lot"]] = s.image
@@ -353,7 +377,8 @@ class App:
         for u in uids:
             lang, capital = norm(langs.get(u)), caps.get(u)
             img = await image_for(capital)
-            caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry, s.sl_pips, s.tp_pips)
+            caption = signal_caption(lang, s.texts[lang], capital, s.direction, s.entry, s.sl_pips, s.tp_pips,
+                                     s.tp1_pips, s.part)
             sent = await self._send(u, lambda u=u, img=img, caption=caption, lang=lang: self.bot.send_photo(
                 u, BufferedInputFile(img, filename=f"signal_{s.id}.png"), caption=caption,
                 reply_markup=decision_kb(lang, s.id)))
@@ -380,27 +405,38 @@ class App:
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
-        self.spawn(self.autotrade_close(s["id"]))   # что не закрыл брокер по своим SL/TP — закрываем
+        # что не закрыл брокер по своим SL/TP — закрываем (проп-счета ведут свои SL/TP, кроме стопа и тейка сигнала)
+        self.spawn(self.autotrade_close(s["id"], skip_prop=status in ("be", "rev")))
         side = "BUY" if s["direction"] == 1 else "SELL"
-        level = s["tp"] if status == "tp" else s["sl"]
-        pips = abs(level - s["entry"]) / PIP   # у каждого сигнала свои стоп и тейк
+        if status == "rev":
+            s = {**s, "exit_price": price}
+        level = {"tp": s["tp"], "sl": s["sl"], "be": s["entry"]}.get(status, price)
+        res = signal_pips(s, status)   # весь лот: зафиксированная часть + остаток
+        pips = abs(res)
         st = await self.db.stats()
-        closed = st["tp"] + st["sl"]
+        wins = st["tp"] + st["be"]
+        closed = wins + st["sl"]
+        key = {"tp": "close_tp", "sl": "close_sl", "be": "close_be", "rev": "close_rev"}[status]
 
         def text(lang: str) -> str:
-            return (t(lang, "close_tp" if status == "tp" else "close_sl", id=s["id"], side=side, pips=f"{pips:.0f}")
-                    + "\n\n" + excursion_text(lang, s, status)
+            head = t(lang, key, id=s["id"], side=side, pips=f"{pips:.0f}", price=f"{price:.2f}")
+            if s.get("part_at") and status in ("tp", "be", "rev"):
+                head += t(lang, "close_part_note", pct=f"{100 * (s.get('part') or 0):.0f}", tp1=f"{s['tp1']:.2f}",
+                          pips=f"{part_pips(s):+.0f}")
+            return (head + "\n\n" + excursion_text(lang, s, status)
                     + t(lang, "close_body", entry=f"{s['entry']:.2f}", exit=f"{level:.2f}",
-                                  sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}", tp_n=st["tp"], sl_n=st["sl"])
-                    + (t(lang, "winrate", wr=f"{100 * st['tp'] / closed:.0f}") if closed else ""))
+                                  sl=f"{s['sl']:.2f}", tp=f"{s['tp']:.2f}", tp_n=wins, sl_n=st["sl"])
+                    + (t(lang, "winrate", wr=f"{100 * wins / closed:.0f}") if closed else ""))
 
         image = None
         df = self.engine.df_for(s.get("strategy"))
         if df is not None:
             try:
+                label = {"tp": "TAKE PROFIT", "sl": "STOP LOSS", "be": "BREAKEVEN", "rev": "REVERSAL"}[status]
                 image = render_signal(df, s["direction"], s["entry"], s["sl"], s["tp"],
-                                      f"XAUUSD · #{s['id']} · {'TAKE PROFIT' if status == 'tp' else 'STOP LOSS'}",
-                                      tz=config.display_tz, mfe=s.get("mfe"), mae=s.get("mae"), pip=PIP)
+                                      f"XAUUSD · #{s['id']} · {label}",
+                                      tz=config.display_tz, mfe=s.get("mfe"), mae=s.get("mae"), pip=PIP,
+                                      tp1=s.get("tp1"))
             except Exception:  # noqa: BLE001
                 log.exception("close chart")
         active = set(await self.db.active_user_ids())
@@ -411,7 +447,7 @@ class App:
         for u, lot in (await self.db.signal_lots(s["id"])).items():
             if not lot:
                 continue
-            pnl = money(lot, pips) * (1 if status == "tp" else -1)
+            pnl = money(lot, pips) * (1 if res >= 0 else -1)
             bal = await self.db.add_capital(u, pnl)
             results[u] = (lot, pnl, bal)
 
@@ -435,6 +471,55 @@ class App:
 
         # кто нажал «Отклонить» под этим сигналом — результат по нему не присылаем
         await self.broadcast([u for u in await self.db.all_user_ids() if u not in declined], make)
+
+    async def broadcast_partial(self, s: dict, price: float) -> None:
+        """Цена дошла до TP1: тем, кто получил сигнал — закрыть часть и перенести стоп в безубыток;
+        на счетах автоторговли бот делает это сам."""
+        self.spawn(self.autotrade_partial(s["id"], s.get("part") or 0))
+        langs = await self.db.user_langs()
+        side = "BUY" if s["direction"] == 1 else "SELL"
+        pct = f"{100 * (s.get('part') or 0):.0f}"
+        tp1_pips = abs(s["tp1"] - s["entry"]) / PIP
+        lots = await self.db.signal_lots(s["id"])
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            text = t(lang, "partial", id=s["id"], side=side, tp1=f"{s['tp1']:.2f}", price=f"{price:.2f}", pct=pct,
+                     entry=f"{s['entry']:.2f}", tp=f"{s['tp']:.2f}", pips=f"{tp1_pips:.0f}")
+            lot = lots.get(u) or 0
+            if lot:
+                close = round(lot * (s.get("part") or 0), 2)
+                if close >= 0.01 and lot - close >= 0.01 - 1e-9:
+                    text += t(lang, "partial_lot", lot=f"{lot:.2f}", close=f"{close:.2f}", left=f"{lot - close:.2f}",
+                              pnl=fmt_usd(money(close, tp1_pips)))
+                else:
+                    text += t(lang, "partial_min", lot=f"{lot:.2f}")
+            return self.bot.send_message(u, text)
+
+        n = await self.broadcast(list(lots), make)
+        log.info("partial for signal #%s sent to %s users", s["id"], n)
+
+    async def autotrade_partial(self, sid: int, fraction: float) -> None:
+        if not self.autotrader:
+            return
+        try:
+            results = await self.autotrader.partial_signal(sid, fraction)
+        except Exception:  # noqa: BLE001
+            log.exception("autotrade partial #%s", sid)
+            return
+        langs = await self.db.user_langs()
+        multi = await self.multi_users()
+        for r in results:
+            if not r.ok:
+                if r.error != "CLOSED":
+                    log.error("autotrade partial #%s for %s (%s): %s", sid, r.uid, r.login, r.error)
+                continue
+            lang = norm(langs.get(r.uid))
+            text = (t(lang, "at_partial", id=sid, closed=f"{r.closed:.2f}", left=f"{r.left:.2f}", stop=f"{r.stop:.2f}")
+                    if r.closed else t(lang, "at_partial_be", id=sid, stop=f"{r.stop:.2f}"))
+            if r.uid in multi:
+                text = t(lang, "at_acc_prefix", login=html.escape(r.login)) + text
+            await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
 
     async def broadcast_late(self, s: dict, price: float, moved: float) -> None:
         """Цена уже ушла от входа к тейку — тем, кто получил сигнал: не входите, вы опоздали."""
@@ -618,6 +703,11 @@ class App:
             await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
         log.info("autotrade #%s: %s opened, %s failed", s.id, sum(r.ok for r in results),
                  sum(not r.ok for r in results))
+        failed = [r for r in results if not r.ok and r.error not in ("DUPLICATE", "NO_MONEY")]
+        if failed:   # админу — на каких счетах сделка не открылась и почему
+            lines = [f"• {html.escape(r.login or str(r.uid))} (id {r.uid}): {html.escape(r.error)}" for r in failed[:20]]
+            await self.notify_admins(f"⚠️ <b>Сигнал #{s.id}: сделка не открылась на {len(failed)} счетах</b>\n"
+                                     + "\n".join(lines))
 
     async def multi_users(self) -> set[int]:
         """Подписчики с несколькими счетами — в их сообщениях указываем номер счёта."""
@@ -626,11 +716,11 @@ class App:
             counts[a["user_id"]] = counts.get(a["user_id"], 0) + 1
         return {u for u, n in counts.items() if n > 1}
 
-    async def autotrade_close(self, sid: int, uids: set[int] | None = None) -> None:
+    async def autotrade_close(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False) -> None:
         if not self.autotrader:
             return
         try:
-            results = await self.autotrader.close_signal(sid, uids)
+            results = await self.autotrader.close_signal(sid, uids, skip_prop=skip_prop)
         except Exception:  # noqa: BLE001
             log.exception("autotrade close #%s", sid)
             return
@@ -1127,8 +1217,8 @@ class App:
             action = c.data.split(":", 1)[1]
             if action == "stats":
                 s = await self.db.stats()
-                closed = s["tp"] + s["sl"]
-                wr = f"{100 * s['tp'] / closed:.1f}%" if closed else "—"
+                closed = s["tp"] + s["be"] + s["sl"]
+                wr = f"{100 * (s['tp'] + s['be']) / closed:.1f}%" if closed else "—"
                 langs = ", ".join(f"{k}: {v}" for k, v in sorted((await self.db.lang_stats()).items()))
                 accs = await self.db.trade_accounts()
                 auto = (f"\n🤖 Автоторговля: {len(accs)} счетов, включено {sum(a['enabled'] for a in accs)}"
@@ -1140,7 +1230,8 @@ class App:
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
                     f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
                     f"⭐ Выручка: {s['revenue']}\n\n"
-                    f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, SL: {s['sl']}, винрейт: {wr}\n"
+                    f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, безубыток/разворот в плюсе: {s['be']}, "
+                    f"SL: {s['sl']}, в плюсе: {wr}\n"
                     f"🌐 Языки: {langs or '—'}{auto}")
             elif action == "release":
                 rel = changelog.latest()
@@ -1598,6 +1689,147 @@ class App:
                                         data.get("prop_paid_until") if prop else None))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
+    async def notify_admins(self, text: str, **kw) -> None:
+        if not config.admin_alerts:
+            return
+        for a in config.admin_ids:
+            await self._send(a, lambda a=a: self.bot.send_message(a, text, **kw))
+
+    async def health_loop(self, every: float = 10) -> None:
+        """Админам: ошибки из логов, долгий сбой проверки рынка, работа на запасной цене."""
+        stall = Watch(config.alert_stall_min * 60)
+        backup_price = Watch(config.alert_stall_min * 60)
+        while True:
+            try:
+                if self.alerts:
+                    for text in self.alerts.take():
+                        await self.notify_admins("⚠️ <b>Ошибка в боте</b>\n<code>" + html.escape(text) + "</code>")
+                now = pd.Timestamp.now(tz="UTC")
+                idle = time.monotonic() - self.engine.last_ok
+                ev = stall.update(market_open(now) and idle > config.check_interval * 2)
+                if ev == "down":
+                    await self.notify_admins(
+                        f"⛔️ <b>Бот не может проверить рынок уже {idle / 60:.0f} мин</b>\nСигналы сейчас не приходят.\n"
+                        f"Последняя ошибка: <code>{html.escape(self.engine.last_error or '—')}</code>")
+                elif ev == "up":
+                    await self.notify_admins("✅ Проверка рынка снова работает, сигналы идут.")
+                on_backup = bool(getattr(self.provider, "on_backup", False))
+                ev = backup_price.update(market_open(now) and on_backup)
+                if ev == "down":
+                    err = html.escape(getattr(self.provider, "last_error", "") or "—")
+                    await self.notify_admins(
+                        "⚠️ <b>Цена брокера (MetaApi) не приходит</b>, бот берёт запасную цену с поправкой.\n"
+                        f"Ошибка: <code>{err}</code>\nПроверьте счёт админа в 🤖 Автоторговля и /feed.")
+                elif ev == "up":
+                    await self.notify_admins("✅ Цена брокера снова приходит.")
+            except Exception:  # noqa: BLE001
+                log.warning("health loop", exc_info=True)
+            await asyncio.sleep(every)
+
+    async def backup(self, now: pd.Timestamp | None = None) -> bool:
+        """Раз в день в BACKUP_TIME (местное время): копия базы в backups и файлом админам."""
+        at = parse_hhmm(config.backup_time)
+        now = now or pd.Timestamp.now(tz="UTC")
+        local = now.tz_convert(config.display_tz)
+        if at is None or local < local.normalize() + at:
+            return False
+        key = f"backup:{local:%Y-%m-%d}"
+        if await self.db.get_kv(key):
+            return False
+        await self.db.set_kv(key, "1")
+        path = await asyncio.to_thread(backup_db, config.db_path, config.backup_keep, local.to_pydatetime())
+        log.info("database backup: %s", path)
+        if config.backup_to_admin:
+            data = path.read_bytes()
+            for a in config.admin_ids:
+                await self._send(a, lambda a=a: self.bot.send_document(
+                    a, BufferedInputFile(data, path.name), disable_notification=True,
+                    caption=f"💾 Копия базы бота за {local:%d.%m.%Y}. Восстановить: положить файл вместо "
+                            f"botdata/{Path(config.db_path).name} и перезапустить бота."))
+        return True
+
+    async def backup_loop(self) -> None:
+        while True:
+            try:
+                await self.backup()
+            except Exception:  # noqa: BLE001
+                log.exception("database backup failed")
+            await asyncio.sleep(300)
+
+    async def weekly_report(self, now: pd.Timestamp | None = None) -> bool:
+        """В воскресенье в WEEKLY_REPORT (местное время) — итоги недели всем: картинка и текст, у кого был лот —
+        его результат в $."""
+        at = parse_hhmm(config.weekly_report)
+        now = now or pd.Timestamp.now(tz="UTC")
+        local = now.tz_convert(config.display_tz)
+        if at is None or local.weekday() != 6 or local < local.normalize() + at:
+            return False
+        key = f"weekly:{local:%Y-%m-%d}"
+        if await self.db.get_kv(key):
+            return False
+        await self.db.set_kv(key, "1")
+        start = (local.normalize() - pd.Timedelta(days=6))   # понедельник 00:00
+        rows = await self.db.signals_between(start.to_pydatetime(), now.to_pydatetime())
+        span = dict(start=f"{start:%d.%m}", end=f"{local:%d.%m}")
+        res = {r["id"]: signal_pips(r) for r in rows}
+        closed = [r for r in rows if r["status"] in WIN + ("sl", "news") and res[r["id"]] is not None]
+        win = [r for r in closed if res[r["id"]] > 0]
+        sl = [r for r in rows if r["status"] == "sl"]
+        n_open = sum(1 for r in rows if r["status"] == "open")
+        total = sum(res[r["id"]] for r in closed)
+        best = max(win, key=lambda r: res[r["id"]], default=None)
+
+        def text(lang: str) -> str:
+            if not rows:
+                return t(lang, "weekly_none", **span)
+            out = t(lang, "weekly_head", n=len(rows), win=len(win), sl=len(sl), **span,
+                    open=t(lang, "weekly_open", n=n_open) if n_open else "",
+                    wr=f"{100 * len(win) / len(closed):.0f}%" if closed else "—", pips=f"{total:+.0f}")
+            if best:
+                out += t(lang, "weekly_best", id=best["id"], side="BUY" if best["direction"] == 1 else "SELL",
+                         pips=f"{res[best['id']]:.0f}")
+            return out
+
+        pnl: dict[int, float] = {}
+        for x in await self.db.lots_between(start.to_pydatetime(), now.to_pydatetime()):
+            v = res.get(x["signal_id"])
+            if v is not None:
+                pnl[x["user_id"]] = pnl.get(x["user_id"], 0.0) + money(x["lot"], abs(v)) * (1 if v >= 0 else -1)
+        images: dict[str, bytes] = {}
+        if rows:
+            for lang in ("ru", "en", "uz"):
+                try:
+                    images[lang] = await asyncio.to_thread(render_stats, list(reversed(rows)), lang,
+                                                           config.display_tz, PIP, 10, t(lang, "weekly_title"))
+                except Exception:  # noqa: BLE001
+                    log.warning("weekly chart", exc_info=True)
+        active = set(await self.db.active_user_ids())
+        langs = await self.db.user_langs()
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            body = text(lang)
+            if u in pnl:
+                v = pnl[u]
+                body += t(lang, "weekly_lot", pnl=f"{'+' if v >= 0 else '−'}${fmt_usd(abs(v))}")
+            if u not in active:
+                body += t(lang, "weekly_cta")
+            if lang in images:
+                return self.bot.send_photo(u, BufferedInputFile(images[lang], "week.png"), caption=body)
+            return self.bot.send_message(u, body)
+
+        n = await self.broadcast(await self.db.all_user_ids(), make)
+        log.info("weekly report sent to %s users", n)
+        return True
+
+    async def weekly_report_loop(self) -> None:
+        while True:
+            try:
+                await self.weekly_report()
+            except Exception:  # noqa: BLE001
+                log.exception("weekly report failed")
+            await asyncio.sleep(120)
+
     async def calendar_loop(self) -> None:
         while True:
             try:
@@ -1778,7 +2010,17 @@ class App:
 
     async def run(self) -> None:
         await self.db.connect()
+        if config.admin_alerts and config.admin_ids:
+            self.alerts = AlertHandler(config.alert_repeat_min * 60)
+            logging.getLogger().addHandler(self.alerts)
+            rel = changelog.latest()
+            await self.notify_admins("🔄 <b>Бот запущен</b>" + (f" (версия {rel['version']})" if rel else "")
+                                     + ". Если вы его не перезапускали, значит он упал и Docker поднял его снова.",
+                                     disable_notification=True)
         tasks = [
+            asyncio.create_task(self.health_loop()),
+            asyncio.create_task(self.backup_loop()),
+            asyncio.create_task(self.weekly_report_loop()),
             asyncio.create_task(self.engine.run_forever(config.check_interval)),
             asyncio.create_task(self.calendar_loop()),
             asyncio.create_task(self.trial_reminder_loop()),
