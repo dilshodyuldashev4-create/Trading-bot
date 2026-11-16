@@ -411,7 +411,7 @@ class SignalEngine:
     def _set_price(self, price: float) -> None:
         self.last_price, self.last_price_at = price, time.monotonic()
 
-    async def fresh_price(self, max_age: float = 3, timeout: float = 6) -> float | None:
+    async def fresh_price(self, max_age: float = 3, timeout: float = 20) -> float | None:
         """Текущая цена прямо сейчас, а не из прошлой проверки рынка: проверка идёт раз в CHECK_INTERVAL
         секунд и может надолго задержаться (свечи, оценка новостей, рассылка), и last_price устаревает
         на минуты. Если источник не ответил — последняя известная цена."""
