@@ -281,7 +281,8 @@ class App:
                                          prop_dd_pct=config.prop_dd_pct, prop_dd_mult=config.prop_dd_mult)
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
-            self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider)
+            self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider,
+                                     price_cooldown=15)
             self.engine.provider = self.provider
         self._market_src: tuple[float, dict | None] = (0.0, None)
         self._connecting: set[int] = set()   # чьи счета сейчас подключаются
@@ -1273,11 +1274,16 @@ class App:
             if p.last_error:
                 lines.append(f"Последняя ошибка ({self.fmt_dt(datetime.fromtimestamp(p.last_error_at, timezone.utc))}): "
                              f"<code>{html.escape(p.last_error)}</code>")
+            if p.offset is not None:
+                lines.append(f"Разница брокер − запасной: {p.offset:+.2f} "
+                             f"(сверка {self.fmt_dt(datetime.fromtimestamp(p.offset_at, timezone.utc))}); "
+                             "запасная цена показывается с этой поправкой")
             for name, prov in (("MetaApi", p.primary), ("Запасной", p.backup)):
                 t0 = time.monotonic()
                 try:
                     price = await asyncio.wait_for(prov.price(), 10)
-                    lines.append(f"{name}: {price:.2f} ({time.monotonic() - t0:.1f} с)")
+                    extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.offset is not None else ""
+                    lines.append(f"{name}: {price:.2f}{extra} ({time.monotonic() - t0:.1f} с)")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "
                                  f"({time.monotonic() - t0:.1f} с)")

@@ -155,38 +155,55 @@ class Hybrid(Provider):
 
 
 class Failover(Provider):
-    """Основной источник (цены брокера через MetaApi) с мгновенным переключением на запасной:
-    если основной не ответил за price_timeout / candle_timeout секунд или ответил ошибкой, этот же запрос
-    сразу идёт в запасной, и следующие cooldown секунд этот вид данных берётся только из запасного, без ожидания.
+    """Основной источник (цены брокера через MetaApi) с переключением на запасной.
+
+    Свечи: если основной не ответил за candle_timeout секунд или ответил ошибкой, этот же запрос сразу идёт
+    в запасной, и следующие cooldown секунд свечи берутся только из запасного, без ожидания.
+
+    Цена: запасной источник (спот-котировка) стабильно отличается от графика брокера на несколько долларов,
+    поэтому из-за одного медленного ответа MetaApi на него не уходим:
+    - ждём ответа брокера до price_timeout секунд;
+    - если брокер не ответил, но его цена моложе hold секунд — отдаём её и через price_cooldown секунд
+      снова спрашиваем брокера;
+    - только если брокер молчит дольше hold — берём запасной, но с поправкой на разницу между источниками
+      (раз в offset_every секунд, пока брокер отвечает, бот сверяет обе цены и запоминает разницу).
     Цена и свечи переключаются отдельно: сбой при загрузке свечей не уводит цену с графика брокера."""
 
-    def __init__(self, primary: Provider, backup: Provider, price_timeout: float = 3,
-                 candle_timeout: float = 15, cooldown: float = 60):
+    def __init__(self, primary: Provider, backup: Provider, price_timeout: float = 8,
+                 candle_timeout: float = 15, cooldown: float = 60, price_cooldown: float | None = None,
+                 hold: float = 60, offset_every: float = 300, offset_ttl: float = 6 * 3600):
         self.primary, self.backup = primary, backup
         self.price_timeout, self.candle_timeout, self.cooldown = price_timeout, candle_timeout, cooldown
+        self.price_cooldown = cooldown if price_cooldown is None else price_cooldown
+        self.hold, self.offset_every, self.offset_ttl = hold, offset_every, offset_ttl
         self._skip_until: dict[str, float] = {}
         self.backup_for: set[str] = set()   # что сейчас берётся из запасного: "price", "candles"
         self.last_error = ""                # последняя ошибка основного источника (для /feed)
         self.last_error_at = 0.0
         self.last_ok_at = 0.0               # когда основной последний раз ответил на запрос цены
+        self._broker: tuple[float, float] | None = None   # (последняя цена брокера, time.monotonic())
+        self.offset: float | None = None    # цена брокера минус цена запасного источника
+        self.offset_at = 0.0                # time.time() последней сверки
+        self._offset_mono = -1e18
 
     @property
     def on_backup(self) -> bool:
         return "price" in self.backup_for
 
+    def _fail(self, name: str, e: Exception, cooldown: float) -> None:
+        self._skip_until[name] = time.monotonic() + cooldown
+        self.last_error, self.last_error_at = f"{name}: {type(e).__name__}: {e}"[:300], time.time()
+
     async def _call(self, name: str, timeout: float, *args):
         if time.monotonic() >= self._skip_until.get(name, 0):
             try:
                 res = await asyncio.wait_for(getattr(self.primary, name)(*args), timeout)
-                if name == "price":
-                    self.last_ok_at = time.time()
                 if name in self.backup_for:
                     log.warning("market data: broker %s is back", name)
                     self.backup_for.discard(name)
                 return res
             except Exception as e:  # noqa: BLE001 — любая ошибка: сразу запасной источник
-                self._skip_until[name] = time.monotonic() + self.cooldown
-                self.last_error, self.last_error_at = f"{name}: {type(e).__name__}: {e}"[:300], time.time()
+                self._fail(name, e, self.cooldown)
                 if name not in self.backup_for:
                     log.warning("market data: broker %s failed (%s: %s), switching to backup",
                                 name, type(e).__name__, e)
@@ -196,8 +213,45 @@ class Failover(Provider):
     async def candles(self, tf: str, count: int) -> pd.DataFrame:
         return await self._call("candles", self.candle_timeout, tf, count)
 
+    async def _measure_offset(self, broker: float) -> None:
+        """Сверка с запасным источником, пока брокер отвечает: на сколько запасной выше или ниже."""
+        if self.offset_every <= 0 or time.monotonic() - self._offset_mono < self.offset_every:
+            return
+        self._offset_mono = time.monotonic()
+        try:
+            b = await asyncio.wait_for(self.backup.price(), 3)
+        except Exception as e:  # noqa: BLE001 — сверка не обязательна
+            log.info("market data: backup price for offset failed: %s: %s", type(e).__name__, e)
+            return
+        self.offset, self.offset_at = broker - b, time.time()
+
+    def backup_adjusted(self, p: float) -> float:
+        """Цена запасного источника, приведённая к графику брокера (если разница измерена недавно)."""
+        if self.offset is not None and time.time() - self.offset_at < self.offset_ttl:
+            return p + self.offset
+        return p
+
     async def price(self) -> float:
-        return await self._call("price", self.price_timeout)
+        if time.monotonic() >= self._skip_until.get("price", 0):
+            try:
+                p = await asyncio.wait_for(self.primary.price(), self.price_timeout)
+                self.last_ok_at = time.time()
+                self._broker = (p, time.monotonic())
+                if "price" in self.backup_for:
+                    log.warning("market data: broker price is back")
+                    self.backup_for.discard("price")
+                await self._measure_offset(p)
+                return p
+            except Exception as e:  # noqa: BLE001
+                self._fail("price", e, self.price_cooldown)
+                log.info("market data: broker price failed (%s: %s)", type(e).__name__, e)
+        if self._broker and time.monotonic() - self._broker[1] < self.hold:
+            return self._broker[0]   # брокер ответил недавно — его цена точнее запасного источника
+        if "price" not in self.backup_for:
+            log.warning("market data: no broker price for %ss, switching to backup (offset %s)",
+                        self.hold, self.offset)
+            self.backup_for.add("price")
+        return self.backup_adjusted(await self.backup.price())
 
     async def close(self) -> None:
         await self.primary.close()

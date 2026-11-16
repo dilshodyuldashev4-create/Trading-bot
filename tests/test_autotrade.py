@@ -724,7 +724,7 @@ class MarketFeedTests(unittest.TestCase):
         async def go():
             loop = asyncio.get_running_loop()
             p, b = Slow(), Backup()
-            f = Failover(p, b, price_timeout=0.2, cooldown=0.5)
+            f = Failover(p, b, price_timeout=0.2, cooldown=0.5, hold=0, offset_every=0)
             self.assertEqual(await f.price(), 2650.0)
             p.hang = True
             t0 = loop.time()
@@ -743,6 +743,54 @@ class MarketFeedTests(unittest.TestCase):
             self.assertFalse(f.on_backup)
             p.fail = True
             self.assertEqual(await f.price(), 2653.5)          # ошибка — тоже сразу запасной
+        run(go())
+
+    def test_slow_broker_keeps_broker_price_and_backup_is_corrected(self):
+        """Один медленный ответ MetaApi не уводит цену на запасной источник (он выше брокера на ~5 $),
+        а если брокер молчит долго — запасная цена приводится к графику брокера."""
+        import pandas as pd
+
+        from goldbot.market import Failover, Provider
+
+        class Broker(Provider):
+            def __init__(self):
+                self.p, self.hang = 3865.58, False
+
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [1.0]})
+
+            async def price(self):
+                if self.hang:
+                    await asyncio.sleep(30)
+                return self.p
+
+        class Spot(Provider):
+            def __init__(self):
+                self.p = 3871.00
+
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [2.0]})
+
+            async def price(self):
+                return self.p
+
+        async def go():
+            br, sp = Broker(), Spot()
+            f = Failover(br, sp, price_timeout=0.1, price_cooldown=0.2, hold=0.5)
+            self.assertEqual(await f.price(), 3865.58)
+            self.assertAlmostEqual(f.offset, -5.42)              # запасной выше брокера на 5.42
+            br.hang = True
+            self.assertEqual(await f.price(), 3865.58)           # таймаут — держим цену брокера
+            self.assertFalse(f.on_backup)
+            self.assertIn("price: TimeoutError", f.last_error)
+            await asyncio.sleep(0.6)                             # брокер молчит дольше hold
+            sp.p = 3869.00
+            self.assertAlmostEqual(await f.price(), 3863.58)     # запасной, но с поправкой
+            self.assertTrue(f.on_backup)
+            br.hang, br.p = False, 3864.0
+            await asyncio.sleep(0.25)
+            self.assertEqual(await f.price(), 3864.0)            # брокер вернулся
+            self.assertFalse(f.on_backup)
         run(go())
 
     def test_broker_market_reads_candles_and_bid(self):
