@@ -20,7 +20,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButton,
+from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton,
                            InlineKeyboardMarkup, KeyboardButton, LabeledPrice, Message,
                            PreCheckoutQuery, ReplyKeyboardMarkup, ReplyParameters)
 
@@ -63,6 +63,7 @@ ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
      InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast")],
     [InlineKeyboardButton(text="👥 Подписчики (CSV)", callback_data="adm:export"),
      InlineKeyboardButton(text="🧾 Последние сигналы", callback_data="adm:signals")],
+    [InlineKeyboardButton(text="📢 Telegram-канал", callback_data="adm:channel")],
     [InlineKeyboardButton(text="🎁 Выдать / забрать подписку", callback_data="adm:granthelp")],
     [InlineKeyboardButton(text="🆕 Обновление: отправить всем", callback_data="adm:release")],
 ])
@@ -354,6 +355,7 @@ class App:
         self._connecting: set[int] = set()   # чьи счета сейчас подключаются
         self._tasks: set[asyncio.Task] = set()
         self._card_r: dict[int, float] = {}   # сигнал → ход сделки (R) в последнем обновлении живой карточки
+        self._bot_name: str | None = None     # @имя бота — для ссылки в постах канала
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -394,11 +396,106 @@ class App:
             await asyncio.sleep(0.04)  # не больше ~25 сообщений в секунду
         return ok
 
+    # ── Telegram-канал: туда же всё, что получают подписчики ──────────────
+    async def chan_target(self) -> int | str | None:
+        """Куда постить: канал из /channel (база) или CHANNEL_ID из .env; None — канал не подключён."""
+        v = await self.db.get_kv("channel_id")
+        v = (config.channel_id if v is None else v).strip()
+        if not v or v == "off":
+            return None
+        if v.lstrip("-").isdigit():
+            return int(v)
+        return v if v.startswith("@") else "@" + v.split("/")[-1]
+
+    async def chan_lang(self) -> str:
+        return norm(await self.db.get_kv("channel_lang") or config.channel_lang)
+
+    async def chan_cta(self, lang: str) -> str:
+        """Ссылка на бота под постом канала."""
+        if self._bot_name is None:
+            try:
+                self._bot_name = (await self.bot.get_me()).username or ""
+            except Exception:  # noqa: BLE001
+                return ""
+        return t(lang, "chan_cta", bot=self._bot_name) if self._bot_name else ""
+
+    async def to_channel(self, make, raise_errors: bool = False):
+        """make(chat_id, lang) → корутина отправки. Ошибка канала не мешает рассылке подписчикам."""
+        cid = await self.chan_target()
+        if cid is None:
+            return None
+        lang = await self.chan_lang()
+        for _ in range(3):
+            try:
+                return await make(cid, lang)
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after)
+            except Exception as e:  # noqa: BLE001
+                if raise_errors:
+                    raise
+                log.error("Telegram-канал: не удалось отправить пост (%s). Бот админ в канале? /channel", e)
+                return None
+        return None
+
+    async def chan_card(self, sid: int) -> dict | None:
+        v = await self.db.get_kv(f"chan_card:{sid}")
+        return json.loads(v) if v else None
+
+    async def chan_reply(self, sid: int) -> dict:
+        """Ответом на пост сигнала в канале (если он есть)."""
+        c = await self.chan_card(sid)
+        return reply_to(c and c.get("m"))
+
+    async def chan_post_signal(self, s: NewSignal) -> None:
+        async def send(cid, lang):
+            strong = t(lang, "sig_strong", x=f"{s.size:g}") if s.size > 1 + 1e-9 else ""
+            rules = t(lang, "sig_rules", n=config.max_sl_streak) if config.max_sl_streak > 0 else ""
+            caption = (with_lot(s.texts[lang], strong + late_hint(lang, s.direction, s.entry)) + rules
+                       + await self.chan_cta(lang))
+            m = await self.bot.send_photo(cid, BufferedInputFile(s.image, filename=f"signal_{s.id}.png"),
+                                          caption=caption)
+            await self.db.set_kv(f"chan_card:{s.id}", json.dumps({"m": m.message_id, "c": caption}))
+            return m
+        await self.to_channel(send)
+
+    async def chan_text(self, make_text, reply: dict | None = None, **kw) -> None:
+        """Текстовый пост в канал: make_text(lang) → текст."""
+        await self.to_channel(lambda cid, lang: self.bot.send_message(cid, make_text(lang), **(reply or {}), **kw))
+
+    async def channel_panel(self) -> tuple[str, InlineKeyboardMarkup]:
+        """/channel для админа: какой канал подключён, язык постов, кнопки."""
+        cid = await self.chan_target()
+        lang = await self.chan_lang()
+        langs = [InlineKeyboardButton(text=("• " if code == lang else "") + label, callback_data=f"chan:lang:{code}")
+                 for code, label in LANG_BUTTONS]
+        if cid is None:
+            text = ("📢 <b>Telegram-канал не подключён</b>\n\n"
+                    "1. Создайте канал в Telegram (открытый или закрытый).\n"
+                    "2. Канал → Управление каналом → Администраторы → Добавить администратора → "
+                    "найдите этого бота → разрешите «Публикация сообщений» → Сохранить.\n"
+                    "3. Бот сам напишет вам сюда, что канал подключён.\n\n"
+                    "После этого в канал будет уходить всё, что получают подписчики: сигналы, фиксация и безубыток, "
+                    "итоги сделок, отчёты, утренние разборы и новости.")
+            return text, InlineKeyboardMarkup(inline_keyboard=[langs])
+        try:
+            chat = await self.bot.get_chat(cid)
+            name = html.escape(chat.title or str(cid))
+        except Exception as e:  # noqa: BLE001
+            name = f"{html.escape(str(cid))}\n⚠️ Бот не видит канал: {html.escape(str(e))[:150]}"
+        text = (f"📢 <b>Telegram-канал подключён</b>: {name}\n\n"
+                "Туда уходит всё, что получают подписчики: сигналы, фиксация и безубыток, итоги сделок, отчёты, "
+                "утренние разборы и новости. Язык постов — ниже.")
+        return text, InlineKeyboardMarkup(inline_keyboard=[
+            langs,
+            [InlineKeyboardButton(text="📨 Тестовый пост", callback_data="chan:test")],
+            [InlineKeyboardButton(text="⛔️ Отключить канал", callback_data="chan:off")]])
+
     async def broadcast_signal(self, s: NewSignal) -> None:
         """Каждому подписчику — картинка и текст с его лотом (по его капиталу)."""
         self.spawn(self.autotrade_open(s))   # на подключённых счетах сделка открывается сразу
         if s.prop_only:   # пробой при сильном разгоне (ADX): только проп-счета, подписчикам не шлём
             return
+        await self.chan_post_signal(s)
         uids = await self.db.active_user_ids()
         langs = await self.db.user_langs()
         caps = await self.db.user_capitals()
@@ -458,6 +555,7 @@ class App:
             return t(lang, "news_close", id=s["id"], side=side, entry=f"{s['entry']:.2f}", mins=mins,
                      title=html.escape(ev.get("title", "")), price=f"{price:.2f}", pips=f"{res:+.0f}")
 
+        await self.chan_text(text, await self.chan_reply(s["id"]))
         n = await self.broadcast(await self.db.all_user_ids(),
                                  lambda u: self.bot.send_message(u, text(norm(langs.get(u)))))
         log.info("news close #%s sent to %s users", s["id"], n)
@@ -534,6 +632,16 @@ class App:
                                            **reply)
             return self.bot.send_message(u, body, **reply)
 
+        chan_reply = await self.chan_reply(s["id"])
+
+        async def chan_close(cid, lang):
+            body = text(lang) + await self.chan_cta(lang)
+            if image:
+                return await self.bot.send_photo(cid, BufferedInputFile(image, f"result_{s['id']}.png"),
+                                                 caption=body, **chan_reply)
+            return await self.bot.send_message(cid, body, **chan_reply)
+        await self.to_channel(chan_close)
+
         # кто нажал «Отклонить» под этим сигналом — результат по нему не присылаем
         await self.broadcast([u for u in await self.db.all_user_ids() if u not in declined], make)
 
@@ -565,6 +673,10 @@ class App:
                     text += t(lang, "partial_min", lot=f"{lot:.2f}")
             return self.bot.send_message(u, text, **reply_to(cards.get(u)))
 
+        await self.chan_text(lambda lang: t(lang, "partial", id=s["id"], side=side, tp1=f"{s['tp1']:.2f}",
+                                            price=f"{price:.2f}", pct=pct, entry=f"{s['entry']:.2f}",
+                                            tp=f"{s['tp']:.2f}", pips=f"{tp1_pips:.0f}"),
+                             await self.chan_reply(s["id"]))
         n = await self.broadcast(list(lots), make)
         log.info("partial for signal #%s sent to %s users", s["id"], n)
 
@@ -603,6 +715,9 @@ class App:
             return self.bot.send_message(u, t(lang, "late", id=s["id"], side=side, entry=f"{s['entry']:.2f}",
                                               price=f"{price:.2f}", pips=f"{moved:.0f}"))
 
+        await self.chan_text(lambda lang: t(lang, "late", id=s["id"], side=side, entry=f"{s['entry']:.2f}",
+                                            price=f"{price:.2f}", pips=f"{moved:.0f}"),
+                             await self.chan_reply(s["id"]))
         n = await self.broadcast(uids, make)
         log.info("late warning for signal #%s sent to %s users", s["id"], n)
 
@@ -618,6 +733,7 @@ class App:
                 text += t(lang, "day_closed_cap", cap=fmt_usd(caps[u]))
             return self.bot.send_message(u, text)
 
+        await self.chan_text(lambda lang: t(lang, "day_closed", n=streak))
         n = await self.broadcast(await self.db.active_user_ids(), make)
         log.info("day closed after %s SL, sent to %s users", streak, n)
 
@@ -632,6 +748,7 @@ class App:
                 texts[lang] = make_text(lang)
             return self.bot.send_message(u, texts[lang])
 
+        await self.chan_text(make_text)
         await self.broadcast(await self.db.all_user_ids(), make)
 
     async def lang_of(self, uid: int) -> str:
@@ -1044,7 +1161,21 @@ class App:
             except Exception as e:  # noqa: BLE001 — сообщение удалено, подпись не изменилась и т.п.
                 log.debug("card #%s for %s: %s", s["id"], c["user_id"], e)
             await asyncio.sleep(0.04)
+        await self.chan_update_card(s, status, price)
         return n
+
+    async def chan_update_card(self, s: dict, status: str | None, price: float | None) -> None:
+        """Тот же ход сделки — в посте сигнала в канале."""
+        card = await self.chan_card(s["id"])
+        cid = await self.chan_target()
+        if not card or cid is None:
+            return
+        block = card_status(await self.chan_lang(), s, status, price, config.display_tz)
+        try:
+            await self.bot.edit_message_caption(chat_id=cid, message_id=card["m"],
+                                                caption=card["c"] + ("\n\n" + block if block else ""))
+        except Exception as e:  # noqa: BLE001
+            log.debug("channel card #%s: %s", s["id"], e)
 
     async def live_card_tick(self) -> None:
         """Ход открытых сделок в карточках: обновляем, когда он изменился хотя бы на 0.2R."""
@@ -1467,6 +1598,9 @@ class App:
                                  f"{'BUY' if s['direction'] == 1 else 'SELL'} {s['entry']:.2f} → {s['status']}"
                                  for s in rows) or "Сигналов пока нет"
                 await c.message.answer(text)
+            elif action == "channel":
+                text, kb = await self.channel_panel()
+                await c.message.answer(text, reply_markup=kb)
             elif action == "granthelp":
                 await c.message.answer("/grant &lt;user_id&gt; &lt;дней&gt; — выдать подписку\n"
                                        "/revoke &lt;user_id&gt; — забрать доступ\n"
@@ -1475,8 +1609,76 @@ class App:
                                        "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
                                        "/autotrade test — тестовая сделка мин. лотом на своём счёте (откроет и закроет)\n"
                                        "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты\n"
-                                       "/feed — откуда сейчас берутся цены (брокер или запасной источник)")
+                                       "/feed — откуда сейчас берутся цены (брокер или запасной источник)\n"
+                                       "/channel — Telegram-канал: подключение, язык постов, тестовый пост")
             await c.answer()
+
+        @r.message(Command("channel"))
+        async def channel_cmd(m: Message):
+            if self.is_admin(m.from_user.id):
+                text, kb = await self.channel_panel()
+                await m.answer(text, reply_markup=kb)
+
+        @r.callback_query(F.data.startswith("chan:"))
+        async def channel_cb(c: CallbackQuery):
+            if not self.is_admin(c.from_user.id):
+                await c.answer()
+                return
+            _, action, *arg = c.data.split(":")
+            note = None
+            if action == "set" and arg:
+                await self.db.set_kv("channel_id", arg[0])
+                note = "✅ Канал подключён"
+            elif action == "off":
+                await self.db.set_kv("channel_id", "off")
+                note = "Канал отключён"
+            elif action == "lang" and arg:
+                await self.db.set_kv("channel_lang", norm(arg[0]))
+                note = "Язык постов изменён"
+            elif action == "test":
+                try:
+                    await self.to_channel(lambda cid, lang: self.bot.send_message(
+                        cid, "✅ Бот подключён к каналу. Здесь будут сигналы и отчёты."), raise_errors=True)
+                    note = "📨 Тестовый пост отправлен"
+                except Exception as e:  # noqa: BLE001
+                    await c.message.answer(f"⚠️ Не получилось отправить в канал: {html.escape(str(e))[:200]}\n\n"
+                                           "Проверьте, что бот — администратор канала с правом «Публикация сообщений».")
+            text, kb = await self.channel_panel()
+            try:
+                await c.message.edit_text(text, reply_markup=kb)
+            except Exception:  # noqa: BLE001 — текст не изменился
+                pass
+            await c.answer(note or "")
+
+        @r.my_chat_member()
+        async def bot_membership(ev: ChatMemberUpdated):
+            """Бота сделали админом канала — подключаем канал; убрали — предупреждаем админов."""
+            if ev.chat.type != "channel":
+                return
+            title = html.escape(ev.chat.title or str(ev.chat.id))
+            st = ev.new_chat_member.status
+            current = await self.chan_target()
+            if st == "administrator":
+                if not getattr(ev.new_chat_member, "can_post_messages", True):
+                    await self.tell_admins(f"📢 Бот стал админом канала «{title}», но без права «Публикация "
+                                             "сообщений». Включите это право, иначе бот не сможет туда писать.")
+                    return
+                if current == ev.chat.id:
+                    return
+                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                    text="✅ Отправлять сюда", callback_data=f"chan:set:{ev.chat.id}")]])
+                if current is None and self.is_admin(ev.from_user.id):
+                    await self.db.set_kv("channel_id", str(ev.chat.id))
+                    await self.tell_admins(f"✅ <b>Канал «{title}» подключён.</b>\n\nТеперь туда уходит всё, "
+                                             "что получают подписчики: сигналы, итоги, отчёты и новости. "
+                                             "Язык постов и тестовый пост: /channel")
+                else:
+                    await self.tell_admins(f"📢 Бот стал админом канала «{title}». Отправлять сигналы и отчёты "
+                                             "в этот канал?" + (" Сейчас они идут в другой канал." if current else ""),
+                                             reply_markup=kb)
+            elif st in ("left", "kicked", "member", "restricted") and current == ev.chat.id:
+                await self.tell_admins(f"⚠️ Бот больше не админ канала «{title}», посты туда не уходят. "
+                                         "Верните ему права администратора или подключите другой канал: /channel")
 
         @r.message(Command("cancel"))
         async def cancel(m: Message, state: FSMContext):
@@ -1515,7 +1717,8 @@ class App:
             await state.clear()
             uids = await self.db.all_user_ids()
             n = await self.broadcast(uids, lambda u: m.copy_to(u))
-            await m.answer(f"📣 Отправлено: {n} из {len(uids)}")
+            posted = await self.to_channel(lambda cid, lang: m.copy_to(cid))
+            await m.answer(f"📣 Отправлено: {n} из {len(uids)}" + (" и в канал" if posted else ""))
 
         @r.message(Command("grant"))
         async def grant(m: Message, command: CommandObject):
@@ -1901,6 +2104,11 @@ class App:
                                         data.get("prop_paid_until") if prop else None))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
+    async def tell_admins(self, text: str, **kw) -> None:
+        """Сообщение всем админам (не зависит от ADMIN_ALERTS)."""
+        for a in config.admin_ids:
+            await self._send(a, lambda a=a: self.bot.send_message(a, text, **kw))
+
     async def notify_admins(self, text: str, **kw) -> None:
         if not config.admin_alerts:
             return
@@ -2030,6 +2238,12 @@ class App:
                 return self.bot.send_photo(u, BufferedInputFile(images[lang], "week.png"), caption=body)
             return self.bot.send_message(u, body)
 
+        async def chan_week(cid, lang):
+            body = text(lang) + await self.chan_cta(lang)
+            if lang in images:
+                return await self.bot.send_photo(cid, BufferedInputFile(images[lang], "week.png"), caption=body)
+            return await self.bot.send_message(cid, body)
+        await self.to_channel(chan_week)
         n = await self.broadcast(await self.db.all_user_ids(), make)
         log.info("weekly report sent to %s users", n)
         return True
@@ -2087,6 +2301,7 @@ class App:
         def make(u: int):
             return self.bot.send_message(u, make_text(norm(langs.get(u))), disable_notification=silent)
 
+        await self.chan_text(make_text, disable_notification=silent)
         n = await self.broadcast(await self.db.all_user_ids(), make)
         log.info("market %s: sent to %s users", state, n)
 
@@ -2116,6 +2331,7 @@ class App:
             log.exception("morning news")
         texts = {lang: await self.engine.morning_review(lang, now, news) for lang in ("ru", "en", "uz")}
         langs = await self.db.user_langs()
+        await self.chan_text(lambda lang: texts.get(lang, texts["ru"]))
         n = await self.broadcast(await self.db.active_user_ids(),
                                  lambda u: self.bot.send_message(u, texts.get(norm(langs.get(u)), texts["ru"])))
         log.info("morning review sent to %s users", n)
