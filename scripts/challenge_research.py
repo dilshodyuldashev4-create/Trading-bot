@@ -69,6 +69,9 @@ class Cfg:
     up_at: float = 0.0           # баланс выше старта на столько % — риск up_risk (0 — нет)
     up_risk: float = 0.5
     cost_r: float = 0.0          # стресс-тест: доп. издержки (комиссия, проскальзывание) в R на каждую сделку
+    part_r: float = 0.0          # закрыть part позиции на +part_r R и перенести стоп в безубыток (0 — нет)
+    part: float = 0.5
+    tp_r: float = 0.0            # тейк в R (0 — 3 ATR = 1.5R)
 
 
 def load(mirror: bool = False):
@@ -152,6 +155,11 @@ def attempt(D, start: int, plan: Plan, cfg: Cfg, end: int | None = None, funded_
                 bal += (t["tp"] - t["e"]) * d / t["dist"] * t["risk"] - cfg.cost_r * t["risk"]
                 traded_today = True
                 continue
+            if cfg.part_r and not t["be"] and (px_good - t["e"]) * d >= cfg.part_r * t["dist"]:
+                bal += cfg.part * cfg.part_r * t["risk"]
+                t["risk"] *= 1 - cfg.part
+                t["sl"] = t["e"] + d * spr[i]
+                t["be"] = True
             if cfg.be_r and not t["be"] and (px_good - t["e"]) * d >= cfg.be_r * t["dist"]:
                 t["sl"] = t["e"] + d * spr[i]
                 t["be"] = True
@@ -220,7 +228,8 @@ def attempt(D, start: int, plan: Plan, cfg: Cfg, end: int | None = None, funded_
                 continue
             e = o[i + 1] + (spr[i + 1] if d == 1 else 0.0)
             dist = sl_a[i] * PIP
-            open_tr.append(dict(k=k, d=d, e=e, dist=dist, sl=e - d * dist, tp=e + d * tp_a[i] * PIP,
+            tp_d = cfg.tp_r * dist if cfg.tp_r else tp_a[i] * PIP
+            open_tr.append(dict(k=k, d=d, e=e, dist=dist, sl=e - d * dist, tp=e + d * tp_d,
                                 risk=r, be=False))
             open_keys.add(k)
             open_dirs.add(d)
@@ -273,6 +282,7 @@ VARIANTS = {
     "0.5 % + риск ×0.25 при −2 %": Cfg(dd_cut=2, dd_mult=0.25),
     "**0.5 % + обе защиты (в боте)**": Cfg(day_losses=1, dd_cut=2, dd_mult=0.25),
     "0.4 % + обе защиты": Cfg(risk=0.4, day_losses=1, dd_cut=2, dd_mult=0.25),
+    "обе защиты + 50% на +1R, безубыток, тейк 3R": Cfg(day_losses=1, dd_cut=2, dd_mult=0.25, part_r=1, tp_r=3),
     "стресс: как сейчас, издержки +0.1R": Cfg(cost_r=0.1),
     "стресс: обе защиты, издержки +0.1R": Cfg(day_losses=1, dd_cut=2, dd_mult=0.25, cost_r=0.1),
 }

@@ -140,6 +140,10 @@ class DB:
         for c in ("mfe", "mae"):  # макс. ход в плюс / в минус по сделке, пипсы
             if c not in scols:
                 await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} REAL DEFAULT 0")
+        # фиксация части прибыли: уровень, какая доля закрывается, когда закрыта (пусто — ещё нет)
+        for c, typ in (("tp1", "REAL"), ("part", "REAL DEFAULT 0"), ("part_at", "TEXT")):
+            if c not in scols:
+                await self.conn.execute(f"ALTER TABLE signals ADD COLUMN {c} {typ}")
         if "autotrade_credits" not in cols:  # оплаченные, но ещё не подключённые счета
             await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_credits INTEGER NOT NULL DEFAULT 0")
         cur = await self.conn.execute("PRAGMA table_info(trade_accounts)")
@@ -286,6 +290,8 @@ class DB:
             "signals": "SELECT COUNT(*) FROM signals",
             "tp": "SELECT COUNT(*) FROM signals WHERE status='tp'",
             "sl": "SELECT COUNT(*) FROM signals WHERE status='sl'",
+            # закрыты в плюсе после фиксации части: в безубыток или при развороте
+            "be": "SELECT COUNT(*) FROM signals WHERE status IN ('be','rev')",
             "revenue": "SELECT COALESCE(SUM(amount),0) FROM payments",
         }
         out = {}
@@ -310,10 +316,11 @@ class DB:
         await self.conn.commit()
 
     # ── сигналы ─────────────────────────────────────────────────────────────
-    async def add_signal(self, strategy: str, direction: int, entry: float, sl: float, tp: float) -> int:
+    async def add_signal(self, strategy: str, direction: int, entry: float, sl: float, tp: float,
+                         tp1: float | None = None, part: float = 0) -> int:
         cur = await self.conn.execute(
-            "INSERT INTO signals (created_at, strategy, direction, entry, sl, tp) VALUES (?,?,?,?,?,?)",
-            (_iso(now()), strategy, direction, entry, sl, tp))
+            "INSERT INTO signals (created_at, strategy, direction, entry, sl, tp, tp1, part) VALUES (?,?,?,?,?,?,?,?)",
+            (_iso(now()), strategy, direction, entry, sl, tp, tp1, part))
         await self.conn.commit()
         return cur.lastrowid
 
@@ -324,6 +331,26 @@ class DB:
     async def set_excursion(self, sid: int, mfe: float, mae: float) -> None:
         await self.conn.execute("UPDATE signals SET mfe=?, mae=? WHERE id=?", (mfe, mae, sid))
         await self.conn.commit()
+
+    async def set_partial(self, sid: int) -> str:
+        """Часть прибыли зафиксирована, остаток в безубытке."""
+        at = _iso(now())
+        await self.conn.execute("UPDATE signals SET part_at=? WHERE id=?", (at, sid))
+        await self.conn.commit()
+        return at
+
+    async def signals_between(self, a: datetime, b: datetime) -> list[dict]:
+        """Сигналы, созданные в [a, b)."""
+        cur = await self.conn.execute("SELECT * FROM signals WHERE created_at>=? AND created_at<? ORDER BY id",
+                                      (_iso(a), _iso(b)))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def lots_between(self, a: datetime, b: datetime) -> list[dict]:
+        """Лоты подписчиков по сигналам, созданным в [a, b) (без «Отклонить»)."""
+        cur = await self.conn.execute(
+            "SELECT l.user_id, l.lot, l.signal_id FROM signal_lots l JOIN signals s ON s.id=l.signal_id "
+            "WHERE s.created_at>=? AND s.created_at<? AND l.declined=0 AND l.lot>0", (_iso(a), _iso(b)))
+        return [dict(r) for r in await cur.fetchall()]
 
     async def close_signal(self, sid: int, status: str, exit_price: float | None = None) -> None:
         await self.conn.execute("UPDATE signals SET status=?, closed_at=?, exit_price=? WHERE id=?",

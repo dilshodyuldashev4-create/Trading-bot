@@ -285,6 +285,30 @@ class CloseResult:
 
 
 @dataclass
+class PartialResult:
+    uid: int
+    ok: bool
+    closed: float = 0       # закрытый объём (0 — лот слишком мал, только безубыток)
+    left: float = 0         # остался в сделке
+    stop: float = 0         # новый стоп (цена входа у брокера)
+    error: str = ""
+    aid: int = 0
+    login: str = ""
+
+
+def split_volume(volume: float, fraction: float, spec: dict | None = None) -> float:
+    """Сколько лота закрыть при фиксации части: с шагом брокера, и чтобы осталось не меньше минимального лота.
+    0 — разделить нельзя (например, 0.01)."""
+    spec = spec or {}
+    step = float(spec.get("volumeStep") or 0.01)
+    vmin = float(spec.get("minVolume") or 0.01)
+    part = math.floor(volume * fraction / step + 1e-9) * step
+    if part < vmin - 1e-9 or volume - part < vmin - 1e-9:
+        return 0.0
+    return round(part, 2)
+
+
+@dataclass
 class AutoTrader:
     db: Any
     api: MetaApi
@@ -312,6 +336,10 @@ class AutoTrader:
     prop_day_losses: int = pr.DAY_LOSSES  # после стольких Stop Loss за день — до завтра без новых сделок (0 — выкл.)
     prop_dd_pct: float = pr.DD_PCT    # баланс ниже размера счёта на столько % — риск × prop_dd_mult (0 — выкл.)
     prop_dd_mult: float = pr.DD_MULT
+    # тейк на проп-счёте в стопах (0 — как в сигнале). Фиксация части, безубыток и закрытие при развороте на
+    # проп-счетах не делаются: по симуляции челленджей (reports/challenge_research.md) с ними хуже
+    prop_tp_r: float = 0.0
+    prop_partial: bool = False        # True — на проп-счетах так же, как на обычных
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
@@ -441,7 +469,9 @@ class AutoTrader:
         async def one(acc: dict) -> OpenResult:
             async with sem:
                 try:
-                    return await self._open_retry(acc, sid, direction, sl_dist, tp_dist, strong=strong)
+                    td = (sl_dist * self.prop_tp_r if acc.get("prop_plan") and self.prop_tp_r > 0
+                          and not self.prop_partial else tp_dist)
+                    return await self._open_retry(acc, sid, direction, sl_dist, td, strong=strong)
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
@@ -667,9 +697,56 @@ class AutoTrader:
             await self.db.update_prop_state(aid, **upd)
         return events
 
-    async def close_signal(self, sid: int, uids: set[int] | None = None) -> list[CloseResult]:
-        """Закрывает по рынку всё, что ещё открыто по сигналу (uids — только у этих подписчиков)."""
-        trades = [tr for tr in await self.db.auto_trades(sid, status="open") if uids is None or tr["user_id"] in uids]
+    async def partial_signal(self, sid: int, fraction: float) -> list[PartialResult]:
+        """Фиксация части прибыли по сигналу: на каждом счёте закрыть fraction позиции и перенести стоп в безубыток."""
+        prop = set() if self.prop_partial else await self._prop_ids()
+        trades = [tr for tr in await self.db.auto_trades(sid, status="open") if tr["account_id"] not in prop]
+        sem = asyncio.Semaphore(self.concurrency)
+
+        async def one(tr: dict) -> PartialResult:
+            async with sem:
+                try:
+                    return await self._partial_one(tr, fraction)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("autotrade partial #%s for %s failed: %s", sid, tr["user_id"], e)
+                    return PartialResult(tr["user_id"], False, error=getattr(e, "code", "") or str(e)[:200],
+                                         aid=tr["account_id"])
+
+        return list(await asyncio.gather(*(one(tr) for tr in trades)))
+
+    async def _partial_one(self, tr: dict, fraction: float) -> PartialResult:
+        uid, aid = tr["user_id"], tr["account_id"]
+        acc = await self.db.get_account(aid)
+        if not acc:
+            return PartialResult(uid, False, error="NO_ACCOUNT", aid=aid)
+        mid, region, pos_id = acc["meta_id"], acc["region"], tr["position_id"]
+        pos = next((p for p in await self.api.positions(mid, region) if str(p.get("id")) == pos_id), None)
+        if pos is None:
+            return PartialResult(uid, False, error="CLOSED", aid=aid, login=acc["login"])  # брокер уже закрыл
+        try:
+            spec = await self.api.specification(mid, region, acc["symbol"])
+        except Exception:  # noqa: BLE001
+            spec = {}
+        vol = float(pos.get("volume") or tr.get("volume") or 0)
+        part = split_volume(vol, fraction, spec)
+        if part > 0:
+            await self.api.trade(mid, region, {"actionType": "POSITION_PARTIAL", "positionId": pos_id, "volume": part})
+        stop = round_price(float(pos.get("openPrice") or 0), spec.get("digits"))
+        req = {"actionType": "POSITION_MODIFY", "positionId": pos_id, "stopLoss": stop}
+        if pos.get("takeProfit"):
+            req["takeProfit"] = float(pos["takeProfit"])
+        await self.api.trade(mid, region, req)
+        return PartialResult(uid, True, part, round(vol - part, 2), stop, aid=aid, login=acc["login"])
+
+    async def _prop_ids(self) -> set[int]:
+        return {a["id"] for a in await self.db.trade_accounts() if a.get("prop_plan")}
+
+    async def close_signal(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False) -> list[CloseResult]:
+        """Закрывает по рынку всё, что ещё открыто по сигналу (uids — только у этих подписчиков;
+        skip_prop — кроме проп-счетов: безубыток и разворот их не касаются, у них свои SL/TP у брокера)."""
+        prop = await self._prop_ids() if skip_prop and not self.prop_partial else set()
+        trades = [tr for tr in await self.db.auto_trades(sid, status="open")
+                  if (uids is None or tr["user_id"] in uids) and tr["account_id"] not in prop]
         sem = asyncio.Semaphore(self.concurrency)
 
         async def one(tr: dict) -> CloseResult:

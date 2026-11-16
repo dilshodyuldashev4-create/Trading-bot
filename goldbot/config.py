@@ -48,6 +48,15 @@ class Config:
     sl_atr: float = float(os.getenv("SL_ATR", "2"))
     tp_atr: float = float(os.getenv("TP_ATR", "3"))
     sl_min_pips: float = float(os.getenv("SL_MIN_PIPS", "50"))
+    # фиксация части прибыли (reports/manage_research.md): цена прошла PARTIAL_R стопов — закрыть PARTIAL_PCT %
+    # позиции и перенести стоп остатка в безубыток; тейк остатка — FINAL_TP_R стопов (PARTIAL_R=0 — выключено,
+    # тогда тейк по TP_ATR / TP_PIPS как раньше)
+    partial_r: float = float(os.getenv("PARTIAL_R", "1"))
+    partial_pct: float = float(os.getenv("PARTIAL_PCT", "50"))
+    final_tp_r: float = float(os.getenv("FINAL_TP_R", "3"))
+    # 1 — закрывать сделку в прибыли, когда стратегия бота даёт сигнал в обратную сторону (разворот)
+    reversal_close: bool = os.getenv("REVERSAL_CLOSE", "1") not in ("0", "false", "no", "")
+    reversal_min_pips: float = float(os.getenv("REVERSAL_MIN_PIPS", "10"))
     # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
@@ -80,6 +89,18 @@ class Config:
     news_hot_after: int = int(os.getenv("NEWS_HOT_AFTER", "15"))
     # утренний разбор рынка в это местное время (пн–пт); пусто — выключен
     morning_review: str = os.getenv("MORNING_REVIEW", "08:00")
+    # итоги недели всем в воскресенье в это местное время; пусто — выключено
+    weekly_report: str = os.getenv("WEEKLY_REPORT", "12:00")
+    # админам: сообщения об ошибках бота (не чаще раза в ALERT_REPEAT_MIN минут на одну и ту же ошибку),
+    # о том, что рынок не проверяется дольше ALERT_STALL_MIN минут, и о перезапуске
+    admin_alerts: bool = os.getenv("ADMIN_ALERTS", "1") not in ("0", "false", "no", "")
+    alert_repeat_min: int = int(os.getenv("ALERT_REPEAT_MIN", "30"))
+    alert_stall_min: int = int(os.getenv("ALERT_STALL_MIN", "5"))
+    # копия базы каждый день в BACKUP_TIME (местное время): в папку backups рядом с базой (хранится BACKUP_KEEP
+    # штук) и файлом админам в Telegram (BACKUP_TO_ADMIN=0 — не присылать); пусто — выключено
+    backup_time: str = os.getenv("BACKUP_TIME", "03:00")
+    backup_keep: int = int(os.getenv("BACKUP_KEEP", "7"))
+    backup_to_admin: bool = os.getenv("BACKUP_TO_ADMIN", "1") not in ("0", "false", "no", "")
 
     # новости
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
@@ -128,6 +149,11 @@ class Config:
     prop_day_losses: int = int(os.getenv("PROP_DAY_LOSSES", "1"))
     prop_dd_pct: float = float(os.getenv("PROP_DD_PCT", "2"))
     prop_dd_mult: float = float(os.getenv("PROP_DD_MULT", "0.25"))
+    # тейк проп-счёта в стопах, когда включена фиксация части (PARTIAL_R): 1.5 — как раньше (3 ATR при стопе 2 ATR).
+    # Фиксация, безубыток и закрытие при развороте на проп-счетах не делаются — по симуляции челленджей с ними хуже
+    prop_tp_r: float = float(os.getenv("PROP_TP_R", "1.5"))
+    # 1 — на проп-счетах тоже фиксация части, безубыток и закрытие при развороте (тогда PROP_TP_R не используется)
+    prop_partial: bool = os.getenv("PROP_PARTIAL", "0") not in ("0", "false", "no", "")
     # кнопка «Регистрация в FundedNext» и промокод на скидку при первой покупке
     fundednext_url: str = os.getenv("FUNDEDNEXT_URL", "https://fundednext.com")
     fundednext_code: str = os.getenv("FUNDEDNEXT_CODE", "REFHGUTBT")

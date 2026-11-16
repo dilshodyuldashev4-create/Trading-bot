@@ -204,20 +204,20 @@ TEXTS: dict[str, dict[str, str]] = {
         "strat_fvg": "OB + FVG + BOS по тренду EMA200",
         "exp_daily_trend": "📈 Дневной тренд (EMA50): {trend}.",
         "strat_donchian": "Пробой канала Дончиана 20 по тренду EMA200 (M15)",
-        "note_donchian": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 1822 сделок, тейков 41%, +63R (R — риск сделки)",
+        "note_donchian": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, остаток в безубыток, тейк 3R: 1738 сделок, в плюсе 51%, +21R (R — риск сделки)",
         "exp_donchian": "Сигнал появится на M15, когда свеча закроется выше максимума (BUY) или ниже минимума (SELL) последних 20 свечей по тренду EMA200.",
         "exp_portfolio": "Бот следит сразу за {n} стратегиями:",
         "strat_fvg_m15": "OB + FVG + BOS по дневному тренду (M15)",
-        "note_fvg_m15": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 748 сделок, тейков 43%, +52R (R — риск сделки)",
+        "note_fvg_m15": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, остаток в безубыток, тейк 3R: 670 сделок, в плюсе 54%, +90R (R — риск сделки)",
         "exp_fvg_m15": "Сигнал появится на M15, когда цена пробьёт последний свинг (BOS) и рядом будет FVG того же направления.",
         "strat_amd": "Манипуляция банка (AMD): Азия — диапазон, Лондон — вынос ликвидности, Нью-Йорк — вход (M15)",
-        "note_amd": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 386 сделок, тейков 46%, +54R (R — риск сделки)",
+        "note_amd": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, остаток в безубыток, тейк 3R: 386 сделок, в плюсе 58%, +63R (R — риск сделки)",
         "exp_amd": "Сигнал появится на M15 в 12:00–16:00 по Лондону: если Лондон снял ликвидность только с одной стороны азиатского диапазона, а цена вернулась внутрь диапазона — вход в сторону лондонского выноса.",
         "strat_squeeze": "Squeeze (Боллинджер в Кельтнере) по дневному тренду",
-        "note_squeeze": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 480 сделок, тейков 47%, +80R (R — риск сделки)",
+        "note_squeeze": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, остаток в безубыток, тейк 3R: 468 сделок, в плюсе 54%, +69R (R — риск сделки)",
         "exp_squeeze": "Сигнал появится на M15, когда рынок выйдет из сжатия и свеча закроется за полосой Боллинджера.",
         "strat_liq_m15": "Снятие ликвидности за свингом по дневному тренду (M15)",
-        "note_liq_m15": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 1087 сделок, тейков 43%, +70R (R — риск сделки)",
+        "note_liq_m15": "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, остаток в безубыток, тейк 3R: 1072 сделок, в плюсе 52%, +62R (R — риск сделки)",
         "exp_liq_m15": "Сигнал появится на M15, когда цена проколет последний хай/лой свинга (снимет стопы) и закроется обратно по дневному тренду.",
         "note_combo": "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 632 сделки, винрейт 36.6%, +6100 пипсов",
         "note_fvg": "Бэктест XAUUSD 2023–2026, SL 100 / TP 200 пипсов: 283 сделки, винрейт 37.8%, +3800 пипсов",
@@ -471,20 +471,20 @@ TEXTS: dict[str, dict[str, str]] = {
         "strat_fvg": "OB + FVG + BOS with the EMA200 trend",
         "exp_daily_trend": "📈 Daily trend (EMA50): {trend}.",
         "strat_donchian": "Donchian 20 channel breakout with the EMA200 trend (M15)",
-        "note_donchian": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR / take 3 ATR: 1822 trades, 41% take profits, +63R (R = risk per trade)",
+        "note_donchian": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR, 50% at +1R, rest at breakeven, take 3R: 1738 trades, 51% in profit, +21R (R = risk per trade)",
         "exp_donchian": "A signal appears on M15 when a candle closes above the high (BUY) or below the low (SELL) of the last 20 candles, with the EMA200 trend.",
         "exp_portfolio": "The bot watches {n} strategies at once:",
         "strat_fvg_m15": "OB + FVG + BOS with the daily trend (M15)",
-        "note_fvg_m15": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR / take 3 ATR: 748 trades, 43% take profits, +52R (R = risk per trade)",
+        "note_fvg_m15": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR, 50% at +1R, rest at breakeven, take 3R: 670 trades, 54% in profit, +90R (R = risk per trade)",
         "exp_fvg_m15": "A signal appears on M15 when price breaks the last swing (BOS) with an FVG of the same direction nearby.",
         "strat_amd": "Bank manipulation (AMD): Asia range, London liquidity sweep, New York entry (M15)",
-        "note_amd": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR / take 3 ATR: 386 trades, 46% take profits, +54R (R = risk per trade)",
+        "note_amd": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR, 50% at +1R, rest at breakeven, take 3R: 386 trades, 58% in profit, +63R (R = risk per trade)",
         "exp_amd": "A signal appears on M15 at 12:00–16:00 London time: if London swept liquidity on only one side of the Asian range and price returned inside the range, entry in the direction of the London move.",
         "strat_squeeze": "Squeeze (Bollinger inside Keltner) with the daily trend",
-        "note_squeeze": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR / take 3 ATR: 480 trades, 47% take profits, +80R (R = risk per trade)",
+        "note_squeeze": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR, 50% at +1R, rest at breakeven, take 3R: 468 trades, 54% in profit, +69R (R = risk per trade)",
         "exp_squeeze": "A signal appears on M15 when the market leaves a squeeze and a candle closes outside the Bollinger band.",
         "strat_liq_m15": "Swing liquidity sweep with the daily trend (M15)",
-        "note_liq_m15": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR / take 3 ATR: 1087 trades, 43% take profits, +70R (R = risk per trade)",
+        "note_liq_m15": "XAUUSD backtest 12.2023–08.2026, stop 2 ATR, 50% at +1R, rest at breakeven, take 3R: 1072 trades, 52% in profit, +62R (R = risk per trade)",
         "exp_liq_m15": "A signal appears on M15 when price pierces the last swing high/low (takes the stops) and closes back, with the daily trend.",
         "note_combo": "XAUUSD backtest 2023–2026, SL 100 / TP 200 pips: 632 trades, win rate 36.6%, +6100 pips",
         "note_fvg": "XAUUSD backtest 2023–2026, SL 100 / TP 200 pips: 283 trades, win rate 37.8%, +3800 pips",
@@ -739,20 +739,20 @@ TEXTS: dict[str, dict[str, str]] = {
         "strat_fvg": "EMA200 trendi boʻyicha OB + FVG + BOS",
         "exp_daily_trend": "📈 Kunlik trend (EMA50): {trend}.",
         "strat_donchian": "EMA200 trendi boʻyicha Donchian 20 kanalini yorib oʻtish (M15)",
-        "note_donchian": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR / teyk 3 ATR: 1822 ta savdo, teyklar 41%, +63R (R — savdo riski)",
+        "note_donchian": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR, +1R da 50%, qolgani zararsiz, teyk 3R: 1738 ta savdo, foydada 51%, +21R (R — savdo riski)",
         "exp_donchian": "Sham EMA200 trendi boʻyicha oxirgi 20 ta shamning maksimumidan yuqori (BUY) yoki minimumidan past (SELL) yopilganda M15 da signal chiqadi.",
         "exp_portfolio": "Bot birdaniga {n} ta strategiyani kuzatadi:",
         "strat_fvg_m15": "Kunlik trend boʻyicha OB + FVG + BOS (M15)",
-        "note_fvg_m15": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR / teyk 3 ATR: 748 ta savdo, teyklar 43%, +52R (R — savdo riski)",
+        "note_fvg_m15": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR, +1R da 50%, qolgani zararsiz, teyk 3R: 670 ta savdo, foydada 54%, +90R (R — savdo riski)",
         "exp_fvg_m15": "Narx oxirgi svingni yorib oʻtganda (BOS) va yonida shu yoʻnalishdagi FVG boʻlganda M15 da signal chiqadi.",
         "strat_amd": "Bank manipulyatsiyasi (AMD): Osiyo — diapazon, London — likvidlikni olish, Nyu-York — kirish (M15)",
-        "note_amd": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR / teyk 3 ATR: 386 ta savdo, teyklar 46%, +54R (R — savdo riski)",
+        "note_amd": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR, +1R da 50%, qolgani zararsiz, teyk 3R: 386 ta savdo, foydada 58%, +63R (R — savdo riski)",
         "exp_amd": "Signal London vaqti bilan 12:00–16:00 da M15 da chiqadi: agar London Osiyo diapazonining faqat bir tomonidagi likvidlikni olgan boʻlsa va narx diapazon ichiga qaytsa — London harakati yoʻnalishida kirish.",
         "strat_squeeze": "Kunlik trend boʻyicha Squeeze (Keltner ichida Bollinger)",
-        "note_squeeze": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR / teyk 3 ATR: 480 ta savdo, teyklar 47%, +80R (R — savdo riski)",
+        "note_squeeze": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR, +1R da 50%, qolgani zararsiz, teyk 3R: 468 ta savdo, foydada 54%, +69R (R — savdo riski)",
         "exp_squeeze": "Bozor siqilishdan chiqib, sham Bollinger chizigʻidan tashqarida yopilganda M15 da signal chiqadi.",
         "strat_liq_m15": "Kunlik trend boʻyicha sving ortidagi likvidlikni olish (M15)",
-        "note_liq_m15": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR / teyk 3 ATR: 1087 ta savdo, teyklar 43%, +70R (R — savdo riski)",
+        "note_liq_m15": "XAUUSD bektesti 12.2023–08.2026, stop 2 ATR, +1R da 50%, qolgani zararsiz, teyk 3R: 1072 ta savdo, foydada 52%, +62R (R — savdo riski)",
         "exp_liq_m15": "Narx oxirgi sving maksimumi/minimumini teshib (stoplarni olib) kunlik trend boʻyicha qaytib yopilganda M15 da signal chiqadi.",
         "note_combo": "XAUUSD bektesti 2023–2026, SL 100 / TP 200 pips: 632 ta savdo, winrate 36.6%, +6100 pips",
         "note_fvg": "XAUUSD bektesti 2023–2026, SL 100 / TP 200 pips: 283 ta savdo, winrate 37.8%, +3800 pips",
@@ -1021,3 +1021,112 @@ def variants(key: str) -> set[str]:
 def per_lang(make) -> dict[str, str]:
     """{язык: текст} для рассылок."""
     return {lang: make(lang) for lang in TEXTS}
+
+
+# фиксация части прибыли, безубыток, закрытие при развороте, итоги недели
+MANAGE_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "sig_partial": ("💰 Фиксация {pct}%: <b>{tp1}</b> ({tp1_pips} пипсов). Там закройте {pct}% лота "
+                        "и перенесите стоп в безубыток (на цену входа), остаток держите до Take Profit\n"),
+        "partial": ("💰 <b>Сигнал #{id} {side}: фиксируем {pct}% прибыли</b>\n\n"
+                    "Цена дошла до {tp1} (+{pips} пипсов), сейчас {price}.\n"
+                    "1️⃣ Закройте <b>{pct}%</b> лота.\n"
+                    "2️⃣ Перенесите Stop Loss остатка в <b>безубыток: {entry}</b> (цена входа).\n"
+                    "3️⃣ Остаток держите до Take Profit <b>{tp}</b>.\n\n"
+                    "Теперь сделка уже не может закрыться в минус."),
+        "partial_lot": "\n\n📦 Ваш лот {lot}: закройте <b>{close}</b>, оставьте {left}. Зафиксировано ≈ <b>+${pnl}</b>",
+        "partial_min": ("\n\n📦 Ваш лот {lot} нельзя разделить: просто перенесите стоп в безубыток "
+                        "или закройте сделку целиком, если хотите забрать прибыль сейчас."),
+        "at_partial": ("💰 Сделка #{id}: бот закрыл <b>{closed}</b> лота с прибылью и перенёс стоп остатка ({left}) "
+                       "в безубыток: <b>{stop}</b>."),
+        "at_partial_be": "🛡 Сделка #{id}: лот минимальный, поэтому бот перенёс стоп в безубыток: <b>{stop}</b>.",
+        "close_be": ("🛡 <b>Сигнал #{id} {side}: остаток закрыт в безубыток</b>\n"
+                     "💰 Итог сделки: <b>+{pips} пипсов</b>"),
+        "close_rev": ("🔄 <b>Сигнал #{id} {side}: начинается разворот, закройте сделку сейчас</b>\n\n"
+                      "Бот видит сигнал в обратную сторону. Закройте сделку по рынку (цена {price}), "
+                      "не дожидаясь тейка.\n💰 Итог сделки: <b>+{pips} пипсов</b>"),
+        "close_part_note": "\n💰 Из них {pct}% зафиксировано на {tp1}: {pips} пипсов на весь лот",
+        "stats_be": "🛡 Фиксация на {tp1}, остаток в безубыток: <b>{pips} пипсов</b>",
+        "stats_rev": "🔄 Закрыт при развороте {exit}: <b>{pips} пипсов</b>",
+        "stats_open_part": "⏳ В работе, часть зафиксирована на {tp1}, стоп в безубытке",
+        "weekly_title": "Итоги недели",
+        "weekly_head": ("📅 <b>Итоги недели {start} – {end}</b>\n\n"
+                        "📊 Сигналов: {n} · ✅ в плюсе: {win} · ❌ Stop Loss: {sl}{open}\n"
+                        "🎯 Закрыто в плюсе: <b>{wr}</b>\n💰 Итог: <b>{pips} пипсов</b>"),
+        "weekly_open": " · ⏳ в работе: {n}",
+        "weekly_best": "\n🏆 Лучшая сделка: #{id} {side}, <b>+{pips} пипсов</b>",
+        "weekly_lot": "\n\n💼 Ваш результат по лотам из сигналов: <b>{pnl}</b>",
+        "weekly_none": "📅 <b>Итоги недели {start} – {end}</b>\n\nНа этой неделе сигналов не было.",
+        "weekly_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
+    },
+    "en": {
+        "sig_partial": ("💰 Take {pct}%: <b>{tp1}</b> ({tp1_pips} pips). Close {pct}% of the lot there "
+                        "and move the stop to breakeven (entry price), keep the rest until Take Profit\n"),
+        "partial": ("💰 <b>Signal #{id} {side}: take {pct}% profit</b>\n\n"
+                    "Price reached {tp1} (+{pips} pips), now {price}.\n"
+                    "1️⃣ Close <b>{pct}%</b> of the lot.\n"
+                    "2️⃣ Move the Stop Loss of the rest to <b>breakeven: {entry}</b> (entry price).\n"
+                    "3️⃣ Keep the rest until Take Profit <b>{tp}</b>.\n\n"
+                    "The trade can no longer close at a loss."),
+        "partial_lot": "\n\n📦 Your lot {lot}: close <b>{close}</b>, keep {left}. Locked in ≈ <b>+${pnl}</b>",
+        "partial_min": ("\n\n📦 Your lot {lot} can't be split: just move the stop to breakeven, "
+                        "or close the whole trade if you want the profit now."),
+        "at_partial": ("💰 Trade #{id}: the bot closed <b>{closed}</b> lot in profit and moved the stop of the rest ({left}) "
+                       "to breakeven: <b>{stop}</b>."),
+        "at_partial_be": "🛡 Trade #{id}: the lot is minimal, so the bot moved the stop to breakeven: <b>{stop}</b>.",
+        "close_be": ("🛡 <b>Signal #{id} {side}: the rest closed at breakeven</b>\n"
+                     "💰 Trade result: <b>+{pips} pips</b>"),
+        "close_rev": ("🔄 <b>Signal #{id} {side}: a reversal is starting, close the trade now</b>\n\n"
+                      "The bot sees a signal in the opposite direction. Close the trade at market (price {price}) "
+                      "without waiting for the take.\n💰 Trade result: <b>+{pips} pips</b>"),
+        "close_part_note": "\n💰 Of which {pct}% was taken at {tp1}: {pips} pips on the whole lot",
+        "stats_be": "🛡 Partial at {tp1}, rest at breakeven: <b>{pips} pips</b>",
+        "stats_rev": "🔄 Closed on reversal {exit}: <b>{pips} pips</b>",
+        "stats_open_part": "⏳ Open, part taken at {tp1}, stop at breakeven",
+        "weekly_title": "Weekly results",
+        "weekly_head": ("📅 <b>Weekly results {start} – {end}</b>\n\n"
+                        "📊 Signals: {n} · ✅ in profit: {win} · ❌ Stop Loss: {sl}{open}\n"
+                        "🎯 Closed in profit: <b>{wr}</b>\n💰 Total: <b>{pips} pips</b>"),
+        "weekly_open": " · ⏳ open: {n}",
+        "weekly_best": "\n🏆 Best trade: #{id} {side}, <b>+{pips} pips</b>",
+        "weekly_lot": "\n\n💼 Your result with the lots from the signals: <b>{pnl}</b>",
+        "weekly_none": "📅 <b>Weekly results {start} – {end}</b>\n\nThere were no signals this week.",
+        "weekly_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
+    },
+    "uz": {
+        "sig_partial": ("💰 {pct}% foydani olish: <b>{tp1}</b> ({tp1_pips} pips). U yerda lotning {pct}% ini yoping "
+                        "va stopni zararsizlikka (kirish narxiga) oʻtkazing, qolganini Take Profitgacha ushlang\n"),
+        "partial": ("💰 <b>Signal #{id} {side}: foydaning {pct}% ini olamiz</b>\n\n"
+                    "Narx {tp1} ga yetdi (+{pips} pips), hozir {price}.\n"
+                    "1️⃣ Lotning <b>{pct}%</b> ini yoping.\n"
+                    "2️⃣ Qolgan qismning Stop Lossini <b>zararsizlikka: {entry}</b> (kirish narxi) oʻtkazing.\n"
+                    "3️⃣ Qolganini Take Profit <b>{tp}</b> gacha ushlang.\n\n"
+                    "Endi bitim zarar bilan yopilmaydi."),
+        "partial_lot": "\n\n📦 Sizning lotingiz {lot}: <b>{close}</b> ni yoping, {left} qoldiring. Olingan foyda ≈ <b>+${pnl}</b>",
+        "partial_min": ("\n\n📦 {lot} lotni boʻlib boʻlmaydi: stopni zararsizlikka oʻtkazing "
+                        "yoki foydani hozir olmoqchi boʻlsangiz, bitimni toʻliq yoping."),
+        "at_partial": ("💰 Bitim #{id}: bot <b>{closed}</b> lotni foyda bilan yopdi va qolgan qism ({left}) stopini "
+                       "zararsizlikka oʻtkazdi: <b>{stop}</b>."),
+        "at_partial_be": "🛡 Bitim #{id}: lot minimal, shuning uchun bot stopni zararsizlikka oʻtkazdi: <b>{stop}</b>.",
+        "close_be": ("🛡 <b>Signal #{id} {side}: qolgan qism zararsiz yopildi</b>\n"
+                     "💰 Bitim natijasi: <b>+{pips} pips</b>"),
+        "close_rev": ("🔄 <b>Signal #{id} {side}: burilish boshlanmoqda, bitimni hozir yoping</b>\n\n"
+                      "Bot teskari tomonga signal koʻrmoqda. Bitimni bozor narxida yoping (narx {price}), "
+                      "takeni kutmang.\n💰 Bitim natijasi: <b>+{pips} pips</b>"),
+        "close_part_note": "\n💰 Shundan {pct}% {tp1} da olingan: butun lotga {pips} pips",
+        "stats_be": "🛡 {tp1} da qisman olindi, qolgani zararsiz: <b>{pips} pips</b>",
+        "stats_rev": "🔄 Burilishda yopildi {exit}: <b>{pips} pips</b>",
+        "stats_open_part": "⏳ Ochiq, bir qismi {tp1} da olingan, stop zararsizlikda",
+        "weekly_title": "Hafta natijalari",
+        "weekly_head": ("📅 <b>Hafta natijalari {start} – {end}</b>\n\n"
+                        "📊 Signallar: {n} · ✅ foydada: {win} · ❌ Stop Loss: {sl}{open}\n"
+                        "🎯 Foyda bilan yopilgan: <b>{wr}</b>\n💰 Jami: <b>{pips} pips</b>"),
+        "weekly_open": " · ⏳ ochiq: {n}",
+        "weekly_best": "\n🏆 Eng yaxshi bitim: #{id} {side}, <b>+{pips} pips</b>",
+        "weekly_lot": "\n\n💼 Signallardagi lotlar boʻyicha natijangiz: <b>{pnl}</b>",
+        "weekly_none": "📅 <b>Hafta natijalari {start} – {end}</b>\n\nBu hafta signallar boʻlmadi.",
+        "weekly_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
+    },
+}
+for _lang, _texts in MANAGE_TEXTS.items():
+    TEXTS[_lang].update(_texts)
