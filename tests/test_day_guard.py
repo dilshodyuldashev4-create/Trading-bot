@@ -44,7 +44,7 @@ class DayGuardTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = await make_db(d)
                 api = FakeApi(equity=5000)
-                tr = trader(db, api)
+                tr = trader(db, api, day_side=True)
                 await tr.connect(1, "mt5", "S", "1", "p")
                 s1 = await db.add_signal("squeeze", -1, 2650, 2670, 2620)
                 self.assertTrue((await tr.open_signal(s1, -1, 20, 30))[0].ok)

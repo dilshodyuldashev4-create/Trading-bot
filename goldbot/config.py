@@ -149,7 +149,7 @@ class Config:
     # за день только в сторону первой сделки дня; баланс ниже своего максимума на AUTOTRADE_DD_PCT % — риск ×
     # AUTOTRADE_DD_MULT, пока не вернётся (0 — выкл.)
     autotrade_day_losses: int = int(os.getenv("AUTOTRADE_DAY_LOSSES", "4"))
-    autotrade_day_side: bool = os.getenv("AUTOTRADE_DAY_SIDE", "1") not in ("0", "false", "no", "")
+    autotrade_day_side: bool = os.getenv("AUTOTRADE_DAY_SIDE", "0") not in ("0", "false", "no", "")
     autotrade_dd_pct: float = float(os.getenv("AUTOTRADE_DD_PCT", "0"))
     autotrade_dd_mult: float = float(os.getenv("AUTOTRADE_DD_MULT", "0.5"))
     # проп-счета FundedNext, всё в % от размера счёта: риск на сделку и на сильный сигнал (больше PROP_MAX_TRADE_PCT ≤ 1 %

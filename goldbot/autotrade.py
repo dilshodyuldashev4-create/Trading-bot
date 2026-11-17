@@ -356,7 +356,7 @@ class AutoTrader:
     # day_losses Stop Loss сделок бота за день — до завтра без новых сделок (0 — выкл.); day_side — за день только
     # в сторону первой сделки дня; баланс ниже своего максимума на dd_pct % — риск × dd_mult (0 — выкл.)
     day_losses: int = 4
-    day_side: bool = True
+    day_side: bool = False
     dd_pct: float = 0.0
     dd_mult: float = 0.5
     _reopen: dict = field(default_factory=dict)   # (сигнал, счёт) → сколько раз сверка уже открывала заново
