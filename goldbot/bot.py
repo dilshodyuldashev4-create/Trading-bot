@@ -349,7 +349,7 @@ class App:
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
             self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider,
-                                     price_cooldown=15)
+                                     price_timeout=15, candle_timeout=40, price_cooldown=15)
             self.engine.provider = self.provider
         self._market_src: tuple[float, dict | None] = (0.0, None)
         self._connecting: set[int] = set()   # чьи счета сейчас подключаются
