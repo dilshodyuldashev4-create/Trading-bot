@@ -355,9 +355,9 @@ class AutoTrader:
     # защита обычного счёта от плохих дней (reports/day_guard_research.md), день — по времени сервера (prop_day_tz):
     # day_losses Stop Loss сделок бота за день — до завтра без новых сделок (0 — выкл.); day_side — за день только
     # в сторону первой сделки дня; баланс ниже своего максимума на dd_pct % — риск × dd_mult (0 — выкл.)
-    day_losses: int = 2
+    day_losses: int = 4
     day_side: bool = True
-    dd_pct: float = 3.0
+    dd_pct: float = 0.0
     dd_mult: float = 0.5
     _reopen: dict = field(default_factory=dict)   # (сигнал, счёт) → сколько раз сверка уже открывала заново
 
