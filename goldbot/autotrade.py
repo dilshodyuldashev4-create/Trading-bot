@@ -297,12 +297,14 @@ class PartialResult:
 
 
 def split_volume(volume: float, fraction: float, spec: dict | None = None) -> float:
-    """Сколько лота закрыть при фиксации части: с шагом брокера, и чтобы осталось не меньше минимального лота.
-    0 — разделить нельзя (например, 0.01)."""
+    """Сколько лота закрыть при фиксации части: с шагом брокера, округление вверх (0.03 → закрыть 0.02),
+    и чтобы осталось не меньше минимального лота. 0 — разделить нельзя (например, 0.01)."""
     spec = spec or {}
     step = float(spec.get("volumeStep") or 0.01)
     vmin = float(spec.get("minVolume") or 0.01)
-    part = math.floor(volume * fraction / step + 1e-9) * step
+    part = math.ceil(volume * fraction / step - 1e-9) * step
+    if volume - part < vmin - 1e-9:
+        part = math.floor((volume - vmin) / step + 1e-9) * step   # оставить хотя бы минимальный лот
     if part < vmin - 1e-9 or volume - part < vmin - 1e-9:
         return 0.0
     return round(part, 2)
@@ -844,13 +846,27 @@ class AutoTrader:
     async def partial_signal(self, sid: int, fraction: float) -> list[PartialResult]:
         """Фиксация части прибыли по сигналу: на каждом счёте закрыть fraction позиции и перенести стоп в безубыток."""
         prop = set() if self.prop_partial else await self._prop_ids()
-        trades = [tr for tr in await self.db.auto_trades(sid, status="open") if tr["account_id"] not in prop]
+        trades = [tr for tr in await self.db.auto_trades(sid, status="open") if tr["account_id"] not in prop
+                  and not await self.db.get_kv(f"partial_done:{sid}:{tr['account_id']}")]
         sem = asyncio.Semaphore(self.concurrency)
 
         async def one(tr: dict) -> PartialResult:
             async with sem:
                 try:
-                    return await self._partial_one(tr, fraction)
+                    for attempt in range(len(self.retry_delays) + 1):
+                        try:
+                            res = await self._partial_one(tr, fraction)
+                            break
+                        except MetaApiError as e:   # нет связи, терминал не в сети — пробуем ещё
+                            if not _retryable(e) or attempt == len(self.retry_delays):
+                                raise
+                            log.info("autotrade partial #%s for %s: %s, retrying", sid, tr["user_id"], e)
+                            await self._ensure_deployed((await self.db.get_account(tr["account_id"]) or {})
+                                                        .get("meta_id", ""))
+                            await asyncio.sleep(self.retry_delays[attempt])
+                    if res.ok or res.error == "CLOSED":
+                        await self.db.set_kv(f"partial_done:{sid}:{tr['account_id']}", "1")
+                    return res
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade partial #%s for %s failed: %s", sid, tr["user_id"], e)
                     return PartialResult(tr["user_id"], False, error=getattr(e, "code", "") or str(e)[:200],
@@ -863,24 +879,58 @@ class AutoTrader:
         acc = await self.db.get_account(aid)
         if not acc:
             return PartialResult(uid, False, error="NO_ACCOUNT", aid=aid)
-        mid, region, pos_id = acc["meta_id"], acc["region"], tr["position_id"]
-        pos = next((p for p in await self.api.positions(mid, region) if str(p.get("id")) == pos_id), None)
+        mid, region = acc["meta_id"], acc["region"]
+        pos = await self._find_position(acc, tr)
         if pos is None:
             return PartialResult(uid, False, error="CLOSED", aid=aid, login=acc["login"])  # брокер уже закрыл
+        pos_id = str(pos.get("id"))
         try:
             spec = await self.api.specification(mid, region, acc["symbol"])
         except Exception:  # noqa: BLE001
             spec = {}
         vol = float(pos.get("volume") or tr.get("volume") or 0)
-        part = split_volume(vol, fraction, spec)
-        if part > 0:
-            await self.api.trade(mid, region, {"actionType": "POSITION_PARTIAL", "positionId": pos_id, "volume": part})
-        stop = round_price(float(pos.get("openPrice") or 0), spec.get("digits"))
-        req = {"actionType": "POSITION_MODIFY", "positionId": pos_id, "stopLoss": stop}
-        if pos.get("takeProfit"):
-            req["takeProfit"] = float(pos["takeProfit"])
-        await self.api.trade(mid, region, req)
-        return PartialResult(uid, True, part, round(vol - part, 2), stop, aid=aid, login=acc["login"])
+        key = f"partial_vol:{tr['signal_id']}:{aid}"
+        done = await self.db.get_kv(key)
+        if done is not None:          # часть закрыта прошлой попыткой, не получился только перенос стопа
+            part = float(done)
+        elif tr.get("volume") and vol < float(tr["volume"]) - 1e-9:
+            part = 0.0                # объём уже меньше открытого — подписчик закрыл часть сам
+        else:
+            part = split_volume(vol, fraction, spec)
+            if part > 0:
+                await self.api.trade(mid, region,
+                                     {"actionType": "POSITION_PARTIAL", "positionId": pos_id, "volume": part})
+                vol = round(vol - part, 2)
+            await self.db.set_kv(key, str(part))
+        open_px = float(pos.get("openPrice") or 0)
+        stop = round_price(open_px, spec.get("digits"))
+        d = 1 if str(pos.get("type", "")).endswith("BUY") else -1 if str(pos.get("type", "")).endswith("SELL") else 0
+        cur = float(pos.get("stopLoss") or 0)
+        at_be = bool(cur) and d != 0 and d * (cur - open_px) >= -1e-9   # стоп уже в безубытке или лучше
+        if not at_be:
+            req = {"actionType": "POSITION_MODIFY", "positionId": pos_id, "stopLoss": stop}
+            if pos.get("takeProfit"):
+                req["takeProfit"] = float(pos["takeProfit"])
+            await self.api.trade(mid, region, req)
+        return PartialResult(uid, True, part, round(vol, 2), stop, aid=aid,
+                             login=acc["login"])
+
+    async def _find_position(self, acc: dict, tr: dict) -> dict | None:
+        """Позиция сделки у брокера: по номеру, а если номер в ответе на открытие был другой (номер ордера,
+        а не позиции) — по комментарию «goldbot #N»; найденный номер запоминаем."""
+        positions = await self.api.positions(acc["meta_id"], acc["region"])
+        pos_id = str(tr.get("position_id") or "")
+        pos = next((p for p in positions if str(p.get("id")) == pos_id), None)
+        if pos is None:
+            tag = f"goldbot #{tr['signal_id']}"[:26]
+            found = [p for p in positions if str(p.get("comment") or "") == tag]
+            if len(found) == 1:
+                pos = found[0]
+                log.warning("autotrade #%s for %s: position %s not found, using %s by comment", tr["signal_id"],
+                            tr["user_id"], pos_id, pos.get("id"))
+                await self.db.save_auto_trade(tr["signal_id"], tr["account_id"], tr["user_id"], str(pos.get("id")),
+                                              float(tr.get("volume") or pos.get("volume") or 0), "open", "")
+        return pos
 
     async def _prop_ids(self) -> set[int]:
         return {a["id"] for a in await self.db.trade_accounts() if a.get("prop_plan")}
@@ -910,9 +960,10 @@ class AutoTrader:
         if not acc:
             await self.db.set_auto_trade_status(sid, aid, "closed")
             return CloseResult(uid, False, error="NO_ACCOUNT", aid=aid)
-        mid, region, pos = acc["meta_id"], acc["region"], tr["position_id"]
-        open_ids = {str(p.get("id")) for p in await self.api.positions(mid, region)}
-        already = pos not in open_ids
+        mid, region = acc["meta_id"], acc["region"]
+        found = await self._find_position(acc, tr)
+        already = found is None
+        pos = str(found.get("id")) if found else tr["position_id"]
         if not already:
             await self.api.trade(mid, region, {"actionType": "POSITION_CLOSE_ID", "positionId": pos})
         await self.db.set_auto_trade_status(sid, aid, "closed")

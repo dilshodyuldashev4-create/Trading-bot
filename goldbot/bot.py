@@ -28,7 +28,7 @@ import json
 
 from . import changelog, econ_calendar, news_alerts
 from . import prop as pr
-from .autotrade import BROKERS, AutoTrader, BrokerMarket, MetaApi, MetaApiError, demo_servers, sl_tp_dist
+from .autotrade import split_volume, BROKERS, AutoTrader, BrokerMarket, MetaApi, MetaApiError, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB, now
 from .chart import render_signal, render_stats
@@ -665,8 +665,8 @@ class App:
                      entry=f"{s['entry']:.2f}", tp=f"{s['tp']:.2f}", pips=f"{tp1_pips:.0f}")
             lot = lots.get(u) or 0
             if lot:
-                close = round(lot * (s.get("part") or 0), 2)
-                if close >= 0.01 and lot - close >= 0.01 - 1e-9:
+                close = split_volume(lot, s.get("part") or 0)   # как на автоторговле: 0.03 → закрыть 0.02
+                if close > 0:
                     text += t(lang, "partial_lot", lot=f"{lot:.2f}", close=f"{close:.2f}", left=f"{lot - close:.2f}",
                               pnl=fmt_usd(money(close, tp1_pips)))
                 else:
@@ -683,8 +683,10 @@ class App:
     async def autotrade_partial(self, sid: int, fraction: float) -> None:
         if not self.autotrader:
             return
+        lock = self.__dict__.setdefault("_partial_lock", asyncio.Lock())   # не делать фиксацию дважды одновременно
         try:
-            results = await self.autotrader.partial_signal(sid, fraction)
+            async with lock:
+                results = await self.autotrader.partial_signal(sid, fraction)
         except Exception:  # noqa: BLE001
             log.exception("autotrade partial #%s", sid)
             return
@@ -692,7 +694,9 @@ class App:
         multi = await self.multi_users()
         for r in results:
             if not r.ok:
-                if r.error != "CLOSED":
+                if r.error == "CLOSED":
+                    log.warning("autotrade partial #%s for %s (%s): position already closed", sid, r.uid, r.login)
+                else:   # админу придёт сообщение; через минуту бот попробует снова (partial_loop)
                     log.error("autotrade partial #%s for %s (%s): %s", sid, r.uid, r.login, r.error)
                 continue
             lang = norm(langs.get(r.uid))
@@ -701,6 +705,20 @@ class App:
             if r.uid in multi:
                 text = t(lang, "at_acc_prefix", login=html.escape(r.login)) + text
             await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
+
+    async def partial_loop(self, every: float = 60) -> None:
+        """Раз в минуту: по сигналам, где часть прибыли уже зафиксирована, доделать фиксацию и безубыток на счетах
+        автоторговли, где не получилось с первого раза (нет связи с MetaApi и т. п.)."""
+        while True:
+            await asyncio.sleep(every)
+            if not self.autotrader:
+                continue
+            try:
+                for s in await self.db.open_signals():
+                    if s.get("part_at") and s.get("part"):
+                        await self.autotrade_partial(s["id"], s["part"])
+            except Exception:  # noqa: BLE001
+                log.warning("partial loop", exc_info=True)
 
     async def broadcast_late(self, s: dict, price: float, moved: float) -> None:
         """Цена уже ушла от входа к тейку — тем, кто получил сигнал: не входите, вы опоздали."""
@@ -2449,6 +2467,7 @@ class App:
                                      disable_notification=True)
         tasks = [
             asyncio.create_task(self.health_loop()),
+            asyncio.create_task(self.partial_loop()),
             asyncio.create_task(self.backup_loop()),
             asyncio.create_task(self.weekly_report_loop()),
             asyncio.create_task(self.engine.run_forever(config.check_interval)),
