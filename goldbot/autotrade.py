@@ -964,14 +964,38 @@ def quote_age(body: dict) -> float | None:
     return (_now() - ts).total_seconds()
 
 
+def _not_connected(e: MetaApiError) -> bool:
+    """Ошибка, которую стоит сразу повторить: копия терминала без связи с брокером, перегрузка, обрыв."""
+    text = str(e).lower()
+    return (e.code in ("TIMEOUT", "NETWORK") or e.status in (502, 503, 504)
+            or "not connected" in text or "does not match the account region" in text)
+
+
 class BrokerMarket(Provider):
     """Свечи и цена XAUUSD прямо с MetaTrader-счёта через MetaApi (тот же график, что в MT5 у брокера).
     source() → {"meta_id", "region", "symbol"} счёта, с которого берём данные (None — счёта нет)."""
 
     max_quote_age = 120   # секунд: старше — котировка зависла, берём запасной источник
 
+    tries = 3             # попыток на запрос, если попали на копию терминала без связи с брокером
+    retry_pause = 0.3
+
     def __init__(self, api: MetaApi, source):
         self.api, self.source = api, source
+
+    async def _get(self, url: str, timeout: float) -> Any:
+        """GET с повтором. У счёта с высокой надёжностью (high reliability) в MetaApi две копии терминала, и
+        запросы раскидываются между ними. Если одна копия потеряла связь с брокером (в кабинете MetaApi:
+        «Connected (no redundancy)»), часть запросов получает «account is not connected to broker yet or request
+        URL you use does not match the account region», хотя другая копия отвечает. Повтор попадает на рабочую."""
+        for attempt in range(self.tries):
+            try:
+                return await self.api._ok("GET", url, timeout=timeout)
+            except MetaApiError as e:
+                if attempt == self.tries - 1 or not _not_connected(e):
+                    raise
+                log.info("market data: retry %s after %s", url.split("/accounts/")[-1][:80], str(e)[:80])
+                await asyncio.sleep(self.retry_pause)
 
     async def _src(self) -> dict:
         src = await self.source()
@@ -984,7 +1008,7 @@ class BrokerMarket(Provider):
         url = (f"{MARKET.format(region=src['region'] or 'new-york')}/users/current/accounts/{src['meta_id']}"
                f"/historical-market-data/symbols/{src['symbol']}/timeframes/{MT_TF[tf]}/candles"
                f"?limit={min(count, 1000)}")
-        body = await self.api._ok("GET", url, timeout=20)
+        body = await self._get(url, timeout=12)
         if not body:
             raise MetaApiError("no candles", "NO_DATA")
         rows = [{"time": c["time"], "open": c["open"], "high": c["high"], "low": c["low"],
@@ -994,9 +1018,9 @@ class BrokerMarket(Provider):
 
     async def price(self) -> float:
         src = await self._src()
-        body = await self.api._ok(
-            "GET", f"{self.api._client(src['meta_id'], src['region'])}/symbols/{src['symbol']}/current-price"
-                   f"?keepSubscription=true", timeout=10)
+        body = await self._get(
+            f"{self.api._client(src['meta_id'], src['region'])}/symbols/{src['symbol']}/current-price"
+            f"?keepSubscription=true", timeout=6)
         p = float(body.get("bid") or 0)   # графики в MetaTrader строятся по bid
         if p <= 0:
             raise MetaApiError(f"no price: {body}", "NO_DATA")

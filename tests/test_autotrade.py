@@ -807,8 +807,16 @@ class MarketFeedTests(unittest.TestCase):
 
             quote = {"symbol": "XAUUSD", "bid": 4131.8, "ask": 4132.0}
 
+            flaky = {"n": 0}   # сколько следующих запросов попадут на копию терминала без связи с брокером
+
             async def price(req):
                 assert req.query.get("keepSubscription") == "true"
+                if flaky["n"] > 0:
+                    flaky["n"] -= 1
+                    return web.json_response({
+                        "id": 1, "error": "TimeoutError",
+                        "message": "It seems like the account m1 is not connected to broker yet or request URL you "
+                                   "use does not match the account region."}, status=504)
                 return web.json_response(quote)
 
             app = web.Application()
@@ -845,6 +853,14 @@ class MarketFeedTests(unittest.TestCase):
                 self.assertEqual(e.exception.code, "STALE")
                 quote["time"] = at._now().isoformat().replace("+00:00", "Z")
                 self.assertEqual(await bm.price(), 4131.8)
+
+                # high reliability: одна из двух копий терминала без связи — повтор попадает на рабочую
+                bm.retry_pause = 0
+                flaky["n"] = 2
+                self.assertEqual(await bm.price(), 4131.8)
+                flaky["n"] = 3
+                with self.assertRaises(at.MetaApiError):
+                    await bm.price()                       # все попытки неудачны — дальше решает Failover
             finally:
                 at.CLIENT, at.MARKET = old
                 await api.close()
