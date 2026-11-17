@@ -163,6 +163,10 @@ def trade_error_text(lang: str, error: str) -> str:
         return t(lang, "at_e_prop")
     if error == "PROP_DAY_LOSS":
         return t(lang, "at_e_prop_loss")
+    if error == "DAY_LOSS":
+        return t(lang, "at_e_day_loss", n=config.autotrade_day_losses)
+    if error == "DAY_SIDE":
+        return t(lang, "at_e_day_side")
     if error in ("NO_MONEY", "TRADE_RETCODE_NO_MONEY"):
         return t(lang, "at_e_money")
     if error in ("TRADE_RETCODE_MARKET_CLOSED", "TRADE_RETCODE_TRADE_DISABLED"):
@@ -345,7 +349,9 @@ class App:
                                          prop_partial=config.prop_partial,
                                          max_spread_pct=config.autotrade_max_spread_pct,
                                          spread_wait=config.autotrade_spread_wait,
-                                         prop_milestones=config.prop_milestones)
+                                         prop_milestones=config.prop_milestones,
+                                         day_losses=config.autotrade_day_losses, day_side=config.autotrade_day_side,
+                                         dd_pct=config.autotrade_dd_pct, dd_mult=config.autotrade_dd_mult)
         if self.autotrader and config.market_from_broker:
             # анализ по графику брокера с подключённого счёта админа; запасной — прежний источник
             self.provider = Failover(BrokerMarket(self.autotrader.api, self.market_account), self.provider,
@@ -911,7 +917,7 @@ class App:
             await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
         log.info("autotrade #%s: %s opened, %s failed", s.id, sum(r.ok for r in results),
                  sum(not r.ok for r in results))
-        failed = [r for r in results if not r.ok and r.error not in ("DUPLICATE", "NO_MONEY", "SPREAD")]
+        failed = [r for r in results if not r.ok and r.error not in ("DUPLICATE", "NO_MONEY", "SPREAD", "DAY_LOSS", "DAY_SIDE")]
         if failed:   # админу — на каких счетах сделка не открылась и почему
             lines = [f"• {html.escape(r.login or str(r.uid))} (id {r.uid}): {html.escape(r.error)}" for r in failed[:20]]
             await self.notify_admins(f"⚠️ <b>Сигнал #{s.id}: сделка не открылась на {len(failed)} счетах</b>\n"

@@ -352,6 +352,13 @@ class AutoTrader:
     reopen_tries: int = 2
     reopen_max_r: float = 0.3
     prop_milestones: bool = True      # сообщения «пройдено 50 % / 90 % цели этапа»
+    # защита обычного счёта от плохих дней (reports/day_guard_research.md), день — по времени сервера (prop_day_tz):
+    # day_losses Stop Loss сделок бота за день — до завтра без новых сделок (0 — выкл.); day_side — за день только
+    # в сторону первой сделки дня; баланс ниже своего максимума на dd_pct % — риск × dd_mult (0 — выкл.)
+    day_losses: int = 2
+    day_side: bool = True
+    dd_pct: float = 3.0
+    dd_mult: float = 0.5
     _reopen: dict = field(default_factory=dict)   # (сигнал, счёт) → сколько раз сверка уже открывала заново
 
     # ── подключение ────────────────────────────────────────────────────────
@@ -570,9 +577,11 @@ class AutoTrader:
         if acc.get("prop_plan") and not min_lot:
             vol = await self._prop_volume(acc, info, spec, sl_dist, strong)
         else:
+            risk = self.risk_pct * (1.0 if min_lot else size)
+            if not min_lot:
+                risk *= await self._day_guard(acc, info, direction)
             vol = calc_volume(float(info.get("equity") or info.get("balance") or 0),
-                              info.get("currency") or "USD", sl_dist, self.risk_pct * (1.0 if min_lot else size),
-                              self.max_lot, spec)
+                              info.get("currency") or "USD", sl_dist, risk, self.max_lot, spec)
         if min_lot and vol > 0:
             vol = round(float(spec.get("minVolume") or 0.01), 2)
         if vol <= 0:
@@ -743,6 +752,25 @@ class AutoTrader:
             return False
         since = pr.day_start(_now(), self.prop_day_tz)
         return await self.db.stop_losses_since(acc["id"], since) >= self.prop_day_losses
+
+    async def _day_guard(self, acc: dict, info: dict, direction: int) -> float:
+        """Защита обычного счёта перед новой сделкой: стоп дня (DAY_LOSS), только сторона первой сделки дня
+        (DAY_SIDE) — MetaApiError; иначе множитель риска (меньше 1 в просадке от максимума баланса)."""
+        since = pr.day_start(_now(), self.prop_day_tz)
+        if self.day_losses > 0 and await self.db.stop_losses_since(acc["id"], since) >= self.day_losses:
+            raise MetaApiError(f"{self.day_losses} stop losses today", "DAY_LOSS")
+        if self.day_side:
+            first = await self.db.first_direction_since(acc["id"], since)
+            if first and first != direction:
+                raise MetaApiError("against today's first trade", "DAY_SIDE")
+        if self.dd_pct <= 0:
+            return 1.0
+        balance = float(info.get("balance") or 0)
+        key = f"peak_balance:{acc['id']}"
+        peak = max(float(await self.db.get_kv(key) or 0), balance)
+        if balance > 0 and peak > float(await self.db.get_kv(key) or 0):
+            await self.db.set_kv(key, f"{peak:.2f}")
+        return self.dd_mult if balance > 0 and balance <= peak * (1 - self.dd_pct / 100) else 1.0
 
     async def _close_all(self, acc: dict) -> int:
         """Закрывает позиции на счёте (prop_close: all — все, bot — только открытые ботом)."""
@@ -984,7 +1012,8 @@ def _now():
 
 
 # ошибки, после которых сверка не открывает сделку повторно: нет денег, лимиты проп-счёта, счёт не тот
-NO_REOPEN = {"NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DUPLICATE", "NO_ACCOUNT",
+NO_REOPEN = {"NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DAY_LOSS", "DAY_SIDE",
+             "DUPLICATE", "NO_ACCOUNT",
              "REAL_NOT_ALLOWED", "TRADE_RETCODE_TRADE_DISABLED"}
 
 

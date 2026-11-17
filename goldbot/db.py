@@ -492,6 +492,15 @@ class DB:
             "AND s.status='sl' AND s.closed_at>=?", (aid, _iso(since)))
         return int((await cur.fetchone())[0])
 
+    async def first_direction_since(self, aid: int, since: datetime) -> int:
+        """Сторона первой сделки бота на счёте с since (1 BUY, -1 SELL, 0 — сделок не было)."""
+        cur = await self.conn.execute(
+            "SELECT s.direction FROM auto_trades a JOIN signals s ON s.id = a.signal_id "
+            "WHERE a.account_id=? AND a.position_id IS NOT NULL AND a.position_id != '' AND a.signal_id > 0 "
+            "AND s.created_at>=? ORDER BY s.created_at, s.id LIMIT 1", (aid, _iso(since)))
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
     async def close_account_auto_trades(self, aid: int) -> None:
         await self.conn.execute("UPDATE auto_trades SET status='closed' WHERE account_id=? AND status='open'", (aid,))
         await self.conn.commit()
