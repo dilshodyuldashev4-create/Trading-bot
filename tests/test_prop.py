@@ -44,9 +44,9 @@ class PropMathTests(unittest.TestCase):
         budget, reason = pr.risk_budget(a, 25_000, [], 0.5, 0.5)
         self.assertEqual((budget, reason), (125, "risk"))         # 0.5 % от $25 000
         budget, _ = pr.risk_budget(a, 25_000, [], 10, 0.5)
-        self.assertEqual(budget, 700)                             # больше 2.8 % не бывает
-        # открытые сделки уже рискуют $650 до стопов: вместе не больше 2.8 % ($700) — остаётся $50
-        pos = [{"type": "POSITION_TYPE_SELL", "volume": 0.65, "currentPrice": 2650, "stopLoss": 2660}]
+        self.assertEqual(budget, 250)                             # больше 1 % не бывает
+        # открытые сделки уже рискуют $325 до стопов: вместе не больше 1.5 % ($375) — остаётся $50
+        pos = [{"type": "POSITION_TYPE_SELL", "volume": 0.325, "currentPrice": 2650, "stopLoss": 2660}]
         budget, reason = pr.risk_budget(a, 25_000, pos, 1, 0.5)
         self.assertEqual((round(budget, 2), reason), (50, "open"))
         # сегодня уже −$700: до дневного стопа бота ($750) остаётся $50
@@ -127,11 +127,10 @@ class PropTraderTests(unittest.TestCase):
                 # сильный сигнал — 1 % ($250) → 0.12 лота
                 res = await tr.open_signal(2, 1, 20.0, 40.0, uids={1}, strong=True)
                 self.assertEqual(res[0].volume, 0.12)
-                # открыто уже ≈ $355 риска; потолок на все открытые 2.8 % ($700) — третья сделка меньше
-                for sid in (3, 4):
-                    res = await tr.open_signal(sid, 1, 20.0, 40.0, uids={1}, strong=True)
-                    self.assertTrue(res[0].ok, res)
-                self.assertEqual(res[0].volume, 0.05)
+                # открыто уже ≈ $355 риска; потолок на все открытые 1.5 % ($375) — третьей остаётся минимальный лот,
+                # четвёртая не помещается
+                res = await tr.open_signal(3, 1, 20.0, 40.0, uids={1}, strong=True)
+                self.assertEqual((res[0].ok, res[0].volume), (True, 0.01))
                 res = await tr.open_signal(5, 1, 20.0, 40.0, uids={1})
                 self.assertFalse(res[0].ok)
                 self.assertEqual(res[0].error, "PROP_LIMIT")
@@ -236,7 +235,9 @@ class PropBotTextTests(unittest.TestCase):
         self.assertIn("REFHGUTBT", intro[1])
         self.assertEqual(intro[2].inline_keyboard[0][0].url, "https://fundednext.com")
         self.assertIn("$125", rules[1])                     # 0.5 % от $25 000
-        self.assertIn("2.8% ($700)", rules[1])
+        self.assertIn("1% ($250)", rules[1])
+        self.assertIn("1.5% ($375)", rules[1])
+        self.assertIn("−1% ($250)", rules[1])               # два стопа подряд по 0.5 %
         self.assertIn("Челлендж, этап 1 пройден", passed[1])
         self.assertIn("🔢 Счёт", passed[1])
         self.assertIn("+8.50%", passed[1])

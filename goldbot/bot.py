@@ -1073,6 +1073,8 @@ class App:
                  strong=f"{min(config.prop_strong_risk_pct, config.prop_max_trade_pct):g}",
                  strong_usd=n(size * min(config.prop_strong_risk_pct, config.prop_max_trade_pct) / 100), max_trade=f"{config.prop_max_trade_pct:g}",
                  max_trade_usd=n(size * config.prop_max_trade_pct / 100),
+                 max_open=f"{pr.MAX_OPEN_PCT:g}", max_open_usd=n(size * pr.MAX_OPEN_PCT / 100),
+                 two=f"{2 * risk:g}", two_usd=n(size * 2 * risk / 100),
                  day_cap=f"{lim.day_limit / size * 100:g}", day_cap_usd=n(lim.day_limit),
                  guard_usd=n(size * config.prop_guard_pct / 100),
                  reset=f"{pr.reset_time(config.display_tz, now(), config.prop_day_tz)} ({config.display_tz})")
