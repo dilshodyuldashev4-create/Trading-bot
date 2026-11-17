@@ -325,12 +325,12 @@ class AutoTrader:
     exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
     paid_days: int = 30               # на сколько дней оплачен новый счёт
     # проп-счета FundedNext
-    prop_risk_pct: float = 0.5        # риск на сделку, % от размера счёта (больше 2.8 % не бывает)
+    prop_risk_pct: float = 0.5        # риск на сделку, % от размера счёта (больше 1 % не бывает)
     prop_strong_risk_pct: float = 1.0  # риск на сильный сигнал (сильный фон новостей в ту же сторону)
     prop_guard_pct: float = 0.5       # подушка до лимитов FundedNext, % от размера счёта
     prop_max_lot: float = 5.0
     prop_risk_cap: float = 3.0        # за день все сделки вместе — не больше 3 % счёта
-    prop_max_trade: float = 2.8       # потолок риска одной сделки, % счёта
+    prop_max_trade: float = 1.0       # потолок риска одной сделки, % счёта
     prop_day_tz: str = "Europe/Athens"  # полночь сервера FundedNext
     prop_close: str = "all"           # что закрывать у лимита: all — всё на счёте, bot — только свои, none — ничего
     prop_day_losses: int = pr.DAY_LOSSES  # после стольких Stop Loss за день — до завтра без новых сделок (0 — выкл.)
@@ -700,7 +700,7 @@ class AutoTrader:
 
     # ── проп-счета ──────────────────────────────────────────────────────────
     async def _prop_volume(self, acc: dict, info: dict, spec: dict, sl_dist: float, strong: bool = False) -> float:
-        """Лот на проп-счёте: не больше prop_risk_pct % (≤ 2.8 %) и так, чтобы стоп этой сделки вместе со
+        """Лот на проп-счёте: не больше prop_risk_pct % (≤ 1 %) и так, чтобы стоп этой сделки вместе со
         стопами уже открытых не довёл счёт до дневного или общего лимита FundedNext."""
         balance = float(info.get("balance") or 0)
         equity = float(info.get("equity") or balance)

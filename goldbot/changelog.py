@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-17.3",
+        "ru": [
+            "🏆 FundedNext: риск на одну сделку теперь не больше 1 % счёта (обычно 0.5 %), на все открытые вместе — "
+            "не больше 1.5 %. Даже несколько стопов подряд не доводят до лимитов FundedNext",
+        ],
+        "en": [
+            "🏆 FundedNext: risk per trade is now at most 1% of the account (usually 0.5%), all open trades together "
+            "at most 1.5%. Even several stops in a row do not reach the FundedNext limits",
+        ],
+        "uz": [
+            "🏆 FundedNext: bitta savdoga xavf endi hisobning 1 % dan oshmaydi (odatda 0.5 %), barcha ochiq savdolar "
+            "birga — 1.5 % dan oshmaydi. Ketma-ket bir nechta stop ham FundedNext limitlariga yetkazmaydi",
+        ],
+    },
+    {
         "version": "2026-11-17.2",
         "ru": [
             "📈 Пробои больше не входят, когда рынок уже сильно разогнан: на истории так меньше лишних стопов",
