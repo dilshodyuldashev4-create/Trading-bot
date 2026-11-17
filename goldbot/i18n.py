@@ -926,6 +926,8 @@ PROP_GUARD_TEXTS: dict[str, dict[str, str]] = {
         "prop_loss_stop": "🛡 Сделка закрылась по Stop Loss. Чтобы не потерять больше за день, бот до полуночи FundedNext новые сделки на проп-счёте не открывает. Завтра продолжит сам.",
         "prop_status_halt_loss": "\n🛡 Сегодня был Stop Loss: до полуночи FundedNext бот новые сделки не открывает.",
         "at_e_prop_loss": "сегодня уже был Stop Loss, до полуночи FundedNext новые сделки на проп-счёте не открываются",
+        "at_e_day_loss": "сегодня на счёте уже {n} Stop Loss, до полуночи (время сервера) бот новые сделки не открывает — завтра продолжит сам",
+        "at_e_day_side": "сегодня бот уже торгует в другую сторону, встречную сделку в тот же день не открывает",
     },
     "en": {
         "prop_rules_loss": "🛡 <b>Account protection</b>\n• after stop loss number {n} in a day the bot opens no new trades until FundedNext midnight: losses usually come in streaks within one day;",
@@ -933,6 +935,8 @@ PROP_GUARD_TEXTS: dict[str, dict[str, str]] = {
         "prop_loss_stop": "🛡 A trade closed at Stop Loss. To avoid losing more today, the bot opens no new trades on your prop account until FundedNext midnight. It resumes by itself tomorrow.",
         "prop_status_halt_loss": "\n🛡 There was a Stop Loss today: no new trades until FundedNext midnight.",
         "at_e_prop_loss": "there was already a Stop Loss today, no new prop account trades until FundedNext midnight",
+        "at_e_day_loss": "there were already {n} stop losses on this account today, no new trades until server midnight — the bot resumes tomorrow",
+        "at_e_day_side": "today the bot already trades the other way and does not open an opposite trade the same day",
     },
     "uz": {
         "prop_rules_loss": "🛡 <b>Hisob himoyasi</b>\n• kun davomida {n}-Stop Loss’dan keyin bot FundedNext yarim tunigacha yangi savdo ochmaydi: zararlar odatda bir kun ichida ketma-ket keladi;",
@@ -940,6 +944,8 @@ PROP_GUARD_TEXTS: dict[str, dict[str, str]] = {
         "prop_loss_stop": "🛡 Savdo Stop Loss bilan yopildi. Bugun koʻproq yoʻqotmaslik uchun bot FundedNext yarim tunigacha prop hisobda yangi savdo ochmaydi. Ertaga oʻzi davom etadi.",
         "prop_status_halt_loss": "\n🛡 Bugun Stop Loss boʻldi: FundedNext yarim tunigacha yangi savdo ochilmaydi.",
         "at_e_prop_loss": "bugun Stop Loss boʻldi, FundedNext yarim tunigacha prop hisobda yangi savdo ochilmaydi",
+        "at_e_day_loss": "bugun hisobda allaqachon {n} ta Stop Loss boʻldi, server yarim tunigacha bot yangi savdo ochmaydi — ertaga oʻzi davom etadi",
+        "at_e_day_side": "bugun bot boshqa tomonga savdo qilyapti, shu kuni qarama-qarshi savdo ochmaydi",
     },
 }
 for _lang, _texts in PROP_GUARD_TEXTS.items():
