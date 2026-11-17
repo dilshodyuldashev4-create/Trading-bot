@@ -176,7 +176,9 @@ class StatsTextTests(unittest.TestCase):
 class VolumeTests(unittest.TestCase):
     def test_split(self):
         self.assertEqual(split_volume(0.10, 0.5), 0.05)
-        self.assertEqual(split_volume(0.03, 0.5), 0.01)
+        self.assertEqual(split_volume(0.03, 0.5), 0.02)          # округление вверх
+        self.assertEqual(split_volume(0.02, 0.5), 0.01)
+        self.assertEqual(split_volume(0.05, 0.5), 0.03)
         self.assertEqual(split_volume(0.01, 0.5), 0.0)             # минимальный лот не делится
         self.assertEqual(split_volume(1.0, 0.5, {"volumeStep": 0.1, "minVolume": 0.1}), 0.5)
         self.assertEqual(split_volume(0.1, 0.5, {"volumeStep": 0.1, "minVolume": 0.1}), 0.0)
@@ -322,5 +324,90 @@ class PropPartialSwitchTests(unittest.TestCase):
                 await tr.open_signal(6, 1, 20, 60)
                 self.assertAlmostEqual(api.trades[-1][1]["takeProfit"], 2650.3 + 60)   # тейк как в сигнале
                 self.assertEqual(len(await tr.close_signal(6, skip_prop=True)), 1)       # разворот закрывает и проп
+                await db.close()
+        run(go())
+
+
+class PartialRobustTests(unittest.TestCase):
+    """Сигнал #40: фиксация не сработала на счёте Exness — позиция у брокера под другим номером."""
+
+    def _api(self):
+        from tests import test_autotrade as ta
+
+        class Api(ta.FakeApi):
+            def __init__(self, **kw):
+                super().__init__(**kw)
+                self.real_id = "2790963546"
+                self.volume, self.sl = 0.03, 3878.983
+                self.fail_modify = 0
+
+            async def positions(self, acc_id, region):
+                if not self.open_positions.get(acc_id):
+                    return []
+                return [{"id": self.real_id, "type": "POSITION_TYPE_SELL", "volume": self.volume,
+                         "openPrice": 3865.972, "stopLoss": self.sl, "takeProfit": 3826.983,
+                         "comment": "goldbot #40"}]
+
+            async def trade(self, acc_id, region, req):
+                kind = req["actionType"]
+                if kind in ("POSITION_PARTIAL", "POSITION_MODIFY", "POSITION_CLOSE_ID"):
+                    assert req["positionId"] == self.real_id, req
+                    self.trades.append((acc_id, req))
+                    if kind == "POSITION_MODIFY" and self.fail_modify:
+                        self.fail_modify -= 1
+                        raise ta.at.MetaApiError("not connected", "TIMEOUT")
+                    if kind == "POSITION_PARTIAL":
+                        self.volume = round(self.volume - req["volume"], 2)
+                    elif kind == "POSITION_MODIFY":
+                        self.sl = req["stopLoss"]
+                    else:
+                        self.open_positions[acc_id].clear()
+                    return {"stringCode": "TRADE_RETCODE_DONE"}
+                return await super().trade(acc_id, region, req)
+        return ta, Api
+
+    def test_position_found_by_comment_partial_once(self):
+        ta, Api = self._api()
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await ta.make_db(d)
+                api = Api(equity=5000)
+                api.fail_modify = 1          # первая попытка переноса стопа — сбой связи, потом получается
+                tr = ta.trader(db, api)
+                await tr.connect(1, "mt5", "S", "1", "p")
+                await db.save_auto_trade(40, 1, 1, "111", 0.03, "open", "")   # номер ордера, не позиции
+                api.open_positions["acc1"] = {"111"}
+                res = await tr.partial_signal(40, 0.5)
+                self.assertTrue(res[0].ok, res[0].error)
+                self.assertEqual((res[0].closed, res[0].left), (0.02, 0.01))
+                self.assertEqual(api.volume, 0.01)
+                self.assertEqual(api.sl, 3865.97)
+                partials = [q for _, q in api.trades if q["actionType"] == "POSITION_PARTIAL"]
+                self.assertEqual(len(partials), 1)              # повтор после сбоя не закрыл ещё раз
+                self.assertEqual((await db.get_auto_trade(40, 1))["position_id"], "2790963546")
+                self.assertEqual(await tr.partial_signal(40, 0.5), [])        # уже сделано — второй раз нет
+                closed = await tr.close_signal(40)
+                self.assertTrue(closed[0].ok)
+                self.assertFalse(closed[0].already)
+                await db.close()
+        run(go())
+
+    def test_already_at_breakeven_by_hand(self):
+        ta, Api = self._api()
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await ta.make_db(d)
+                api = Api(equity=5000)
+                api.volume, api.sl = 0.02, 3865.97    # подписчик сам закрыл часть и перенёс стоп
+                tr = ta.trader(db, api)
+                await tr.connect(1, "mt5", "S", "1", "p")
+                await db.save_auto_trade(40, 1, 1, "2790963546", 0.03, "open", "")
+                api.open_positions["acc1"] = {"2790963546"}
+                res = await tr.partial_signal(40, 0.5)
+                self.assertTrue(res[0].ok)
+                self.assertEqual(res[0].closed, 0)
+                self.assertEqual([q["actionType"] for _, q in api.trades if q["actionType"].startswith("POSITION")], [])
                 await db.close()
         run(go())
