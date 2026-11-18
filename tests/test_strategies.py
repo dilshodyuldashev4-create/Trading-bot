@@ -143,3 +143,15 @@ class NewStrategiesTests(unittest.TestCase):
         self.assertIn("donchian_h1", PORTFOLIO)
         self.assertTrue(STRATEGIES["donchian_h1"].daily_trend)
         self.assertFalse(STRATEGIES["asia"].daily_trend)
+
+    def test_days_breakout(self):
+        from goldbot.live_strategy import PORTFOLIO, STRATEGIES
+        from goldbot.strategies.popular import days_breakout
+        # 6 дней боковика 99.5–100.5, на 7-й день рост выше максимума 5 дней: один сигнал BUY в этот день
+        prices = [100.0] * (6 * 96) + [100.0] * 40 + [102.0] * 56
+        df = make_df(prices, start="2025-01-06 00:00")
+        sig = days_breakout(df)
+        self.assertEqual(int(np.abs(sig).sum()), 1)
+        self.assertEqual(sig[6 * 96 + 40], 1)
+        self.assertIn("days5", PORTFOLIO)
+        self.assertTrue(STRATEGIES["days5"].daily_trend)

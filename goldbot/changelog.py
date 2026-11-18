@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-18.2",
+        "ru": [
+            "📊 Новая стратегия: пробой максимума или минимума последних 5 дней по дневному тренду. "
+            "На истории 2023–2026 прибыль бота выросла с +517 % до +583 %",
+        ],
+        "en": [
+            "📊 New strategy: breakout of the last 5 days' high or low with the daily trend. "
+            "On 2023–2026 history the bot's profit grew from +517% to +583%",
+        ],
+        "uz": [
+            "📊 Yangi strategiya: kunlik trend boʻyicha oxirgi 5 kunning maksimumi yoki minimumini yorib oʻtish. "
+            "2023–2026 tarixida bot foydasi +517 % dan +583 % gacha oshdi",
+        ],
+    },
+    {
         "version": "2026-11-18.1",
         "ru": [
             "📊 Две новые стратегии: пробой азиатского диапазона на Лондоне и пробой канала Дончиана 100 часов "
