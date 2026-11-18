@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-18.1",
+        "ru": [
+            "📊 Две новые стратегии: пробой азиатского диапазона на Лондоне и пробой канала Дончиана 100 часов "
+            "по дневному тренду. На истории 2023–2026 прибыль бота выросла с +359 % до +517 %",
+        ],
+        "en": [
+            "📊 Two new strategies: Asian range breakout in London and a 100-hour Donchian channel breakout "
+            "with the daily trend. On 2023–2026 history the bot's profit grew from +359% to +517%",
+        ],
+        "uz": [
+            "📊 Ikki yangi strategiya: Londonda Osiyo diapazonini yorib oʻtish va kunlik trend boʻyicha 100 soatlik "
+            "Donchian kanalini yorib oʻtish. 2023–2026 tarixida bot foydasi +359 % dan +517 % gacha oshdi",
+        ],
+    },
+    {
         "version": "2026-11-17.3",
         "ru": [
             "🏆 FundedNext: риск на одну сделку теперь не больше 1 % счёта (обычно 0.5 %), на все открытые вместе — "

@@ -9,9 +9,9 @@ import pandas as pd
 
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
-from .strategies.popular import donchian_breakout
+from .strategies.popular import donchian_breakout, donchian_h1
 from .strategies.research import squeeze_breakout, swing_sweep
-from .strategies.sessions import asian_range_breakout, bank_manipulation, silver_bullet
+from .strategies.sessions import asian_breakout_day, asian_range_breakout, bank_manipulation, silver_bullet
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
 
 
 # Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
-GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd"}
+GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -67,12 +67,20 @@ STRATEGIES = {
         "amd", "Манипуляция банка: Азия — диапазон, Лондон — вынос ликвидности, Нью-Йорк — вход", "15min",
         bank_manipulation,
         "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR / тейк 3 ATR: 386 сделок, тейков 46%, +54R"),
+    # reports/indicator_research.md: добавляют прибыль портфелю в обеих половинах истории и на зеркальном графике
+    "asia": LiveStrategy(
+        "asia", "Пробой азиатского диапазона (00–07 Лондона) до 16:00 Лондона", "15min", asian_breakout_day,
+        "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, безубыток, тейк 3R: 613 сделок, в плюсе 51%, +22R"),
+    "donchian_h1": LiveStrategy(
+        "donchian_h1", "Пробой канала Дончиана 100 H1 по дневному тренду", "15min", donchian_h1,
+        "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, безубыток, тейк 3R: 282 сделки, в плюсе 56%, +61R",
+        daily_trend=True),
 }
 
 
 # STRATEGY=all — самые прибыльные стратегии на M15 (по одной на сетап, чтобы один и тот же сигнал не приходил
 # дважды). У каждой не больше одной открытой сделки, а встречный сигнал (против открытой сделки) не даётся.
-PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd")
+PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1")
 
 
 def resolve_keys(spec: str) -> list[str]:

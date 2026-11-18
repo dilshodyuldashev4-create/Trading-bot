@@ -62,3 +62,16 @@ def supertrend(df, n: int = 10, mult: float = 3.0):
     flip = np.r_[False, d[1:] != d[:-1]]
     sig[flip] = d[flip]
     return sig
+
+
+def donchian_h1(df, n: int = 100):
+    """Пробой канала Дончиана n свечей H1 (закрытие H1 выше максимума / ниже минимума прошлых n часов),
+    только первая свеча пробоя. Работает на M15: сигнал на свече M15, которой закрывается час
+    (reports/indicator_research.md). Незакрытый час в конце df сигнала не даёт."""
+    h1 = df.resample("1h", label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    x = np.where(h1.close > h1.high.rolling(n).max().shift(), 1,
+                 np.where(h1.close < h1.low.rolling(n).min().shift(), -1, 0))
+    x = np.where(x != np.r_[0, x[:-1]], x, 0)
+    s = pd.Series(x, index=h1.index + pd.Timedelta(minutes=45))
+    return s.reindex(df.index).fillna(0).to_numpy().astype(np.int8)
