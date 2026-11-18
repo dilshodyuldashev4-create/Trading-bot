@@ -63,6 +63,9 @@ class Config:
     adx_max: float = float(os.getenv("ADX_MAX", "25"))
     adx_keys: tuple[str, ...] = tuple(
         x.strip() for x in os.getenv("ADX_KEYS", "squeeze,donchian").split(",") if x.strip())
+    # свечной анализ (reports/candle_research.md): пин-бар H1 против сигнала на последних CANDLE_PIN_HOURS
+    # закрытых свечах H1 (молот на дне — не продаём, падающая звезда на вершине — не покупаем). 0 — выключено
+    candle_pin_hours: int = int(os.getenv("CANDLE_PIN_HOURS", "2"))
     # две стратегии согласны (reports/profit_research.md): другая стратегия дала сигнал в ту же сторону за
     # последние CONFLUENCE_MIN минут — лот × CONFLUENCE_STRONG, иначе × CONFLUENCE_SINGLE (обычные счета и лот
     # в сигнале; проп-счета — как раньше). 1 и 1 — выключено
