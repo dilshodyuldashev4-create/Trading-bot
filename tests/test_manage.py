@@ -172,6 +172,18 @@ class StatsTextTests(unittest.TestCase):
         self.assertIn("Итог: <b>+100", txt)    # 150 + 50 − 100
         self.assertIn("67%", txt)
 
+    def test_tp_after_partial_shows_move_and_split(self):
+        # сигнал #49 18.11: SELL 3785.99, SL 3806.99, TP 3722.99, 50% на 3764.99
+        from goldbot.bot import stats_text
+        rows = [dict(id=49, created_at="2026-11-18T13:45:00+00:00", direction=-1, entry=3785.99, sl=3806.99,
+                     tp=3722.99, tp1=3764.99, part=0.5, part_at="x", status="tp", exit_price=None)]
+        txt = stats_text("ru", rows, "UTC")
+        self.assertIn("выход 3722.99, <b>+630 пипсов", txt)   # весь ход цены до тейка
+        self.assertIn("50% лота закрыто на 3764.99: +210", txt)
+        self.assertIn("закрыт на 3722.99: +630", txt)
+        self.assertIn("Итог на весь лот: <b>+420", txt)
+        self.assertIn("Итог: <b>+420", txt)
+
 
 class VolumeTests(unittest.TestCase):
     def test_split(self):
