@@ -19,7 +19,7 @@ from .chart import render_signal
 from .data import PIP
 from .db import DB
 from .i18n import DEFAULT, per_lang, t
-from .indicators import adx, atr
+from .indicators import adx, atr, pin_bar
 from .live_strategy import STRATEGIES, LiveStrategy, daily_trend_side, expected_setup, resolve_keys
 from .market import TF_MINUTES, Provider
 
@@ -205,6 +205,9 @@ class SignalEngine:
         self.adx_max = 0.0
         self.adx_keys: tuple[str, ...] = ()
         self.has_prop: Optional[Callable[[], Awaitable[bool]]] = None
+        # свечной анализ (reports/candle_research.md): пин-бар H1 против сигнала на последних pin_hours
+        # закрытых свечах H1 (молот — против продажи, падающая звезда — против покупки) — сигнал пропускается
+        self.pin_hours = 0
         # согласие стратегий: другая стратегия дала сигнал в ту же сторону за confluence_min минут
         self.confluence_min = 0
         self.confluence_single = 1.0
@@ -590,6 +593,9 @@ class SignalEngine:
         if prop_only and not (self.has_prop and await self.has_prop()):
             log.info("signal skipped (%s): ADX %.0f ≥ %g, no prop accounts", st.key, self.last_adx, self.adx_max)
             return None
+        if self.pin_hours > 0 and self.pin_against(await self._candles("1h", now, cache), d):
+            log.info("signal skipped (%s): H1 pin bar against %s", st.key, "BUY" if d == 1 else "SELL")
+            return None  # рынок уже показал разворот (молот на дне / звезда на вершине)
         open_dirs = open_dirs if open_dirs is not None else set()
         if -d in open_dirs:
             log.info("signal skipped (%s): %s while an opposite trade is open", st.key, "BUY" if d == 1 else "SELL")
@@ -653,6 +659,12 @@ class SignalEngine:
         return self.last_adx >= self.adx_max
 
     last_adx = 0.0
+
+    def pin_against(self, h1: pd.DataFrame, d: int) -> bool:
+        """На последних pin_hours закрытых свечах H1 есть пин-бар против направления d."""
+        if self.pin_hours <= 0 or len(h1) < 21:
+            return False
+        return bool((pin_bar(h1)[-self.pin_hours:] == -d).any())
 
     def size_for(self, key: str, bar: pd.Timestamp, d: int) -> float:
         """Множитель лота: другая стратегия за confluence_min минут дала сигнал в ту же сторону — confluence_strong,

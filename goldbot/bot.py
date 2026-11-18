@@ -319,6 +319,7 @@ class App:
         self.engine.reversal_min_pips = config.reversal_min_pips
         self.engine.adx_max, self.engine.adx_keys = config.adx_max, config.adx_keys
         self.engine.has_prop = self.has_prop
+        self.engine.pin_hours = config.candle_pin_hours
         self.engine.confluence_min = config.confluence_min
         self.engine.confluence_single = config.confluence_single
         self.engine.confluence_strong = config.confluence_strong

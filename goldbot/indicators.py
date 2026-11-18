@@ -50,3 +50,15 @@ def pivot_high(h: np.ndarray, n: int) -> np.ndarray:
 
 def pivot_low(l: np.ndarray, n: int) -> np.ndarray:
     return -pivot_high(-l, n)
+
+
+def pin_bar(df: pd.DataFrame) -> np.ndarray:
+    """Пин-бар на каждой свече: +1 молот (нижняя тень ≥ 2 тела и ≥ 60 % свечи), −1 падающая звезда, 0 нет.
+    Свеча не меньше средней за 20 (reports/candle_research.md)."""
+    o, h, l, c = (df[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
+    body = np.abs(c - o)
+    rng = h - l + 1e-9
+    up_w, lo_w = h - np.maximum(o, c), np.minimum(o, c) - l
+    big = rng >= pd.Series(rng).rolling(20).mean().to_numpy()
+    return np.where((lo_w >= 2 * body) & (lo_w >= 0.6 * rng) & big, 1,
+                    np.where((up_w >= 2 * body) & (up_w >= 0.6 * rng) & big, -1, 0))

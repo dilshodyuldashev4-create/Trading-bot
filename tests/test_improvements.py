@@ -311,3 +311,21 @@ class BroadcastCardTests(unittest.TestCase):
                 self.assertIn("безубыток", app.bot.edits[-1][2])
                 await db.close()
         run(go())
+
+
+class PinBarFilterTests(unittest.TestCase):
+    def test_hammer_blocks_sell_not_buy(self):
+        from goldbot.indicators import pin_bar
+        idx = pd.date_range("2025-03-03", periods=30, freq="1h")
+        o = np.linspace(3900, 3800, 30)
+        df = pd.DataFrame(dict(open=o, high=o + 2, low=o - 4, close=o - 3), index=idx)
+        # последняя свеча — молот: длинная нижняя тень, маленькое тело наверху
+        df.iloc[-1] = [3790.0, 3791.5, 3770.0, 3791.0]
+        self.assertEqual(pin_bar(df)[-1], 1)
+        eng = SignalEngine.__new__(SignalEngine)
+        eng.pin_hours = 2
+        self.assertTrue(eng.pin_against(df, -1))     # продажа после молота — пропуск
+        self.assertFalse(eng.pin_against(df, 1))     # покупка — можно
+        self.assertFalse(eng.pin_against(df.iloc[:-1], -1))
+        eng.pin_hours = 0
+        self.assertFalse(eng.pin_against(df, -1))
