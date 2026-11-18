@@ -106,6 +106,12 @@ class Config:
     morning_review: str = os.getenv("MORNING_REVIEW", "08:00")
     # итоги недели всем в воскресенье в это местное время; пусто — выключено
     weekly_report: str = os.getenv("WEEKLY_REPORT", "12:00")
+    # итоги торгового дня всем и в канал, когда рынок золота закрывается (пн–пт, 17:00 по Нью-Йорку:
+    # 21:00 UTC летом, 22:00 UTC зимой), через DAILY_REPORT_DELAY_MIN минут; DAILY_REPORT=0 — выключено,
+    # DAILY_REPORT_EMPTY=0 — не отправлять в день без сделок
+    daily_report: bool = os.getenv("DAILY_REPORT", "1") not in ("0", "false", "no", "")
+    daily_report_delay_min: int = int(os.getenv("DAILY_REPORT_DELAY_MIN", "5"))
+    daily_report_empty: bool = os.getenv("DAILY_REPORT_EMPTY", "1") not in ("0", "false", "no", "")
     # админам: сообщения об ошибках бота (не чаще раза в ALERT_REPEAT_MIN минут на одну и ту же ошибку),
     # о том, что рынок не проверяется дольше ALERT_STALL_MIN минут, и о перезапуске
     admin_alerts: bool = os.getenv("ADMIN_ALERTS", "1") not in ("0", "false", "no", "")
