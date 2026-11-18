@@ -111,6 +111,12 @@ class Config:
     admin_alerts: bool = os.getenv("ADMIN_ALERTS", "1") not in ("0", "false", "no", "")
     alert_repeat_min: int = int(os.getenv("ALERT_REPEAT_MIN", "30"))
     alert_stall_min: int = int(os.getenv("ALERT_STALL_MIN", "5"))
+    # нет связи с Telegram дольше ALERT_TG_MIN минут — админу одно сообщение, когда связь вернётся
+    # (короткие обрывы бот переживает сам и о них не пишет)
+    alert_tg_min: int = int(os.getenv("ALERT_TG_MIN", "5"))
+    # прокси для связи с Telegram, если хостинг или провайдер её режет: http://user:pass@host:port
+    # или socks5://user:pass@host:port. Пусто — напрямую
+    telegram_proxy: str = os.getenv("TELEGRAM_PROXY", "").strip()
     # копия базы каждый день в BACKUP_TIME (местное время): в папку backups рядом с базой (хранится BACKUP_KEEP
     # штук) и файлом админам в Telegram (BACKUP_TO_ADMIN=0 — не присылать); пусто — выключено
     backup_time: str = os.getenv("BACKUP_TIME", "03:00")

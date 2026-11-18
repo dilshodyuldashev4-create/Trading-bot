@@ -10,9 +10,19 @@ from datetime import datetime
 from pathlib import Path
 
 
+# короткие обрывы связи сервера с Telegram: aiogram сам переподключается, админу о каждом — не пишем
+NET_ERRORS = ("TelegramNetworkError", "TelegramServerError", "ClientConnectorError", "ServerDisconnectedError")
+
+
+def is_net_error(text: str) -> bool:
+    return any(x in text for x in NET_ERRORS)
+
+
 class AlertHandler(logging.Handler):
     """Собирает ошибки (ERROR и выше) из логов бота; App раз в несколько секунд отправляет их админам.
-    Одна и та же ошибка (то же место и тот же текст шаблона) — не чаще раза в repeat секунд."""
+    Одна и та же ошибка (то же место и тот же текст шаблона) — не чаще раза в repeat секунд.
+    Ошибки связи с Telegram в очередь не попадают: только время последней (net_at) — App сообщит,
+    если связь не работала дольше нескольких минут."""
 
     def __init__(self, repeat: float = 1800, maxlen: int = 200):
         super().__init__(logging.ERROR)
@@ -20,6 +30,8 @@ class AlertHandler(logging.Handler):
         self.queue: deque[tuple[str, str]] = deque(maxlen=maxlen)
         self.sent: dict[str, float] = {}      # ключ ошибки → когда отправили
         self.skipped: dict[str, int] = {}     # сколько раз повторилась после отправки
+        self.net_at: float | None = None      # когда была последняя ошибка связи с Telegram (time.monotonic)
+        self.net_error = ""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -28,6 +40,9 @@ class AlertHandler(logging.Handler):
             if record.exc_info and record.exc_info[1] is not None:
                 e = record.exc_info[1]
                 text += f"\n{type(e).__name__}: {e}"
+            if is_net_error(text):
+                self.net_at, self.net_error = time.monotonic(), text[:500]
+                return
             self.queue.append((key, text[:1500]))
         except Exception:  # noqa: BLE001 — логирование не должно ронять бота
             pass
@@ -46,6 +61,11 @@ class AlertHandler(logging.Handler):
             self.sent[key] = now
             out.append(text + (f"\n(повторялась ещё {n} раз)" if n else ""))
         return out
+
+    def net_down(self, quiet: float = 90, now: float | None = None) -> bool:
+        """Связь с Telegram сейчас сбоит: ошибка связи была за последние quiet секунд."""
+        now = time.monotonic() if now is None else now
+        return self.net_at is not None and now - self.net_at < quiet
 
 
 @dataclass
