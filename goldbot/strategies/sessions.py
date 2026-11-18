@@ -45,6 +45,12 @@ def asian_range_breakout(df):
     return _range_breakout(df, "Europe/London", 0, 7 * 60, 11 * 60)
 
 
+def asian_breakout_day(df):
+    """Азиатский диапазон 00:00–07:00 Лондона, первый пробой закрытием свечи до 16:00 Лондона
+    (Лондон и начало Нью-Йорка). Один сигнал в день (reports/indicator_research.md)."""
+    return _range_breakout(df, "Europe/London", 0, 7 * 60, 16 * 60)
+
+
 def ny_opening_range(df):
     """NY ORB: диапазон 9:30–9:45 Нью-Йорка, пробой до 12:00."""
     return _range_breakout(df, "America/New_York", 9 * 60 + 30, 9 * 60 + 45, 12 * 60)

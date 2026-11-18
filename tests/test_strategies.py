@@ -106,3 +106,40 @@ class BankManipulationTests(unittest.TestCase):
     def test_both_sides_swept_no_signal(self):
         p = [100] * 28 + [105] * 4 + [95] * 4 + [100] * 40
         self.assertEqual(np.count_nonzero(bank_manipulation(make_df(p))), 0)
+
+
+class NewStrategiesTests(unittest.TestCase):
+    """Пробой Азии до 16:00 Лондона и Дончиан 100 H1 (reports/indicator_research.md)."""
+
+    def test_donchian_h1_signal_on_hour_close_only(self):
+        from goldbot.strategies.popular import donchian_h1
+        # 110 часов в боковике, затем рост: пробой максимума последних 100 часов
+        prices = [100.0] * (110 * 4) + [100 + i for i in range(1, 13)]
+        df = make_df(prices)
+        sig = donchian_h1(df)
+        hits = np.flatnonzero(sig)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(sig[hits[0]], 1)
+        self.assertEqual(df.index[hits[0]].minute, 45)   # свеча M15, которой закрывается час
+        # тот же сигнал, когда это последняя свеча (как в боте), и нет сигнала по незакрытому часу
+        self.assertEqual(donchian_h1(df.iloc[:hits[0] + 1])[-1], 1)
+        for k in range(1, 4):
+            self.assertEqual(donchian_h1(df.iloc[:hits[0] + 1 - k])[-1], 0)
+
+    def test_asia_breakout_until_16_london(self):
+        from goldbot.strategies.sessions import asian_breakout_day
+        # зима: Лондон = UTC. Азия 00–07 в диапазоне, пробой вверх в 14:00 — после окна старой стратегии (11:00)
+        n = 15 * 4
+        prices = [100.0] * (14 * 4) + [103.0] * (n - 14 * 4)
+        df = make_df(prices, start="2025-01-13 00:00")
+        sig = asian_breakout_day(df)
+        self.assertEqual(sig[14 * 4], 1)
+        self.assertEqual(int(np.abs(sig).sum()), 1)          # один сигнал в день
+        self.assertEqual(int(np.abs(asian_range_breakout(df)).sum()), 0)
+
+    def test_portfolio_has_new_strategies(self):
+        from goldbot.live_strategy import PORTFOLIO, STRATEGIES
+        self.assertIn("asia", PORTFOLIO)
+        self.assertIn("donchian_h1", PORTFOLIO)
+        self.assertTrue(STRATEGIES["donchian_h1"].daily_trend)
+        self.assertFalse(STRATEGIES["asia"].daily_trend)
