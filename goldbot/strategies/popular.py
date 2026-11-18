@@ -75,3 +75,17 @@ def donchian_h1(df, n: int = 100):
     x = np.where(x != np.r_[0, x[:-1]], x, 0)
     s = pd.Series(x, index=h1.index + pd.Timedelta(minutes=45))
     return s.reindex(df.index).fillna(0).to_numpy().astype(np.int8)
+
+
+def days_breakout(df, n: int = 5):
+    """Пробой максимума / минимума последних n закрытых дней (UTC) закрытием свечи, первый пробой за день
+    (reports/profit2_research.md). Сегодняшний день в уровень не входит."""
+    day = df.index.normalize()
+    d = df.resample("1D").agg({"high": "max", "low": "min"}).dropna()
+    hi = d.high.rolling(n).max().shift().reindex(day).to_numpy()
+    lo = d.low.rolling(n).min().shift().reindex(day).to_numpy()
+    c = df.close.to_numpy()
+    sig = np.where(c > hi, 1, np.where(c < lo, -1, 0))
+    s = pd.Series(sig, index=df.index)
+    first = s.ne(0).groupby(day).cumsum().to_numpy()
+    return np.where((sig != 0) & (first == 1), sig, 0).astype(np.int8)
