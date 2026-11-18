@@ -28,6 +28,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, 
 import json
 
 from . import changelog, econ_calendar, news_alerts
+from . import daily_report as dr
 from . import prop as pr
 from .autotrade import split_volume, BROKERS, AutoTrader, BrokerMarket, MetaApi, MetaApiError, demo_servers, sl_tp_dist
 from .config import config
@@ -2312,6 +2313,75 @@ class App:
                 log.exception("weekly report failed")
             await asyncio.sleep(120)
 
+    async def daily_report(self, now: pd.Timestamp | None = None) -> bool:
+        """Итоги торгового дня, когда рынок золота закрывается (пн–пт 17:00 по Нью-Йорку): сколько сделок в плюсе
+        и в минусе, пипсы, каждый сигнал. Всем подписчикам и в канал, всегда картинкой с подписью на языке
+        получателя; у кого был лот — его результат за день в $."""
+        if not config.daily_report:
+            return False
+        now = now or pd.Timestamp.now(tz="UTC")
+        close = dr.day_close(now - pd.Timedelta(minutes=config.daily_report_delay_min))
+        if close is None:
+            return False
+        key = f"daily:{close:%Y-%m-%d}"
+        if await self.db.get_kv(key):
+            return False
+        await self.db.set_kv(key, "1")
+        start, end = dr.day_open(close).to_pydatetime(), close.to_pydatetime()
+        # сигнал мог открыться раньше, а закрыться сегодня: берём неделю назад и фильтруем по закрытию
+        recent = await self.db.signals_between(start - timedelta(days=7), end)
+        day = dr.summarize(recent, start, end)
+        if not day.rows and not config.daily_report_empty:
+            return False
+        date = f"{close:%d.%m.%Y}"
+        res = {r.s["id"]: r.pips for r in day.closed if r.pips is not None}
+        pnl: dict[int, float] = {}
+        for x in await self.db.lots_between(start - timedelta(days=7), end):
+            v = res.get(x["signal_id"])
+            if v is not None:
+                pnl[x["user_id"]] = pnl.get(x["user_id"], 0.0) + money(x["lot"], abs(v)) * (1 if v >= 0 else -1)
+        images: dict[str, bytes] = {}
+        for lang in ("ru", "en", "uz"):
+            try:
+                images[lang] = await asyncio.to_thread(dr.render_daily, day, lang, config.display_tz, date)
+            except Exception:  # noqa: BLE001
+                log.warning("daily report chart", exc_info=True)
+        local = now.tz_convert(config.display_tz)
+        silent = local.hour < 8 or local.hour >= 23
+        active = set(await self.db.active_user_ids())
+        langs = await self.db.user_langs()
+
+        def send(chat, lang: str, body: str):
+            if lang in images:
+                return self.bot.send_photo(chat, BufferedInputFile(images[lang], f"day_{close:%Y%m%d}.png"),
+                                           caption=body, disable_notification=silent)
+            return self.bot.send_message(chat, body, disable_notification=silent)
+
+        def make(u: int):
+            lang = norm(langs.get(u))
+            tail = ""
+            if u in pnl:
+                v = pnl[u]
+                tail += t(lang, "daily_lot", pnl=f"{'+' if v >= 0 else '−'}${fmt_usd(abs(v))}")
+            if u not in active:
+                tail += t(lang, "daily_cta")
+            return send(u, lang, dr.caption(lang, day, date, tail))
+
+        async def chan_day(cid, lang):
+            return await send(cid, lang, dr.caption(lang, day, date, await self.chan_cta(lang)))
+        await self.to_channel(chan_day)
+        n = await self.broadcast(await self.db.all_user_ids(), make)
+        log.info("daily report %s: %s signals, sent to %s users", date, len(day.rows), n)
+        return True
+
+    async def daily_report_loop(self) -> None:
+        while True:
+            try:
+                await self.daily_report()
+            except Exception:  # noqa: BLE001
+                log.exception("daily report failed")
+            await asyncio.sleep(60)
+
     async def calendar_loop(self) -> None:
         while True:
             try:
@@ -2506,6 +2576,7 @@ class App:
             asyncio.create_task(self.partial_loop()),
             asyncio.create_task(self.backup_loop()),
             asyncio.create_task(self.weekly_report_loop()),
+            asyncio.create_task(self.daily_report_loop()),
             asyncio.create_task(self.engine.run_forever(config.check_interval)),
             asyncio.create_task(self.calendar_loop()),
             asyncio.create_task(self.trial_reminder_loop()),

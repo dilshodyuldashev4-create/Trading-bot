@@ -1242,3 +1242,69 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _texts in EXTRA_TEXTS.items():
     TEXTS[_lang].update(_texts)
+
+# ── итоги торгового дня (goldbot/daily_report.py) ──────────────────────────
+DAILY_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "daily_head": ("📊 <b>Итоги торгового дня {date}</b>\n\n"
+                       "✅ В плюсе: <b>{win}</b> · ❌ В минусе: <b>{loss}</b>{flat}{open}\n"
+                       "🎯 Винрейт: <b>{wr}</b>\n💰 Итог дня: <b>{pips} пипсов</b>"),
+        "daily_flat": " · ➖ в ноль: {n}",
+        "daily_open": " · ⏳ в работе: {n}",
+        "daily_row": "{icon} #{id} {side} {entry} → {how}: <b>{pips}</b>",
+        "daily_row_open": "⏳ #{id} {side} {entry}: в работе",
+        "daily_row_open_part": "⏳ #{id} {side} {entry}: в работе, часть зафиксирована, стоп в безубытке",
+        "daily_how_tp": "TP {exit}",
+        "daily_how_tp_part": "фиксация + TP {exit}",
+        "daily_how_be": "фиксация {tp1} + безубыток",
+        "daily_how_sl": "SL {exit}",
+        "daily_how_rev": "разворот {exit}",
+        "daily_how_news": "закрыт перед новостью {exit}",
+        "daily_more": "\n… и ещё {n} на картинке",
+        "daily_none": "📊 <b>Итоги торгового дня {date}</b>\n\nСегодня рынок не дал сетапа: сделок не было, депозит в сохранности.",
+        "daily_lot": "\n\n💼 Ваш результат за день по лотам из сигналов: <b>{pnl}</b>",
+        "daily_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
+    },
+    "en": {
+        "daily_head": ("📊 <b>Trading day results {date}</b>\n\n"
+                       "✅ Wins: <b>{win}</b> · ❌ Losses: <b>{loss}</b>{flat}{open}\n"
+                       "🎯 Win rate: <b>{wr}</b>\n💰 Day result: <b>{pips} pips</b>"),
+        "daily_flat": " · ➖ breakeven: {n}",
+        "daily_open": " · ⏳ open: {n}",
+        "daily_row": "{icon} #{id} {side} {entry} → {how}: <b>{pips}</b>",
+        "daily_row_open": "⏳ #{id} {side} {entry}: still open",
+        "daily_row_open_part": "⏳ #{id} {side} {entry}: still open, part taken, stop at breakeven",
+        "daily_how_tp": "TP {exit}",
+        "daily_how_tp_part": "partial + TP {exit}",
+        "daily_how_be": "partial {tp1} + breakeven",
+        "daily_how_sl": "SL {exit}",
+        "daily_how_rev": "reversal {exit}",
+        "daily_how_news": "closed before the news {exit}",
+        "daily_more": "\n… and {n} more on the picture",
+        "daily_none": "📊 <b>Trading day results {date}</b>\n\nNo setup today: no trades, your deposit is safe.",
+        "daily_lot": "\n\n💼 Your result today with the lots from the signals: <b>{pnl}</b>",
+        "daily_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
+    },
+    "uz": {
+        "daily_head": ("📊 <b>Savdo kuni natijalari {date}</b>\n\n"
+                       "✅ Foydada: <b>{win}</b> · ❌ Zararda: <b>{loss}</b>{flat}{open}\n"
+                       "🎯 Winrate: <b>{wr}</b>\n💰 Kun natijasi: <b>{pips} pips</b>"),
+        "daily_flat": " · ➖ zararsiz: {n}",
+        "daily_open": " · ⏳ ochiq: {n}",
+        "daily_row": "{icon} #{id} {side} {entry} → {how}: <b>{pips}</b>",
+        "daily_row_open": "⏳ #{id} {side} {entry}: hali ochiq",
+        "daily_row_open_part": "⏳ #{id} {side} {entry}: hali ochiq, bir qismi olindi, stop zararsizlikda",
+        "daily_how_tp": "TP {exit}",
+        "daily_how_tp_part": "qisman + TP {exit}",
+        "daily_how_be": "qisman {tp1} + zararsiz",
+        "daily_how_sl": "SL {exit}",
+        "daily_how_rev": "burilish {exit}",
+        "daily_how_news": "yangilikdan oldin yopildi {exit}",
+        "daily_more": "\n… yana {n} tasi rasmda",
+        "daily_none": "📊 <b>Savdo kuni natijalari {date}</b>\n\nBugun setap boʻlmadi: bitim yoʻq, depozitingiz butun.",
+        "daily_lot": "\n\n💼 Signallardagi lotlar boʻyicha bugungi natijangiz: <b>{pnl}</b>",
+        "daily_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
+    },
+}
+for _lang, _texts in DAILY_TEXTS.items():
+    TEXTS[_lang].update(_texts)
