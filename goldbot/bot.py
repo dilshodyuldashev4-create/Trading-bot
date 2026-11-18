@@ -39,7 +39,7 @@ from .data import PIP
 from .lots import fmt_usd, lot_for, money, parse_capital
 from .market import Failover, make_provider
 from .news import NewsService
-from .results import WIN, part_pips, signal_pips
+from .results import WIN, move_pips, part_pips, signal_pips, tp1_move_pips
 from .health import AlertHandler, Watch, backup_db
 
 log = logging.getLogger(__name__)
@@ -247,6 +247,16 @@ def excursion_text(lang: str, s: dict, status: str) -> str:
     return "\n".join(out) + "\n\n"
 
 
+def part_split(lang: str, s: dict, status: str | None = None) -> str:
+    """Строка «часть закрыта на tp1 (+X), остаток на выходе (+Y), итог на весь лот» для сигнала с фиксацией."""
+    status = status or s["status"]
+    part = s.get("part") or 0
+    level = s["tp"] if status == "tp" else s.get("exit_price")
+    return t(lang, "part_split", pct=f"{100 * part:.0f}", tp1=f"{s['tp1']:.2f}", p1=f"{tp1_move_pips(s):+.0f}",
+             rest=f"{100 * (1 - part):.0f}", exit=f"{level:.2f}", p2=f"{move_pips(s, status):+.0f}",
+             total=f"{signal_pips(s, status):+.0f}")
+
+
 def stats_text(lang: str, rows: list[dict], tz: str) -> str:
     """Статистика для подписчиков: итоги и последние сигналы со входом, выходом и результатом."""
     from datetime import datetime
@@ -261,8 +271,8 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
             wr=f"{100 * len(win) / closed:.0f}%" if closed else "—", pips=f"{total:+.0f}")
     for r in rows[:15]:
         v = signal_pips(r)
-        if r["status"] == "tp":
-            res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{v:.0f}")
+        if r["status"] == "tp":   # пипсы хода цены до тейка; при фиксации части ниже — итог на весь лот
+            res = t(lang, "stats_tp", exit=f"{r['tp']:.2f}", pips=f"{move_pips(r):.0f}")
         elif r["status"] == "sl":
             res = t(lang, "stats_sl", exit=f"{r['sl']:.2f}", pips=f"{-v:.0f}")
         elif r["status"] == "be":
@@ -275,6 +285,8 @@ def stats_text(lang: str, rows: list[dict], tz: str) -> str:
             res = t(lang, "stats_open_part", tp1=f"{r['tp1']:.2f}")
         else:
             res = t(lang, "stats_open")
+        if r.get("part_at") and r["status"] in ("tp", "rev") and v is not None:
+            res += part_split(lang, r)
         when = datetime.fromisoformat(r["created_at"]).astimezone(ZoneInfo(tz)).strftime("%d.%m %H:%M")
         out += t(lang, "stats_row", id=r["id"], when=when, side="🟢 BUY" if r["direction"] == 1 else "🔴 SELL",
                  entry=f"{r['entry']:.2f}", sl=f"{r['sl']:.2f}", tp=f"{r['tp']:.2f}", result=res)
@@ -588,7 +600,9 @@ class App:
 
         def text(lang: str) -> str:
             head = t(lang, key, id=s["id"], side=side, pips=f"{pips:.0f}", price=f"{price:.2f}")
-            if s.get("part_at") and status in ("tp", "be", "rev"):
+            if s.get("part_at") and status in ("tp", "rev"):
+                head += part_split(lang, s, status)
+            elif s.get("part_at") and status == "be":
                 head += t(lang, "close_part_note", pct=f"{100 * (s.get('part') or 0):.0f}", tp1=f"{s['tp1']:.2f}",
                           pips=f"{part_pips(s):+.0f}")
             return (head + "\n\n" + excursion_text(lang, s, status)

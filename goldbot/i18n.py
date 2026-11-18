@@ -1069,6 +1069,8 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "close_rev": ("🔄 <b>Сигнал #{id} {side}: начинается разворот, закройте сделку сейчас</b>\n\n"
                       "Бот видит сигнал в обратную сторону. Закройте сделку по рынку (цена {price}), "
                       "не дожидаясь тейка.\n💰 Итог сделки: <b>+{pips} пипсов</b>"),
+        "part_split": ("\n💰 {pct}% лота закрыто на {tp1}: {p1} пипсов, остаток {rest}% закрыт на {exit}: "
+                       "{p2} пипсов. Итог на весь лот: <b>{total} пипсов</b>"),
         "close_part_note": "\n💰 Из них {pct}% зафиксировано на {tp1}: {pips} пипсов на весь лот",
         "stats_be": "🛡 Фиксация на {tp1}, остаток в безубыток: <b>{pips} пипсов</b>",
         "stats_rev": "🔄 Закрыт при развороте {exit}: <b>{pips} пипсов</b>",
@@ -1103,6 +1105,8 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "close_rev": ("🔄 <b>Signal #{id} {side}: a reversal is starting, close the trade now</b>\n\n"
                       "The bot sees a signal in the opposite direction. Close the trade at market (price {price}) "
                       "without waiting for the take.\n💰 Trade result: <b>+{pips} pips</b>"),
+        "part_split": ("\n💰 {pct}% of the lot closed at {tp1}: {p1} pips, the rest {rest}% closed at {exit}: "
+                       "{p2} pips. Result on the whole lot: <b>{total} pips</b>"),
         "close_part_note": "\n💰 Of which {pct}% was taken at {tp1}: {pips} pips on the whole lot",
         "stats_be": "🛡 Partial at {tp1}, rest at breakeven: <b>{pips} pips</b>",
         "stats_rev": "🔄 Closed on reversal {exit}: <b>{pips} pips</b>",
@@ -1137,6 +1141,8 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "close_rev": ("🔄 <b>Signal #{id} {side}: burilish boshlanmoqda, bitimni hozir yoping</b>\n\n"
                       "Bot teskari tomonga signal koʻrmoqda. Bitimni bozor narxida yoping (narx {price}), "
                       "takeni kutmang.\n💰 Bitim natijasi: <b>+{pips} pips</b>"),
+        "part_split": ("\n💰 Lotning {pct}% i {tp1} da yopildi: {p1} pips, qolgan {rest}% {exit} da yopildi: "
+                       "{p2} pips. Butun lotga natija: <b>{total} pips</b>"),
         "close_part_note": "\n💰 Shundan {pct}% {tp1} da olingan: butun lotga {pips} pips",
         "stats_be": "🛡 {tp1} da qisman olindi, qolgani zararsiz: <b>{pips} pips</b>",
         "stats_rev": "🔄 Burilishda yopildi {exit}: <b>{pips} pips</b>",

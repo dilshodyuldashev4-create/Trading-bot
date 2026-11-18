@@ -33,3 +33,20 @@ def signal_pips(s: dict, status: str | None = None) -> float | None:
         return None
     rest = 1 - (s.get("part") or 0) if s.get("part_at") else 1.0
     return part_pips(s) + rest * s["direction"] * (level - s["entry"]) / PIP
+
+
+def move_pips(s: dict, status: str | None = None) -> float | None:
+    """Сколько пипсов прошла цена от входа до выхода остатка (без учёта фиксации части).
+    Для сигнала без фиксации совпадает с signal_pips."""
+    status = status or s.get("status")
+    level = exit_level(s, status)
+    if status == "open" or level is None:
+        return None
+    return s["direction"] * (level - s["entry"]) / PIP
+
+
+def tp1_move_pips(s: dict) -> float:
+    """Сколько пипсов было до уровня фиксации части (на зафиксированный объём)."""
+    if not s.get("tp1"):
+        return 0.0
+    return s["direction"] * (s["tp1"] - s["entry"]) / PIP
