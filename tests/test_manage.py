@@ -245,6 +245,20 @@ class HealthTests(unittest.TestCase):
         finally:
             lg.removeHandler(h)
 
+    def test_net_errors_not_spammed(self):
+        h = AlertHandler(repeat=60)
+        lg = logging.getLogger("goldbot.test_net")
+        lg.addHandler(h)
+        try:
+            lg.error("Failed to fetch updates - %s: %s", "TelegramNetworkError",
+                     "Cannot connect to host api.telegram.org:443 [Connection reset by peer]")
+            self.assertEqual(h.take(now=0), [])            # обрыв связи — не в общие ошибки
+            self.assertTrue(h.net_down())
+            self.assertIn("api.telegram.org", h.net_error)
+            self.assertFalse(h.net_down(now=h.net_at + 120))   # ошибок нет 2 минуты — связь есть
+        finally:
+            lg.removeHandler(h)
+
     def test_watch(self):
         w = Watch(60)
         self.assertIsNone(w.update(True, 0))

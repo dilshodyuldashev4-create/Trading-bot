@@ -8,3 +8,4 @@ matplotlib>=3.8
 mplfinance>=0.12.10b0
 anthropic>=2.6
 six>=1.16
+aiohttp-socks>=0.8   # прокси socks5 для Telegram (TELEGRAM_PROXY)

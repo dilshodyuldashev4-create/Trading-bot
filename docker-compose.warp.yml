@@ -1,0 +1,13 @@
+# Необязательно: связь с Telegram через WARP-прокси из соседнего проекта video-bot (контейнер warp, порт 1080).
+# Включить:   cp docker-compose.warp.yml docker-compose.override.yml
+#             в .env: TELEGRAM_PROXY=socks5://warp:1080
+#             docker compose up -d --build
+# Выключить:  rm docker-compose.override.yml, в .env очистить TELEGRAM_PROXY, docker compose up -d
+services:
+  goldbot:
+    networks: [default, warp]
+
+networks:
+  warp:
+    external: true
+    name: video-bot_default

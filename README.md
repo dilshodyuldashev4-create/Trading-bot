@@ -162,6 +162,8 @@ $25 000 (на $50 000 и больше FundedNext запрещает ботов) 
 * Админам (`ADMIN_ALERTS=1`): «🔄 Бот запущен» после каждого запуска (если вы не перезапускали — значит он упал и
   Docker поднял его снова); ошибки из логов (одна и та же — не чаще раза в `ALERT_REPEAT_MIN` минут); «⛔️ бот не может
   проверить рынок» дольше `ALERT_STALL_MIN` минут; «цена брокера не приходит»; на каких счетах не открылась сделка.
+* Короткие обрывы связи сервера с Telegram (`TelegramNetworkError`, `Connection reset by peer`) бот переживает сам и
+  админу о них не пишет. Если связи не было дольше `ALERT_TG_MIN` (5) минут — одно сообщение, когда она вернётся.
 * Каждый день в `BACKUP_TIME` (03:00) — копия базы в `botdata/backups` (последние `BACKUP_KEEP`=7) и файлом админам.
   Восстановить: положить файл вместо `botdata/goldbot.db` и перезапустить бота.
 
@@ -192,6 +194,16 @@ docker compose logs -f
 `restart: always` перезапускает бота при ошибке и после перезагрузки сервера.
 
 Без Docker: `pip install -r requirements.txt && python -m goldbot`.
+
+**Если сервер теряет связь с Telegram** (бот не отвечает, в логах `Cannot connect to host api.telegram.org`), задайте
+прокси в `.env`: `TELEGRAM_PROXY=http://user:pass@host:port` или `socks5://host:port`. Если на том же сервере работает
+проект video-bot с контейнером WARP, можно ходить через него:
+
+```bash
+cp docker-compose.warp.yml docker-compose.override.yml
+echo "TELEGRAM_PROXY=socks5://warp:1080" >> .env
+docker compose up -d --build
+```
 
 ## Тесты
 

@@ -15,6 +15,7 @@ import pandas as pd
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject, CommandStart
@@ -300,7 +301,8 @@ class App:
     alerts: AlertHandler | None = None
 
     def __init__(self) -> None:
-        self.bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else None
+        self.bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         self.dp = Dispatcher()
         self.db = DB(config.db_path)
         self._release_lock = asyncio.Lock()  # одна рассылка об обновлении за раз
@@ -2146,11 +2148,24 @@ class App:
         """Админам: ошибки из логов, долгий сбой проверки рынка, работа на запасной цене."""
         stall = Watch(config.alert_stall_min * 60)
         backup_price = Watch(config.alert_stall_min * 60)
+        tg = Watch(config.alert_tg_min * 60)
+        tg_since = 0.0
         while True:
             try:
                 if self.alerts:
                     for text in self.alerts.take():
                         await self.notify_admins("⚠️ <b>Ошибка в боте</b>\n<code>" + html.escape(text) + "</code>")
+                if self.alerts:
+                    down = self.alerts.net_down()
+                    if down and tg.bad_since is None:
+                        tg_since = time.monotonic()
+                    if tg.update(down) == "up":   # пока связи нет, сообщение всё равно не дойдёт — пишем после
+                        mins = (time.monotonic() - tg_since) / 60
+                        await self.notify_admins(
+                            f"⚠️ <b>Связи с Telegram не было около {mins:.0f} мин</b>, бот в это время не отвечал.\n"
+                            "Сейчас связь вернулась. Если это повторяется часто, хостинг режет Telegram: "
+                            "укажите прокси в TELEGRAM_PROXY в .env.\n"
+                            f"Ошибка: <code>{html.escape(self.alerts.net_error[:300])}</code>")
                 now = pd.Timestamp.now(tz="UTC")
                 idle = time.monotonic() - self.engine.last_ok
                 ev = stall.update(market_open(now) and idle > config.check_interval * 2)
