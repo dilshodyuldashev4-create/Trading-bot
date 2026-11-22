@@ -47,6 +47,25 @@ BROKERS: tuple[tuple[str, str], ...] = (
 GOLD = re.compile(r"^(XAUUSD|GOLD)", re.I)
 
 
+def retry_after(value: Any, default: float = 10) -> float:
+    """Заголовок Retry-After: секунды («10») или HTTP-дата («Sun, 22 Nov 2026 23:52:20 GMT») — MetaApi
+    присылает оба вида. Возвращает, сколько секунд ждать."""
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    from email.utils import parsedate_to_datetime
+    try:
+        when = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, IndexError):
+        return default
+    if when.tzinfo is None:
+        return default
+    return max((when - _now()).total_seconds(), 0.0)
+
+
 class MetaApiError(Exception):
     def __init__(self, message: str, code: str = "", status: int = 0):
         super().__init__(message)
@@ -143,7 +162,7 @@ class MetaApi:
             if status in (200, 201):
                 return resp
             if status == 202 and waited < max_wait:
-                delay = min(max(float(headers.get("Retry-After", 10) or 10), 3), 60)
+                delay = min(max(retry_after(headers.get("Retry-After")), 3), 60)
                 await asyncio.sleep(delay)
                 continue
             raise _error(status, resp)
