@@ -159,9 +159,13 @@ class Config:
     autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
     autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
     autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
-    # автоторговля платная: цена в Telegram Stars за AUTOTRADE_DAYS дней (1500 ⭐ ≈ $30 для подписчика)
-    autotrade_price_stars: int = int(os.getenv("AUTOTRADE_PRICE_STARS", "1500"))
-    autotrade_price_usd: str = os.getenv("AUTOTRADE_PRICE_USD", "30")  # только для текста «≈ $30»
+    # автоторговля платная: AUTOTRADE_MONTH_USD долларов за 30 дней (админам бесплатно), оплата Telegram Stars по
+    # курсу STARS_PER_USD (1000 ⭐ подписчик покупает ≈ за $20 → 50 ⭐ за $1; $500 ≈ 25 000 ⭐). Один счёт Telegram —
+    # не больше STARS_INVOICE_MAX ⭐, поэтому оплата идёт частями: за раз — столько дней, сколько помещается в лимит
+    # (не больше AUTOTRADE_DAYS), по той же цене в месяц. Старые AUTOTRADE_PRICE_STARS / AUTOTRADE_PRICE_USD не действуют.
+    autotrade_month_usd: float = float(os.getenv("AUTOTRADE_MONTH_USD", "500"))
+    stars_per_usd: float = float(os.getenv("STARS_PER_USD", "50"))
+    stars_invoice_max: int = int(os.getenv("STARS_INVOICE_MAX", "10000"))
     autotrade_days: int = int(os.getenv("AUTOTRADE_DAYS", "30"))
     # защита обычного счёта от плохих дней (reports/day_guard_research.md), день — по времени сервера (PROP_DAY_TZ):
     # после AUTOTRADE_DAY_LOSSES Stop Loss за день — до завтра без новых сделок (0 — выкл.); AUTOTRADE_DAY_SIDE=1 —

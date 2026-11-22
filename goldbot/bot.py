@@ -17,7 +17,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -177,6 +177,21 @@ def trade_error_text(lang: str, error: str) -> str:
     if error in ("TRADE_RETCODE_CONNECTION", "TRADE_RETCODE_NO_CONNECTION") or "connect" in error.lower():
         return t(lang, "at_e_conn")
     return html.escape(error)[:150]
+
+
+STARS_SAFE_MAX = 2500   # столько ⭐ в одном счёте Telegram принимает точно; больше — если позволяет лимит Telegram
+
+
+def autotrade_plan(month_usd: float, stars_per_usd: float, cap: int, max_days: int) -> tuple[int, int, int]:
+    """Цена автоторговли: (дней за одну оплату, ⭐ за эти дни, ⭐ за 30 дней). Месяц стоит month_usd долларов;
+    один счёт Telegram — не больше cap ⭐, поэтому за раз продаём столько дней, сколько в него помещается."""
+    month_stars = max(1, round(month_usd * stars_per_usd))
+    days = max(1, min(max_days, 30 * cap // month_stars))
+    return days, max(1, round(month_stars * days / 30)), month_stars
+
+
+def fmt_money(x: float) -> str:
+    return f"{x:,.0f}".replace(",", " ") if abs(x - round(x)) < 0.005 else f"{x:,.2f}".replace(",", " ")
 
 
 CAPITAL_PRESETS = (50, 100, 200, 300, 500, 1000, 2000, 5000)
@@ -349,12 +364,13 @@ class App:
         self.engine.news_event_bias = self.news.event_bias
         self.engine.news_hot_before, self.engine.news_hot_after = config.news_hot_before, config.news_hot_after
         self.autotrader: AutoTrader | None = None
+        self.stars_cap = config.stars_invoice_max   # лимит ⭐ на один счёт; уменьшается, если Telegram отказал
         if config.metaapi_token:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
                                          real_only=config.autotrade_real_only, risk_pct=config.autotrade_risk_pct,
                                          max_lot=config.autotrade_max_lot, symbol_override=config.autotrade_symbol,
                                          region=config.metaapi_region,
-                                         exempt=frozenset(config.admin_ids), paid_days=config.autotrade_days,
+                                         exempt=frozenset(config.admin_ids), paid_days=self.at_days,
                                          prop_risk_pct=config.prop_risk_pct,
                                          prop_strong_risk_pct=config.prop_strong_risk_pct, prop_guard_pct=config.prop_guard_pct,
                                          prop_max_lot=config.prop_max_lot, prop_risk_cap=config.prop_risk_cap,
@@ -824,16 +840,38 @@ class App:
             payload="sub", currency="XTR", provider_token="",
             prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days), amount=config.sub_price_stars)])
 
+    def at_plan(self) -> tuple[int, int, int]:
+        """(дней за одну оплату, ⭐ за них, ⭐ за 30 дней) — по цене AUTOTRADE_MONTH_USD в месяц."""
+        return autotrade_plan(config.autotrade_month_usd, config.stars_per_usd, self.stars_cap, config.autotrade_days)
+
+    @property
+    def at_days(self) -> int:
+        return self.at_plan()[0]
+
+    async def set_stars_cap(self, cap: int) -> None:
+        self.stars_cap = cap
+        if self.autotrader:
+            self.autotrader.paid_days = self.at_days
+        await self.db.set_kv("stars_cap", str(cap))
+
     async def send_auto_invoice(self, chat_id: int, lang: str, acc: dict | None = None) -> None:
         """Счёт на оплату автоторговли (отдельно от подписки на сигналы): без acc — подключение нового
         счёта, с acc — продление этого счёта."""
-        title = (t(lang, "inv_auto_acc_title", login=acc["login"], days=config.autotrade_days) if acc
-                 else t(lang, "inv_auto_title", days=config.autotrade_days))
-        await self.bot.send_invoice(
-            chat_id, title=title, description=t(lang, "inv_auto_desc"),
-            payload=f"auto:{acc['id']}" if acc else "auto", currency="XTR", provider_token="",
-            prices=[LabeledPrice(label=t(lang, "inv_label", days=config.autotrade_days),
-                                 amount=config.autotrade_price_stars)])
+        days, stars, _ = self.at_plan()
+        title = (t(lang, "inv_auto_acc_title", login=acc["login"], days=days) if acc
+                 else t(lang, "inv_auto_title", days=days))
+        try:
+            await self.bot.send_invoice(
+                chat_id, title=title, description=t(lang, "inv_auto_desc"),
+                payload=f"auto:{acc['id']}" if acc else "auto", currency="XTR", provider_token="",
+                prices=[LabeledPrice(label=t(lang, "inv_label", days=days), amount=stars)])
+        except TelegramBadRequest as e:
+            if stars <= STARS_SAFE_MAX or self.stars_cap <= STARS_SAFE_MAX:
+                raise
+            # Telegram не принял такую сумму ⭐ в одном счёте — дальше продаём меньше дней за раз (та же цена в месяц)
+            log.warning("invoice of %s XTR rejected (%s), stars cap -> %s", stars, e, STARS_SAFE_MAX)
+            await self.set_stars_cap(STARS_SAFE_MAX)
+            await self.send_auto_invoice(chat_id, lang, acc)
 
     async def can_connect(self, uid: int) -> bool:
         """Можно ли подключить новый счёт: каждый счёт оплачивается отдельно (админам — бесплатно)."""
@@ -846,8 +884,12 @@ class App:
         await self.send_auto_invoice(chat_id, lang)
 
     def price_line(self, lang: str) -> str:
-        return t(lang, "at_price", stars=config.autotrade_price_stars, usd=config.autotrade_price_usd,
-                 days=config.autotrade_days)
+        days, stars, month_stars = self.at_plan()
+        text = t(lang, "at_price", usd=fmt_money(config.autotrade_month_usd), month_stars=fmt_money(month_stars))
+        if days < 30:   # в один счёт Telegram месяц не помещается — платят частями
+            text += t(lang, "at_price_part", stars=fmt_money(stars), days=days,
+                      usd=fmt_money(config.autotrade_month_usd * days / 30))
+        return text
 
     async def show_risks(self, chat_id: int, lang: str) -> None:
         demo = (t(lang, "at_demo_note") if config.autotrade_demo_only else
@@ -1569,17 +1611,17 @@ class App:
                 aid = p.invoice_payload.split(":", 1)[1]
                 acc = await self.db.get_account(int(aid)) if aid.isdigit() else None
                 if acc and acc["user_id"] == uid:
-                    until = await self.db.extend_account(acc["id"], config.autotrade_days)
+                    until = await self.db.extend_account(acc["id"], self.at_days)
                     await m.answer(t(lang, "at_paid_acc", login=acc["login"], until=self.fmt_dt(until)),
                                    reply_markup=menu(lang))
                 else:   # счёт уже отключён — оплата пойдёт на подключение нового
                     await self.db.add_credit(uid)
-                    await m.answer(t(lang, "at_paid_credit", days=config.autotrade_days), reply_markup=menu(lang))
+                    await m.answer(t(lang, "at_paid_credit", days=self.at_days), reply_markup=menu(lang))
                 return
             if p.invoice_payload == "auto":   # оплата подключения нового счёта
                 uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
                 await self.db.add_credit(uid)
-                await m.answer(t(lang, "at_paid_credit", days=config.autotrade_days), reply_markup=menu(lang))
+                await m.answer(t(lang, "at_paid_credit", days=self.at_days), reply_markup=menu(lang))
                 intent = await self.db.get_kv(f"pay_intent:{uid}") or "real"
                 await self.db.set_kv(f"pay_intent:{uid}", "")
                 if self.autotrader and uid not in self._connecting:   # сразу продолжаем подключение
@@ -2590,6 +2632,9 @@ class App:
 
     async def run(self) -> None:
         await self.db.connect()
+        cap = await self.db.get_kv("stars_cap")
+        if cap and cap.isdigit() and int(cap) < self.stars_cap:   # Telegram раньше не принял большую сумму
+            await self.set_stars_cap(int(cap))
         if config.admin_alerts and config.admin_ids:
             self.alerts = AlertHandler(config.alert_repeat_min * 60)
             logging.getLogger().addHandler(self.alerts)
