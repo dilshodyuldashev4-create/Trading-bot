@@ -392,6 +392,7 @@ class BillingTests(unittest.TestCase):
                 api = FakeApi()
                 app = botmod.App.__new__(botmod.App)
                 app.db, app.bot, app._connecting = db, FakeBot(), set()
+                app.stars_cap = 10000
                 app.autotrader = trader(db, api)
                 await app.autotrader.connect(1, "mt5", "S", "1", "p")
                 await db.conn.execute("UPDATE trade_accounts SET paid_until=? WHERE id=1",
@@ -581,7 +582,7 @@ class TelegramDialogTests(unittest.TestCase):
 
         async def go():
             with tempfile.TemporaryDirectory() as d:
-                patch = {"metaapi_token": "tok", "autotrade_price_stars": 1500, "admin_ids": set(), "db_path": os.path.join(d, "t.db"), "bot_token": "123:ABC",
+                patch = {"metaapi_token": "tok", "autotrade_month_usd": 500.0, "stars_per_usd": 50.0, "stars_invoice_max": 10000, "autotrade_days": 30, "admin_ids": set(), "db_path": os.path.join(d, "t.db"), "bot_token": "123:ABC",
                          "twelvedata_key": "x", "data_provider": "twelvedata", "autotrade_demo_only": True}
                 saved = {k: getattr(config, k) for k in patch}
                 for k, v in patch.items():
@@ -618,16 +619,17 @@ class TelegramDialogTests(unittest.TestCase):
                     await tap("cap:1000")
                     self.assertIn("Подключить бота к вашему торговому счёту", texts(session)[-1])
                     self.assertEqual(kb_data(session), ["at:yes", "at:no", "at:prop"])
-                    self.assertIn("1500 ⭐", texts(session)[-1])          # в вопросе есть цена
+                    self.assertIn("$500 в месяц", texts(session)[-1])     # в вопросе есть цена
+                    self.assertIn("10 000 ⭐", texts(session)[-1])        # месяц не влезает в один счёт — частями по 12 дней
                     await tap("at:yes")
                     # без оплаты подключать нельзя: сначала счёт на оплату автоторговли
                     self.assertIn("платная", texts(session)[-1])
                     inv = [m for m in session.log if isinstance(m, SendInvoice)][-1]
-                    self.assertEqual((inv.payload, inv.prices[0].amount, inv.currency), ("auto", 1500, "XTR"))
+                    self.assertEqual((inv.payload, inv.prices[0].amount, inv.currency), ("auto", 10000, "XTR"))
                     n[0] += 1
                     await app.dp.feed_update(app.bot, Update.model_validate({"update_id": n[0], "message": {
                         "message_id": 900, "date": 0, "chat": chat, "from": user, "successful_payment": {
-                            "currency": "XTR", "total_amount": 1500, "invoice_payload": "auto",
+                            "currency": "XTR", "total_amount": 10000, "invoice_payload": "auto",
                             "telegram_payment_charge_id": "ch1", "provider_payment_charge_id": "p1"}}}))
                     self.assertEqual(await app.db.credits(42), 1)   # одно оплаченное подключение
                     self.assertIn("демо-счета", texts(session)[-1])     # после оплаты сразу шаг подключения
@@ -654,7 +656,8 @@ class TelegramDialogTests(unittest.TestCase):
                     self.assertEqual((acc["login"], acc["symbol"]), ("98765432", "XAUUSDm"))
                     self.assertNotIn("Secret", str(await app.db.all_users()))
                     self.assertEqual(await app.db.credits(42), 0)   # подключение использовано
-                    self.assertTrue(app.db.paid_until(acc) > now() + timedelta(days=29))
+                    # $500 в месяц = 25 000 ⭐, в один счёт помещается 10 000 ⭐ — оплачено 12 дней
+                    self.assertTrue(now() + timedelta(days=11) < app.db.paid_until(acc) < now() + timedelta(days=13))
 
                     await msg("🤖 Автоторговля")                     # кнопка меню: статус и управление
                     self.assertIn("98765432", texts(session)[-1])
@@ -866,3 +869,43 @@ class MarketFeedTests(unittest.TestCase):
                 await api.close()
                 await runner.cleanup()
         run(go())
+
+
+class AutotradePriceTests(unittest.TestCase):
+    def test_plan_500_usd_month(self):
+        from goldbot.bot import autotrade_plan
+        self.assertEqual(autotrade_plan(500, 50, 10000, 30), (12, 10000, 25000))   # частями по 12 дней
+        self.assertEqual(autotrade_plan(500, 50, 2500, 30), (3, 2500, 25000))
+        self.assertEqual(autotrade_plan(500, 50, 100000, 30), (30, 25000, 25000))  # лимит большой — сразу месяц
+        self.assertEqual(autotrade_plan(30, 50, 10000, 30), (30, 1500, 1500))
+
+    def test_invoice_falls_back_to_smaller_parts(self):
+        from aiogram.exceptions import TelegramBadRequest
+        from goldbot import bot as botmod
+
+        class Bot:
+            def __init__(self):
+                self.amounts = []
+
+            async def send_invoice(self, chat_id, **kw):
+                amount = kw["prices"][0].amount
+                self.amounts.append(amount)
+                if amount > 2500:
+                    raise TelegramBadRequest(method=None, message="Bad Request: STARS_INVOICE_INVALID")
+
+        class KV:
+            def __init__(self):
+                self.kv = {}
+
+            async def set_kv(self, k, v):
+                self.kv[k] = v
+
+        async def go():
+            app = botmod.App.__new__(botmod.App)
+            app.bot, app.db, app.autotrader, app.stars_cap = Bot(), KV(), None, 10000
+            await app.send_auto_invoice(1, "ru")
+            self.assertEqual(app.bot.amounts, [10000, 2500])
+            self.assertEqual((app.stars_cap, app.db.kv["stars_cap"], app.at_days), (2500, "2500", 3))
+            self.assertIn("2 500 ⭐", app.price_line("ru"))
+            self.assertIn("$500 в месяц", app.price_line("ru"))
+        asyncio.run(go())
