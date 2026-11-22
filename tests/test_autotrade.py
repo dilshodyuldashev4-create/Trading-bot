@@ -17,7 +17,8 @@ class FakeApi:
     """Подмена MetaApi: запоминает запросы, отвечает как настоящий REST API."""
 
     def __init__(self, acc_type="ACCOUNT_TRADE_MODE_DEMO", symbols=("EURUSD", "XAUUSDm", "XAUUSD.ecn"),
-                 create_error=None, bid=2650.0, ask=2650.3, equity=1000.0, currency="USD"):
+                 create_error=None, bid=2650.0, ask=2650.3, equity=1000.0, currency="USD", trade_allowed=True):
+        self.trade_allowed = trade_allowed
         self.acc_type, self.symbols_list, self.create_error = acc_type, list(symbols), create_error
         self.bid, self.ask, self.equity, self.currency = bid, ask, equity, currency
         self.calls, self.trades, self.removed = [], [], []
@@ -53,7 +54,7 @@ class FakeApi:
     async def account_info(self, acc_id, region, timeout=90):
         assert region == "london"
         return {"broker": "Exness", "currency": self.currency, "balance": self.equity, "equity": self.equity,
-                "type": self.acc_type}
+                "type": self.acc_type, "tradeAllowed": self.trade_allowed}
 
     async def symbols(self, acc_id, region):
         return self.symbols_list
@@ -236,6 +237,66 @@ class AutoTraderTests(unittest.TestCase):
                 await trader(db, FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL"), demo_only=False).connect(
                     1, "mt5", "Exness-MT5Real7", "1", "p")
                 self.assertEqual((await db.get_trade_account(1))["demo"], 0)
+                await db.close()
+        run(go())
+
+    def test_admin_real_account_is_price_only(self):
+        """Реальный счёт админа (инвесторский пароль, баланс 0) подключается только для цен: сделок по нему нет,
+        а сделки по демо-счетам подписчиков открываются как обычно."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL", equity=0)
+                tr = trader(db, api, exempt=frozenset({1}))
+                await tr.connect(1, "mt5", "Exness-MT5Real7", "1", "investor")
+                acc = await db.get_trade_account(1)
+                self.assertEqual(acc["demo"], 0)
+                self.assertTrue(tr.price_only(acc))
+                self.assertEqual(await tr.open_signal(9, 1, 20, 30), [])   # по счёту цен не торгуем
+                res, closed = await tr.test_trade(1, hold=0)
+                self.assertEqual((res.error, closed), ("REAL_NOT_ALLOWED", None))
+                self.assertEqual(api.trades, [])
+                # реальный счёт обычного подписчика по-прежнему не подключается
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await tr.connect(2, "mt5", "Exness-MT5Real7", "2", "p")
+                self.assertEqual(cm.exception.code, "REAL_NOT_ALLOWED")
+                await db.close()
+        run(go())
+
+    def test_real_only_mode(self):
+        """AUTOTRADE_ACCOUNTS=real: подписчики подключают реальные и проп-счета, демо — нет; инвесторский пароль
+        у подписчика не принимается, у админа — счёт только для цен (баланс 0), сделок по нему нет."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                kw = dict(demo_only=False, real_only=True, exempt=frozenset({1}))
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await trader(db, FakeApi(), **kw).connect(2, "mt5", "Exness-MT5Trial7", "2", "p")
+                self.assertEqual(cm.exception.code, "DEMO_NOT_ALLOWED")
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await trader(db, FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL", trade_allowed=False), **kw).connect(
+                        2, "mt5", "Exness-MT5Real7", "2", "investor")
+                self.assertEqual(cm.exception.code, "READ_ONLY")
+                self.assertEqual(await db.user_accounts(2), [])
+                # проп-счёт (демо-сервер фирмы) подключается
+                await trader(db, FakeApi(), **kw).connect(2, "mt5", "FundedNext-Server", "3", "p",
+                                                          prop={"plan": "stellar_2step", "stage": "phase1", "size": 5000})
+                # реальный счёт подписчика — торговый
+                api = FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL", equity=10000)
+                tr = trader(db, api, **kw)
+                info = await tr.connect(2, "mt5", "Exness-MT5Real7", "4", "p")
+                self.assertFalse(info["price_only"])
+                # админ: инвесторский пароль, баланс 0 — только цены
+                api_admin = FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL", equity=0, trade_allowed=False)
+                info = await trader(db, api_admin, **kw).connect(1, "mt5", "Exness-MT5Real7", "5", "investor")
+                self.assertTrue(info["price_only"])
+                acc = await db.get_trade_account(1)
+                self.assertEqual(acc["read_only"], 1)
+                self.assertTrue(tr.price_only(acc))
+                res = await tr.open_signal(11, 1, 20, 30)
+                self.assertNotIn(1, [r.uid for r in res])           # по счёту цен админа не торгуем
+                self.assertIn("4", [r.login for r in res if r.uid == 2] + [a["login"] for a in await db.user_accounts(2)])
+                self.assertEqual(api_admin.trades, [])
                 await db.close()
         run(go())
 
@@ -583,7 +644,8 @@ class TelegramDialogTests(unittest.TestCase):
         async def go():
             with tempfile.TemporaryDirectory() as d:
                 patch = {"metaapi_token": "tok", "autotrade_month_usd": 500.0, "stars_per_usd": 50.0, "stars_invoice_max": 10000, "autotrade_days": 30, "admin_ids": set(), "db_path": os.path.join(d, "t.db"), "bot_token": "123:ABC",
-                         "twelvedata_key": "x", "data_provider": "twelvedata", "autotrade_demo_only": True}
+                         "twelvedata_key": "x", "data_provider": "twelvedata", "autotrade_demo_only": True,
+                         "autotrade_real_only": False}
                 saved = {k: getattr(config, k) for k in patch}
                 for k, v in patch.items():
                     object.__setattr__(config, k, v)
@@ -794,6 +856,109 @@ class MarketFeedTests(unittest.TestCase):
             await asyncio.sleep(0.25)
             self.assertEqual(await f.price(), 3864.0)            # брокер вернулся
             self.assertFalse(f.on_backup)
+        run(go())
+
+    def test_failover_heals_broker_after_long_silence(self):
+        """Брокер молчит дольше heal_after — Failover один раз в фоне вызывает heal() (перезапуск счёта в MetaApi);
+        устаревшая поправка не применяется к запасной цене; пустой TimeoutError подписан понятно."""
+        import time as _time
+
+        import pandas as pd
+
+        from goldbot.market import Failover, Provider
+
+        class Broker(Provider):
+            def __init__(self):
+                self.hang, self.heals = True, 0
+
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [1.0]})
+
+            async def price(self):
+                if self.hang:
+                    await asyncio.sleep(30)
+                return 3500.0
+
+            async def heal(self):
+                self.heals += 1
+                return "счёт перезапущен"
+
+        class Spot(Provider):
+            async def candles(self, tf, count):
+                return pd.DataFrame({"close": [2.0]})
+
+            async def price(self):
+                return 3510.0
+
+        async def go():
+            br = Broker()
+            f = Failover(br, Spot(), price_timeout=0.05, price_cooldown=0, hold=0, heal_after=0.2, heal_every=10)
+            f.offset, f.offset_at = -13.68, _time.time() - 7 * 3600     # сверка была в пятницу — устарела
+            self.assertFalse(f.offset_fresh)
+            self.assertEqual(await f.price(), 3510.0)          # без поправки
+            self.assertIn("нет ответа за 0.05 с", f.last_error)
+            self.assertEqual(br.heals, 0)                      # молчит недолго — не трогаем
+            await asyncio.sleep(0.25)
+            await f.price()
+            await f.price()
+            await asyncio.sleep(0.01)
+            self.assertEqual(br.heals, 1)                      # один раз, дальше не чаще heal_every
+            self.assertEqual(f.heal_note, "счёт перезапущен")
+            br.hang = False
+            self.assertEqual(await f.price(), 3500.0)
+            self.assertIsNone(f._down_since)
+        run(go())
+
+    def test_broker_market_heal_redeploys_disconnected_account(self):
+        from aiohttp import web
+
+        async def go():
+            acc = {"state": "DEPLOYED", "connectionStatus": "DISCONNECTED"}
+            calls = []
+
+            async def get(req):
+                return web.json_response(acc)
+
+            async def undeploy(req):
+                calls.append("undeploy")
+                acc["state"] = "UNDEPLOYED"
+                return web.Response(status=204)
+
+            async def deploy(req):
+                calls.append("deploy")
+                acc.update(state="DEPLOYED", connectionStatus="CONNECTED")
+                return web.Response(status=204)
+
+            app = web.Application()
+            app.router.add_get("/users/current/accounts/m1", get)
+            app.router.add_post("/users/current/accounts/m1/undeploy", undeploy)
+            app.router.add_post("/users/current/accounts/m1/deploy", deploy)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            old = at.PROVISIONING
+            at.PROVISIONING = f"http://127.0.0.1:{port}"
+            api = at.MetaApi("tok")
+
+            async def src():
+                return {"meta_id": "m1", "region": "london", "symbol": "XAUUSD"}
+            try:
+                bm = at.BrokerMarket(api, src)
+                self.assertIn("нет связи с брокером", at.describe_account(await bm.account_state()))
+                note = await bm.heal(poll=0.01)
+                self.assertEqual(calls, ["undeploy", "deploy"])
+                self.assertIn("перезапущен", note)
+                self.assertIn("не нужен", await bm.heal())     # связь есть — ничего не трогаем
+                self.assertEqual(calls, ["undeploy", "deploy"])
+                acc["state"] = "UNDEPLOYED"
+                self.assertIn("включён снова", await bm.heal())
+                self.assertEqual(calls[-1], "deploy")
+            finally:
+                at.PROVISIONING = old
+                await api.close()
+                await runner.cleanup()
         run(go())
 
     def test_broker_market_reads_candles_and_bid(self):

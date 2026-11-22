@@ -151,7 +151,11 @@ class Config:
     # автоторговля на счетах подписчиков через MetaApi (metaapi.cloud); без токена функция выключена
     metaapi_token: str = os.getenv("METAAPI_TOKEN", "")
     metaapi_region: str = os.getenv("METAAPI_REGION", "")           # пусто — регион по умолчанию MetaApi
-    autotrade_demo_only: bool = os.getenv("AUTOTRADE_DEMO_ONLY", "1") not in ("0", "false", "no", "")
+    # какие счета подключают подписчики: real — реальные и проп-счета FundedNext (демо нет), demo — только демо
+    # и проп-счета, any — любые. Админ может подключить любой счёт. (Прежний AUTOTRADE_DEMO_ONLY больше не читается.)
+    autotrade_accounts: str = os.getenv("AUTOTRADE_ACCOUNTS", "real").strip().lower()
+    autotrade_demo_only: bool = autotrade_accounts == "demo"
+    autotrade_real_only: bool = autotrade_accounts == "real"
     autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
     autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
     autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
