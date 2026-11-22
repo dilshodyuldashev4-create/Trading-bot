@@ -96,6 +96,15 @@ def trader(db, api, **kw):
 
 
 class HelpersTests(unittest.TestCase):
+    def test_retry_after_seconds_or_http_date(self):
+        from datetime import timedelta
+        self.assertEqual(at.retry_after("15"), 15)
+        self.assertEqual(at.retry_after(None), 10)
+        self.assertEqual(at.retry_after("garbage"), 10)
+        when = (at._now() + timedelta(seconds=30)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        self.assertAlmostEqual(at.retry_after(when), 30, delta=2)
+        self.assertEqual(at.retry_after("Sun, 22 Nov 2020 23:52:20 GMT"), 0)   # уже прошло — повторяем сразу
+
     def test_pick_symbol(self):
         self.assertEqual(at.pick_symbol(["EURUSD", "XAUUSD.ecn", "XAUUSDm"]), "XAUUSDm")
         self.assertEqual(at.pick_symbol(["XAUUSDm", "XAUUSD"]), "XAUUSD")
