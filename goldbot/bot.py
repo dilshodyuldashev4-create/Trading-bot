@@ -117,6 +117,7 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
     if code == "NOT_PAID":
         return t(lang, "at_pay") + t(lang, "at_pay_each")
     key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
+           "DEMO_NOT_ALLOWED": "at_err_demo", "READ_ONLY": "at_err_readonly",
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
     if not key and isinstance(e, asyncio.TimeoutError):
         key = "at_err_timeout"
@@ -350,8 +351,9 @@ class App:
         self.autotrader: AutoTrader | None = None
         if config.metaapi_token:
             self.autotrader = AutoTrader(self.db, MetaApi(config.metaapi_token), config.autotrade_demo_only,
-                                         config.autotrade_risk_pct, config.autotrade_max_lot,
-                                         config.autotrade_symbol, config.metaapi_region,
+                                         real_only=config.autotrade_real_only, risk_pct=config.autotrade_risk_pct,
+                                         max_lot=config.autotrade_max_lot, symbol_override=config.autotrade_symbol,
+                                         region=config.metaapi_region,
                                          exempt=frozenset(config.admin_ids), paid_days=config.autotrade_days,
                                          prop_risk_pct=config.prop_risk_pct,
                                          prop_strong_risk_pct=config.prop_strong_risk_pct, prop_guard_pct=config.prop_guard_pct,
@@ -848,7 +850,8 @@ class App:
                  days=config.autotrade_days)
 
     async def show_risks(self, chat_id: int, lang: str) -> None:
-        demo = t(lang, "at_demo_note") if config.autotrade_demo_only else ""
+        demo = (t(lang, "at_demo_note") if config.autotrade_demo_only else
+                t(lang, "at_real_note") if config.autotrade_real_only else "")
         await self.bot.send_message(
             chat_id, t(lang, "at_risks", risk=f"{config.autotrade_risk_pct:g}",
                        max_lot=f"{config.autotrade_max_lot:g}", demo=demo),
@@ -892,7 +895,9 @@ class App:
         if time.monotonic() - at < 60:
             return src
         accs = [a for a in await self.db.trade_accounts() if a["user_id"] in config.admin_ids]
-        src = accs[0] if accs else None
+        # счёт админа только для цен (инвесторский пароль) или реальный надёжнее демо: не истекает; иначе — первый
+        real = [a for a in accs if a.get("read_only") or (not a.get("demo", 1) and not a.get("prop_plan"))]
+        src = (real or accs or [None])[0]
         self._market_src = (time.monotonic(), src)
         return src
 
@@ -1360,6 +1365,9 @@ class App:
                 text = t(lang, "at_connected", broker=html.escape(info.get("broker") or "—"), login=login,
                          server=html.escape(server), balance=balance, symbol=html.escape(info["symbol"]),
                          risk=f"{config.autotrade_risk_pct:g}")
+                if info.get("price_only"):
+                    text = t(lang, "at_price_only", broker=html.escape(info.get("broker") or "—"), login=login,
+                             server=html.escape(server), balance=balance, symbol=html.escape(info["symbol"]))
             log.info("autotrade: user %s connected %s@%s", uid, login, server)
         except Exception as e:  # noqa: BLE001
             log.warning("autotrade connect for %s (%s@%s) failed: %s %s %s", uid, login, server,
@@ -1824,15 +1832,33 @@ class App:
             if p.last_error:
                 lines.append(f"Последняя ошибка ({self.fmt_dt(datetime.fromtimestamp(p.last_error_at, timezone.utc))}): "
                              f"<code>{html.escape(p.last_error)}</code>")
+            if hasattr(p.primary, "account_state"):
+                try:
+                    from .autotrade import describe_account
+                    from .autotrade import GONE, MetaApiError
+                    state = describe_account(await asyncio.wait_for(p.primary.account_state(), 12))
+                except MetaApiError as e:
+                    state = (GONE if e.status == 404 else "" if e.code == "NO_ACCOUNT"
+                             else f"❓ не удалось узнать: {e}"[:200])
+                except Exception as e:  # noqa: BLE001
+                    state = f"❓ не удалось узнать: {type(e).__name__}: {e}"[:200]
+                if state:
+                    lines.append(f"Счёт в MetaApi: {html.escape(state)}")
+                else:
+                    lines.append("Пока счёта нет, цены и свечи идут из запасного источника")
+            if p.heal_note:
+                lines.append(f"Автопочинка ({self.fmt_dt(datetime.fromtimestamp(p.heal_at, timezone.utc))}): "
+                             f"{html.escape(p.heal_note)}")
             if p.offset is not None:
-                lines.append(f"Разница брокер − запасной: {p.offset:+.2f} "
-                             f"(сверка {self.fmt_dt(datetime.fromtimestamp(p.offset_at, timezone.utc))}); "
-                             "запасная цена показывается с этой поправкой")
+                when = self.fmt_dt(datetime.fromtimestamp(p.offset_at, timezone.utc))
+                tail = ("запасная цена показывается с этой поправкой" if p.offset_fresh else
+                        f"старше {p.offset_ttl / 3600:g} ч, поэтому не применяется до новой сверки")
+                lines.append(f"Разница брокер − запасной: {p.offset:+.2f} (сверка {when}); {tail}")
             for name, prov in (("MetaApi", p.primary), ("Запасной", p.backup)):
                 t0 = time.monotonic()
                 try:
                     price = await asyncio.wait_for(prov.price(), 10)
-                    extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.offset is not None else ""
+                    extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.offset_fresh else ""
                     lines.append(f"{name}: {price:.2f}{extra} ({time.monotonic() - t0:.1f} с)")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "

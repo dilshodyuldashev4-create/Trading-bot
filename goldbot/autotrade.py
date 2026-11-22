@@ -155,8 +155,8 @@ class MetaApi:
             body = body.get("items", [])
         return body or []
 
-    async def get_account(self, account_id: str) -> dict:
-        return await self._ok("GET", f"{PROVISIONING}/users/current/accounts/{account_id}")
+    async def get_account(self, account_id: str, timeout: float = 90) -> dict:
+        return await self._ok("GET", f"{PROVISIONING}/users/current/accounts/{account_id}", timeout=timeout)
 
     async def deploy(self, account_id: str) -> None:
         await self._ok("POST", f"{PROVISIONING}/users/current/accounts/{account_id}/deploy")
@@ -324,7 +324,8 @@ class AutoTrader:
     poll: float = 5
     concurrency: int = 10
     retry_delays: tuple[float, ...] = (5.0, 20.0)
-    exempt: frozenset = frozenset()   # админы: автоторговля без оплаты
+    exempt: frozenset = frozenset()   # админы: автоторговля без оплаты и любые счета
+    real_only: bool = False           # подключать только реальные счета и проп-счета (демо — нет)
     paid_days: int = 30               # на сколько дней оплачен новый счёт
     # проп-счета FundedNext
     prop_risk_pct: float = 0.5        # риск на сделку, % от размера счёта (больше 1 % не бывает)
@@ -385,9 +386,17 @@ class AutoTrader:
                 await self.api.deploy(acc_id)
             info = await self._wait_connected(acc_id)
             region = info.pop("_region")
-            # проп-счёт — деньги фирмы, а не подписчика: его подключаем и при AUTOTRADE_DEMO_ONLY
-            if self.demo_only and not prop and info.get("type") not in ("ACCOUNT_TRADE_MODE_DEMO", "ACCOUNT_TRADE_MODE_CONTEST"):
+            # проп-счёт — деньги фирмы, а не подписчика: его подключаем в любом режиме. Админу можно любой счёт;
+            # его реальный счёт в режиме «только демо» и счёт с инвесторским паролем — только для цен (price_only)
+            demo = info.get("type") in ("ACCOUNT_TRADE_MODE_DEMO", "ACCOUNT_TRADE_MODE_CONTEST")
+            admin = uid in self.exempt
+            if self.demo_only and not prop and not admin and not demo:
                 raise MetaApiError("real account", "REAL_NOT_ALLOWED")
+            if self.real_only and not prop and not admin and demo:
+                raise MetaApiError("demo account", "DEMO_NOT_ALLOWED")
+            read_only = info.get("tradeAllowed") is False   # вошли по инвесторскому паролю
+            if read_only and not admin:
+                raise MetaApiError("investor password", "READ_ONLY")
             symbol = pick_symbol(await self.api.symbols(acc_id, region), self.symbol_override)
             if not symbol:
                 raise MetaApiError("no gold symbol", "NO_GOLD")
@@ -396,13 +405,16 @@ class AutoTrader:
             raise
         aid = await self.db.save_trade_account(uid, acc_id, region, platform, server, login, symbol,
                                                info.get("broker") or "", info.get("currency") or "USD",
-                                               info.get("type") == "ACCOUNT_TRADE_MODE_DEMO", paid_until)
+                                               info.get("type") == "ACCOUNT_TRADE_MODE_DEMO", paid_until,
+                                               read_only=read_only)
         if prop:
             bal = float(info.get("balance") or prop["size"])
             eq = float(info.get("equity") or bal)
             await self.db.set_prop(aid, prop["plan"], prop["stage"], float(prop["size"]),
                                    pr.day_key(_now(), self.prop_day_tz), bal, max(float(prop["size"]), eq))
-        return {**info, "symbol": symbol, "server": server, "login": login, "account_id": aid}
+        return {**info, "symbol": symbol, "server": server, "login": login, "account_id": aid,
+                "price_only": self.price_only({"demo": int(demo), "read_only": int(read_only),
+                                               "prop_plan": prop and prop.get("plan")})}
 
     async def _remove_orphans(self, uid: int) -> None:
         """Счета этого подписчика в MetaApi, которых нет в базе бота (прошлая попытка оборвалась), — удаляем,
@@ -475,6 +487,11 @@ class AutoTrader:
         return acc
 
     # ── сделки ─────────────────────────────────────────────────────────────
+    def price_only(self, acc: dict) -> bool:
+        """Счёт только для цен и свечей, сделок по нему бот не открывает: вход по инвесторскому паролю или
+        реальный счёт админа в режиме «только демо»."""
+        return bool(acc.get("read_only") or (self.demo_only and not acc.get("demo", 1) and not acc.get("prop_plan")))
+
     async def open_signal(self, sid: int, direction: int, sl_dist: float, tp_dist: float,
                           uids: set[int] | None = None, strong: bool = False, prop_only: bool = False,
                           size: float = 1.0) -> list[OpenResult]:
@@ -485,6 +502,7 @@ class AutoTrader:
             return []
         accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
                     if (uids is None or a["user_id"] in uids)
+                    and not self.price_only(a)
                     and (a.get("prop_plan") or not prop_only)
                     and not (a.get("prop_plan") and a.get("prop_halt"))]  # проп-счёт у лимита — не торгуем
         sem = asyncio.Semaphore(self.concurrency)
@@ -528,6 +546,8 @@ class AutoTrader:
         acc = await self.db.get_trade_account(uid)   # первый счёт админа
         if not acc:
             return OpenResult(uid, False, error="NO_ACCOUNT"), None
+        if self.price_only(acc):
+            return OpenResult(uid, False, error="REAL_NOT_ALLOWED", aid=acc["id"], login=acc["login"]), None
         sid = -int(asyncio.get_running_loop().time())  # отрицательный id — не путается с сигналами
         try:
             res = await self._open_retry({**acc}, sid, 1, 10.0, 10.0, min_lot=True)
@@ -1014,7 +1034,7 @@ def _now():
 # ошибки, после которых сверка не открывает сделку повторно: нет денег, лимиты проп-счёта, счёт не тот
 NO_REOPEN = {"NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DAY_LOSS", "DAY_SIDE",
              "DUPLICATE", "NO_ACCOUNT",
-             "REAL_NOT_ALLOWED", "TRADE_RETCODE_TRADE_DISABLED"}
+             "REAL_NOT_ALLOWED", "DEMO_NOT_ALLOWED", "READ_ONLY", "TRADE_RETCODE_TRADE_DISABLED"}
 
 
 def _fresh(iso: str | None, within: float) -> bool:
@@ -1051,6 +1071,25 @@ def _not_connected(e: MetaApiError) -> bool:
             or "not connected" in text or "does not match the account region" in text)
 
 
+GONE = "❌ счёта нет в MetaApi (удалён): отключите его в боте (🤖 Автоторговля) и подключите новый"
+
+
+def describe_account(a: dict) -> str:
+    """Состояние счёта в MetaApi по-русски: развёрнут ли и есть ли связь с брокером (для /feed)."""
+    state, conn = a.get("state", "?"), a.get("connectionStatus", "?")
+    if state in ("UNDEPLOYED", "UNDEPLOYING"):
+        return f"❌ выключен в MetaApi ({state})"
+    if state != "DEPLOYED":
+        return f"⏳ {state} · {conn}"
+    if conn == "CONNECTED":
+        return "✅ развёрнут, связь с брокером есть"
+    if conn == "DISCONNECTED_FROM_BROKER":
+        return ("❌ брокер не пускает терминал MetaApi (DISCONNECTED_FROM_BROKER): проверьте вход в MT5 с этим "
+                "логином и паролем; не прошёл — демо-счёт истёк или сменился пароль")
+    return (f"❌ развёрнут, но нет связи с брокером ({conn}): проверьте вход в MT5 с этим логином и паролем; "
+            "не прошёл — демо-счёт истёк или сменился пароль")
+
+
 class BrokerMarket(Provider):
     """Свечи и цена XAUUSD прямо с MetaTrader-счёта через MetaApi (тот же график, что в MT5 у брокера).
     source() → {"meta_id", "region", "symbol"} счёта, с которого берём данные (None — счёта нет)."""
@@ -1082,6 +1121,47 @@ class BrokerMarket(Provider):
         if not src:
             raise MetaApiError("no market data account", "NO_ACCOUNT")
         return src
+
+    async def account_state(self, timeout: float = 10) -> dict:
+        """Состояние счёта для цен в MetaApi: state (DEPLOYED/UNDEPLOYED…) и connectionStatus (CONNECTED…)."""
+        src = await self._src()
+        return await self.api.get_account(src["meta_id"], timeout=timeout)
+
+    async def heal(self, wait: float = 90, poll: float = 5) -> str:
+        """Брокер долго не отдаёт цену: смотрим счёт в MetaApi. Выключен — включаем (deploy). Включён, но нет
+        связи с брокером — перезапускаем (undeploy + deploy): MetaApi поднимает терминал заново, и если
+        брокер просто обрывал связь (выходные, обслуживание сервера), вход проходит снова. Возвращает итог
+        по-русски для /feed."""
+        src = await self._src()
+        mid = src["meta_id"]
+        try:
+            a = await self.api.get_account(mid, timeout=15)
+        except MetaApiError as e:
+            if e.status == 404:
+                return GONE
+            raise
+        state, conn = a.get("state"), a.get("connectionStatus")
+        if state == "DEPLOYED" and conn == "CONNECTED":
+            return "счёт подключён к брокеру, перезапуск не нужен"
+        if state == "DEPLOYED":
+            log.warning("market data account %s is %s, redeploying", mid, conn)
+            await self.api.undeploy(mid)
+            loop = asyncio.get_running_loop()
+            end = loop.time() + wait
+            while loop.time() < end:
+                await asyncio.sleep(poll)
+                try:
+                    if (await self.api.get_account(mid, timeout=15)).get("state") == "UNDEPLOYED":
+                        break
+                except MetaApiError as e:
+                    log.info("get account %s: %s", mid, e)
+            await self.api.deploy(mid)
+            return f"не было связи с брокером ({conn}) — счёт перезапущен в MetaApi"
+        if state in ("UNDEPLOYED", "UNDEPLOYING"):
+            log.warning("market data account %s was %s, deploying", mid, state)
+            await self.api.deploy(mid)
+            return f"счёт был выключен в MetaApi ({state}) — включён снова"
+        return f"счёт в состоянии {state} · {conn}, ждём"
 
     async def candles(self, tf: str, count: int):
         src = await self._src()

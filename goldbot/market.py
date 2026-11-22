@@ -167,11 +167,15 @@ class Failover(Provider):
       снова спрашиваем брокера;
     - только если брокер молчит дольше hold — берём запасной, но с поправкой на разницу между источниками
       (раз в offset_every секунд, пока брокер отвечает, бот сверяет обе цены и запоминает разницу).
-    Цена и свечи переключаются отдельно: сбой при загрузке свечей не уводит цену с графика брокера."""
+    Цена и свечи переключаются отдельно: сбой при загрузке свечей не уводит цену с графика брокера.
+
+    Если брокер не отдаёт цену дольше heal_after секунд, а у основного источника есть heal() (BrokerMarket),
+    в фоне вызывается heal(): он включает или перезапускает счёт в MetaApi. Не чаще раза в heal_every секунд."""
 
     def __init__(self, primary: Provider, backup: Provider, price_timeout: float = 8,
                  candle_timeout: float = 15, cooldown: float = 60, price_cooldown: float | None = None,
-                 hold: float = 60, offset_every: float = 300, offset_ttl: float = 6 * 3600):
+                 hold: float = 60, offset_every: float = 300, offset_ttl: float = 6 * 3600,
+                 heal_after: float = 900, heal_every: float = 1800):
         self.primary, self.backup = primary, backup
         self.price_timeout, self.candle_timeout, self.cooldown = price_timeout, candle_timeout, cooldown
         self.price_cooldown = cooldown if price_cooldown is None else price_cooldown
@@ -185,14 +189,44 @@ class Failover(Provider):
         self.offset: float | None = None    # цена брокера минус цена запасного источника
         self.offset_at = 0.0                # time.time() последней сверки
         self._offset_mono = -1e18
+        self.heal_after, self.heal_every = heal_after, heal_every
+        self._down_since: float | None = None   # time.monotonic() первого сбоя цены после последнего ответа
+        self._heal_mono = -1e18
+        self._heal_task: asyncio.Task | None = None
+        self.heal_note = ""                 # итог последнего heal() (для /feed)
+        self.heal_at = 0.0
 
     @property
     def on_backup(self) -> bool:
         return "price" in self.backup_for
 
-    def _fail(self, name: str, e: Exception, cooldown: float) -> None:
+    def _fail(self, name: str, e: Exception, cooldown: float, timeout: float | None = None) -> None:
         self._skip_until[name] = time.monotonic() + cooldown
-        self.last_error, self.last_error_at = f"{name}: {type(e).__name__}: {e}"[:300], time.time()
+        text = str(e) or (f"нет ответа за {timeout:g} с" if timeout and isinstance(e, asyncio.TimeoutError) else "")
+        self.last_error, self.last_error_at = f"{name}: {type(e).__name__}: {text}"[:300], time.time()
+
+    def _maybe_heal(self) -> None:
+        """Брокер молчит долго — в фоне просим основной источник починить подключение (heal)."""
+        heal = getattr(self.primary, "heal", None)
+        now = time.monotonic()
+        if (heal is None or self._down_since is None or now - self._down_since < self.heal_after
+                or now - self._heal_mono < self.heal_every or (self._heal_task and not self._heal_task.done())):
+            return
+        self._heal_mono = now
+
+        async def run() -> None:
+            try:
+                note = await heal()
+            except Exception as e:  # noqa: BLE001
+                note = f"не удалось: {type(e).__name__}: {e}"
+            self.heal_note, self.heal_at = str(note)[:300], time.time()
+            log.warning("market data: heal broker connection: %s", self.heal_note)
+        self._heal_task = asyncio.get_running_loop().create_task(run())
+
+    @property
+    def offset_fresh(self) -> bool:
+        """Поправка измерена недавно и применяется к запасной цене."""
+        return self.offset is not None and time.time() - self.offset_at < self.offset_ttl
 
     async def _call(self, name: str, timeout: float, *args):
         if time.monotonic() >= self._skip_until.get(name, 0):
@@ -203,7 +237,7 @@ class Failover(Provider):
                     self.backup_for.discard(name)
                 return res
             except Exception as e:  # noqa: BLE001 — любая ошибка: сразу запасной источник
-                self._fail(name, e, self.cooldown)
+                self._fail(name, e, self.cooldown, timeout)
                 if name not in self.backup_for:
                     log.warning("market data: broker %s failed (%s: %s), switching to backup",
                                 name, type(e).__name__, e)
@@ -227,7 +261,7 @@ class Failover(Provider):
 
     def backup_adjusted(self, p: float) -> float:
         """Цена запасного источника, приведённая к графику брокера (если разница измерена недавно)."""
-        if self.offset is not None and time.time() - self.offset_at < self.offset_ttl:
+        if self.offset_fresh:
             return p + self.offset
         return p
 
@@ -237,13 +271,17 @@ class Failover(Provider):
                 p = await asyncio.wait_for(self.primary.price(), self.price_timeout)
                 self.last_ok_at = time.time()
                 self._broker = (p, time.monotonic())
+                self._down_since = None
                 if "price" in self.backup_for:
                     log.warning("market data: broker price is back")
                     self.backup_for.discard("price")
                 await self._measure_offset(p)
                 return p
             except Exception as e:  # noqa: BLE001
-                self._fail("price", e, self.price_cooldown)
+                self._fail("price", e, self.price_cooldown, self.price_timeout)
+                if self._down_since is None:
+                    self._down_since = time.monotonic()
+                self._maybe_heal()
                 log.info("market data: broker price failed (%s: %s)", type(e).__name__, e)
         if self._broker and time.monotonic() - self._broker[1] < self.hold:
             return self._broker[0]   # брокер ответил недавно — его цена точнее запасного источника

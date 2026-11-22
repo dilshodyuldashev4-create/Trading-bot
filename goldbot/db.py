@@ -163,6 +163,9 @@ class DB:
                 await self.conn.execute(f"ALTER TABLE trade_accounts ADD COLUMN {c} {typ}")
         if "id" not in tcols:
             await self._migrate_many_accounts()
+        cur = await self.conn.execute("PRAGMA table_info(trade_accounts)")
+        if "read_only" not in [r[1] for r in await cur.fetchall()]:  # вход по инвесторскому паролю: только цены
+            await self.conn.execute("ALTER TABLE trade_accounts ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0")
         await self.conn.commit()
 
     async def _migrate_many_accounts(self) -> None:
@@ -455,13 +458,13 @@ class DB:
     # ── счета автоторговли (у подписчика может быть несколько, у каждого своя оплата) ───────────
     async def save_trade_account(self, uid: int, meta_id: str, region: str, platform: str, server: str,
                                  login: str, symbol: str, broker: str, currency: str, demo: bool,
-                                 paid_until: datetime | None = None) -> int:
-        """Новый счёт подписчика; возвращает его id."""
+                                 paid_until: datetime | None = None, read_only: bool = False) -> int:
+        """Новый счёт подписчика; возвращает его id. read_only — вход по инвесторскому паролю (только цены)."""
         cur = await self.conn.execute(
             "INSERT INTO trade_accounts (user_id, meta_id, region, platform, server, login, symbol, broker, "
-            "currency, demo, enabled, created_at, paid_until) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)",
+            "currency, demo, enabled, created_at, paid_until, read_only) VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
             (uid, meta_id, region, platform, server, login, symbol, broker, currency, int(demo), _iso(now()),
-             _iso(paid_until) if paid_until else None))
+             _iso(paid_until) if paid_until else None, int(read_only)))
         await self.conn.commit()
         return int(cur.lastrowid)
 
