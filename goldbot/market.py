@@ -136,6 +136,58 @@ class GoldApiPrice(_Http):
         return p
 
 
+class SwissquotePrice(_Http):
+    """Swissquote (швейцарский банк и брокер) — бесплатная публичная лента котировок XAU/USD без ключа,
+    обновляется каждую секунду. Это цена реального брокера, поэтому она почти совпадает с MT5 (XM, Exness),
+    в отличие от gold-api.com, который отстаёт на минуту и больше. Берём Bid, как на графике MT5."""
+    URL = "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD"
+    HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        raise NotImplementedError("Swissquote используется только для цены")
+
+    async def price(self) -> float:
+        j = await self._get(self.URL, headers=self.HEADERS)
+        bids: list[float] = []
+        for row in j if isinstance(j, list) else []:
+            profiles = row.get("spreadProfilePrices") or []
+            # профиль prime — самый узкий спред, ближе всего к межбанку; иначе первый, что есть
+            prof = next((x for x in profiles if x.get("spreadProfile") == "prime"), profiles[0] if profiles else None)
+            if prof and float(prof.get("bid") or 0) > 0:
+                bids.append(float(prof["bid"]))
+        if not bids:
+            raise RuntimeError(f"Swissquote: нет цены: {str(j)[:200]}")
+        bids.sort()
+        return bids[len(bids) // 2]   # медиана по серверам Swissquote
+
+
+class FirstOf(Provider):
+    """Цена из первого источника, который ответил: основной быстрый, остальные — запасные."""
+
+    def __init__(self, *sources: Provider):
+        self.sources = sources
+        self.used: str = ""
+
+    async def candles(self, tf: str, count: int) -> pd.DataFrame:
+        raise NotImplementedError("FirstOf используется только для цены")
+
+    async def price(self) -> float:
+        err: Exception | None = None
+        for src in self.sources:
+            try:
+                p = await asyncio.wait_for(src.price(), 8)
+                self.used = type(src).__name__
+                return p
+            except Exception as e:  # noqa: BLE001
+                err = e
+                log.info("price source %s failed: %s: %s", type(src).__name__, type(e).__name__, e)
+        raise err or RuntimeError("нет источников цены")
+
+    async def close(self) -> None:
+        for src in self.sources:
+            await src.close()
+
+
 class Hybrid(Provider):
     """Свечи от одного источника (например, бесплатный Twelve Data: запрос только при закрытии свечи),
     цена каждые CHECK_INTERVAL секунд от другого (например, Finnhub)."""
@@ -338,10 +390,18 @@ def make_provider(cfg) -> Provider:
         if not cfg.twelvedata_key:
             raise RuntimeError("TWELVEDATA_API_KEY не задан")
         base = TwelveData(cfg.twelvedata_key)
+    # текущая цена: сначала Swissquote (цена брокера в реальном времени, без ключа), если не ответил —
+    # источник из PRICE_PROVIDER, потом DATA_PROVIDER.
+    # SWISSQUOTE=0 выключает Swissquote.
+    backups: list[Provider] = []
     if cfg.price_provider == "goldapi":
-        return Hybrid(base, GoldApiPrice())
-    if cfg.price_provider == "finnhub":
+        backups.append(GoldApiPrice())
+    elif cfg.price_provider == "finnhub":
         if not cfg.finnhub_key:
             raise RuntimeError("FINNHUB_API_KEY не задан")
-        return Hybrid(base, FinnhubPrice(cfg.finnhub_key, cfg.finnhub_symbol))
+        backups.append(FinnhubPrice(cfg.finnhub_key, cfg.finnhub_symbol))
+    if getattr(cfg, "swissquote", True):
+        return Hybrid(base, FirstOf(SwissquotePrice(), *backups, base))
+    if backups:
+        return Hybrid(base, backups[0])
     return base

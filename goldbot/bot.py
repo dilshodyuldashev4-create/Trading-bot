@@ -1876,7 +1876,7 @@ class App:
             arg = (command.args or "").strip().replace(",", ".")
             if arg.lower() in ("off", "0", "нет"):
                 p.manual_offset = None
-                await self.db.set_kv("manual_offset", "")
+                await self.db.set_kv("manual_offset_sq", "")
                 await m.answer("Поправка убрана: запасная цена показывается как есть.")
                 return
             try:
@@ -1896,7 +1896,7 @@ class App:
                 await m.answer(f"Разница {off:+.2f} слишком большая — проверьте цену (запасной источник: {spot:.2f}).")
                 return
             p.manual_offset = off
-            await self.db.set_kv("manual_offset", f"{off}")
+            await self.db.set_kv("manual_offset_sq", f"{off}")
             await m.answer(f"✅ Поправка {off:+.2f} (брокер {broker:.2f}, запасной {spot:.2f}).\n"
                            "Пока нет цены от MetaApi, бот показывает запасную цену и свечи с этой поправкой. "
                            "Брокер подключится — бот перейдёт на его цену сам.")
@@ -1951,6 +1951,9 @@ class App:
                 try:
                     price = await asyncio.wait_for(prov.price(), 10)
                     extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.current_offset() is not None else ""
+                    used = getattr(getattr(prov, "p", None), "used", "")
+                    if prov is p.backup and used:
+                        extra += f" [{ {'SwissquotePrice': 'Swissquote', 'GoldApiPrice': 'gold-api.com'}.get(used, used)}]"
                     lines.append(f"{name}: {price:.2f}{extra} ({time.monotonic() - t0:.1f} с)")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "
@@ -2690,7 +2693,8 @@ class App:
 
     async def run(self) -> None:
         await self.db.connect()
-        mo = await self.db.get_kv("manual_offset")
+        # поправка /offset — к цене Swissquote; старая (manual_offset) была к gold-api.com и сюда не подходит
+        mo = await self.db.get_kv("manual_offset_sq")
         if mo and isinstance(self.provider, Failover):
             try:
                 self.provider.manual_offset = float(mo)
