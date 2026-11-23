@@ -311,7 +311,44 @@ class GoldApiTests(unittest.TestCase):
                               finnhub_key="", finnhub_symbol="")
         p = make_provider(cfg)
         self.assertIsInstance(p, Hybrid)
-        self.assertIsInstance(p.p, GoldApiPrice)
+        # Swissquote первым, gold-api.com — запасной
+        self.assertEqual([type(x).__name__ for x in p.p.sources], ["SwissquotePrice", "GoldApiPrice", "TwelveData"])
+        cfg.swissquote = False
+        self.assertIsInstance(make_provider(cfg).p, GoldApiPrice)
+
+    def test_swissquote_parses_bid(self):
+        from goldbot.market import SwissquotePrice
+        sq = SwissquotePrice()
+
+        async def fake_get(url, **kw):
+            return [{"topo": {"platform": "SwissquoteLtd", "server": "Live1"},
+                     "spreadProfilePrices": [{"spreadProfile": "standard", "bid": 3619.10, "ask": 3619.90},
+                                             {"spreadProfile": "prime", "bid": 3619.80, "ask": 3620.10}],
+                     "ts": 1}]
+        sq._get = fake_get
+        self.assertAlmostEqual(run(sq.price()), 3619.80)
+
+        async def empty(url, **kw):
+            return []
+        sq._get = empty
+        with self.assertRaises(RuntimeError):
+            run(sq.price())
+
+    def test_first_of_falls_back(self):
+        from goldbot.market import FirstOf, Provider
+
+        class P(Provider):
+            def __init__(self, v): self.v = v
+            async def candles(self, tf, count): ...
+            async def price(self):
+                if self.v is None:
+                    raise RuntimeError("down")
+                return self.v
+        f = FirstOf(P(None), P(3620.0))
+        self.assertEqual(run(f.price()), 3620.0)
+        self.assertEqual(f.used, "P")
+        with self.assertRaises(RuntimeError):
+            run(FirstOf(P(None)).price())
 
 
 class NewsPauseTests(unittest.TestCase):
