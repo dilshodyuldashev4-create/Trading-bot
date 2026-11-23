@@ -153,7 +153,7 @@ class Config:
     metaapi_region: str = os.getenv("METAAPI_REGION", "")           # пусто — регион по умолчанию MetaApi
     # какие счета подключают подписчики: real — реальные и проп-счета FundedNext (демо нет), demo — только демо
     # и проп-счета, any — любые. Админ может подключить любой счёт. (Прежний AUTOTRADE_DEMO_ONLY больше не читается.)
-    autotrade_accounts: str = os.getenv("AUTOTRADE_ACCOUNTS", "real").strip().lower()
+    autotrade_accounts: str = os.getenv("AUTOTRADE_ACCOUNTS", "any").strip().lower()
     autotrade_demo_only: bool = autotrade_accounts == "demo"
     autotrade_real_only: bool = autotrade_accounts == "real"
     autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
