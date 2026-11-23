@@ -47,6 +47,14 @@ BROKERS: tuple[tuple[str, str], ...] = (
 GOLD = re.compile(r"^(XAUUSD|GOLD)", re.I)
 
 
+async def _tell(progress, key: str) -> None:
+    """Сообщение о ходе подключения; его сбой подключение не прерывает."""
+    try:
+        await progress(key)
+    except Exception:  # noqa: BLE001
+        log.warning("progress message %s failed", key, exc_info=True)
+
+
 def retry_after(value: Any, default: float = 10) -> float:
     """Заголовок Retry-After: секунды («10») или HTTP-дата («Sun, 22 Nov 2026 23:52:20 GMT») — MetaApi
     присылает оба вида. Возвращает, сколько секунд ждать."""
@@ -137,9 +145,10 @@ class MetaApi:
         return body if isinstance(body, dict) else {}
 
     async def create_account(self, *, name: str, login: str, password: str, server: str, platform: str,
-                             magic: int, region: str = "", max_wait: float = 300) -> dict:
-        """Создаёт счёт в MetaApi. 202 — MetaApi ещё определяет настройки брокера: ждём и повторяем
-        с тем же transaction-id."""
+                             magic: int, region: str = "", max_wait: float = 600, progress=None) -> dict:
+        """Создаёт счёт в MetaApi. 202 — MetaApi ещё определяет настройки брокера (у нового для MetaApi сервера
+        это бывает долго): ждём и повторяем с тем же transaction-id. Не дождались — MetaApiError BROKER_SETUP.
+        progress(key) — сообщить подписчику, что идёт («setup» — MetaApi настраивает сервер брокера)."""
         body = {"name": name, "login": login, "password": password, "server": server, "platform": platform,
                 "magic": magic, "type": "cloud-g2", "reliability": "regular"}
         if region:
@@ -147,6 +156,7 @@ class MetaApi:
         tid = secrets.token_hex(16)
         loop = asyncio.get_running_loop()
         start = loop.time()
+        setup_told = False
         while True:
             try:  # MetaApi может долго проверять логин у брокера — ждём долго
                 status, resp, headers = await self.request("POST", f"{PROVISIONING}/users/current/accounts", body,
@@ -161,7 +171,12 @@ class MetaApi:
             waited = loop.time() - start
             if status in (200, 201):
                 return resp
-            if status == 202 and waited < max_wait:
+            if status == 202:
+                if waited >= max_wait:
+                    raise MetaApiError(f"MetaApi is still detecting settings of {server}", "BROKER_SETUP", 202)
+                if progress and not setup_told:
+                    setup_told = True
+                    await _tell(progress, "setup")
                 delay = min(max(retry_after(headers.get("Retry-After")), 3), 60)
                 await asyncio.sleep(delay)
                 continue
@@ -339,7 +354,7 @@ class AutoTrader:
     symbol_override: str = ""
     region: str = ""
     magic: int = 7501
-    connect_timeout: float = 240
+    connect_timeout: float = 360
     poll: float = 5
     concurrency: int = 10
     retry_delays: tuple[float, ...] = (5.0, 20.0)
@@ -383,7 +398,7 @@ class AutoTrader:
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
-                      prop: dict | None = None, paid_until=None) -> dict:
+                      prop: dict | None = None, paid_until=None, progress=None) -> dict:
         """Подключает ещё один счёт подписчика (их может быть сколько угодно). Возвращает данные счёта
         и его id (account_id); при ошибке — MetaApiError с кодом: E_AUTH (неверный логин/пароль/сервер),
         E_SRV_NOT_FOUND, REAL_NOT_ALLOWED, NO_GOLD, TIMEOUT …
@@ -397,13 +412,15 @@ class AutoTrader:
         if paid_until is None:   # новый счёт оплачен на paid_days дней (оплату проверяет бот до подключения)
             paid_until = _now() + timedelta(days=self.paid_days)
         await self._remove_orphans(uid)
+        kw = {"progress": progress} if progress else {}
         acc = await self.api.create_account(name=f"tg{uid}-{login}", login=login, password=password,
-                                            server=server, platform=platform, magic=self.magic, region=self.region)
+                                            server=server, platform=platform, magic=self.magic, region=self.region,
+                                            **kw)
         acc_id = acc.get("id") or acc.get("_id")
         try:
             if acc.get("state") != "DEPLOYED":
                 await self.api.deploy(acc_id)
-            info = await self._wait_connected(acc_id)
+            info = await self._wait_connected(acc_id, progress)
             region = info.pop("_region")
             # проп-счёт — деньги фирмы, а не подписчика: его подключаем в любом режиме. Админу можно любой счёт;
             # его реальный счёт в режиме «только демо» и счёт с инвесторским паролем — только для цен (price_only)
@@ -450,10 +467,14 @@ class AutoTrader:
                 log.info("removing leftover MetaApi account %s of user %s", a.get("_id") or a.get("id"), uid)
                 await self._remove_quietly(a.get("_id") or a.get("id"))
 
-    async def _wait_connected(self, acc_id: str) -> dict:
+    async def _wait_connected(self, acc_id: str, progress=None) -> dict:
         waited = 0.0
         last = ""
+        told = False
         while waited <= self.connect_timeout:
+            if progress and not told and waited >= 60:   # терминал запускается дольше минуты — говорим, что ждём
+                told = True
+                await _tell(progress, "broker")
             try:
                 a = await self.api.get_account(acc_id)
             except MetaApiError as e:  # MetaApi ответил с ошибкой или не ответил — пробуем ещё
@@ -535,7 +556,7 @@ class AutoTrader:
                 except Exception as e:  # noqa: BLE001
                     log.warning("autotrade open #%s for %s failed: %s", sid, acc["user_id"], e)
                     err = getattr(e, "code", "") or str(e)[:200]
-                    if err != "DUPLICATE":  # уже открытую сделку не затираем
+                    if err not in ("DUPLICATE", "EMPTY"):  # уже открытую сделку не затираем; пустой счёт — тихо
                         await self.db.save_auto_trade(sid, acc["id"], acc["user_id"], None, 0, "error", err)
                     return OpenResult(acc["user_id"], False, error=err, aid=acc["id"], login=acc["login"])
 
@@ -609,6 +630,9 @@ class AutoTrader:
             raise MetaApiError("already opened", "DUPLICATE")
         mid, region, symbol = acc["meta_id"], acc["region"], acc["symbol"]
         info = await self.api.account_info(mid, region)
+        if float(info.get("equity") or 0) <= 0 and float(info.get("balance") or 0) <= 0:
+            # пустой счёт (например, только для цен): молча пропускаем, пополнят — сделки пойдут сами
+            raise MetaApiError("empty account", "EMPTY")
         try:
             spec = await self.api.specification(mid, region, symbol)
         except Exception:  # noqa: BLE001
@@ -1051,9 +1075,9 @@ def _now():
 
 
 # ошибки, после которых сверка не открывает сделку повторно: нет денег, лимиты проп-счёта, счёт не тот
-NO_REOPEN = {"NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DAY_LOSS", "DAY_SIDE",
+NO_REOPEN = {"EMPTY", "NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DAY_LOSS", "DAY_SIDE",
              "DUPLICATE", "NO_ACCOUNT",
-             "REAL_NOT_ALLOWED", "DEMO_NOT_ALLOWED", "READ_ONLY", "TRADE_RETCODE_TRADE_DISABLED"}
+             "REAL_NOT_ALLOWED", "DEMO_NOT_ALLOWED", "READ_ONLY", "BROKER_SETUP", "TRADE_RETCODE_TRADE_DISABLED"}
 
 
 def _fresh(iso: str | None, within: float) -> bool:

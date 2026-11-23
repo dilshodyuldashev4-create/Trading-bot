@@ -272,6 +272,26 @@ class AutoTraderTests(unittest.TestCase):
                 await db.close()
         run(go())
 
+    def test_empty_account_skips_quietly_until_funded(self):
+        """Счёт с основным паролем и балансом 0: сделок не открываем и ошибку не сохраняем; пополнили — торгуем."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi(acc_type="ACCOUNT_TRADE_MODE_REAL", equity=0)
+                tr = trader(db, api, demo_only=False, real_only=True, exempt=frozenset({1}))
+                info = await tr.connect(1, "mt5", "XMGlobal-MT5 5", "9", "main")
+                self.assertFalse(info["price_only"])
+                res = await tr.open_signal(21, 1, 20, 30)
+                self.assertEqual([r.error for r in res], ["EMPTY"])
+                self.assertEqual(api.trades, [])
+                self.assertIsNone(await db.get_auto_trade(21, res[0].aid))   # без записи об ошибке
+                api.equity = 5000                                           # пополнили
+                res = await tr.open_signal(22, 1, 20, 30)
+                self.assertTrue(res[0].ok, res[0].error)
+                self.assertEqual(len(api.trades), 1)
+                await db.close()
+        run(go())
+
     def test_real_only_mode(self):
         """AUTOTRADE_ACCOUNTS=real: подписчики подключают реальные и проп-счета, демо — нет; инвесторский пароль
         у подписчика не принимается, у админа — счёт только для цен (баланс 0), сделок по нему нет."""
@@ -916,6 +936,85 @@ class MarketFeedTests(unittest.TestCase):
             br.hang = False
             self.assertEqual(await f.price(), 3500.0)
             self.assertIsNone(f._down_since)
+        run(go())
+
+    def test_create_account_waits_for_new_broker_setup(self):
+        """Новый для MetaApi брокер: 202 с Retry-After датой — ждём, один раз сообщаем «setup», потом счёт создан;
+        не дождались — BROKER_SETUP, а не непонятная ошибка."""
+        from aiohttp import web
+
+        async def go():
+            left = {"n": 2}
+            tids = set()
+
+            async def create(req):
+                tids.add(req.headers["transaction-id"])
+                if left["n"] > 0:
+                    left["n"] -= 1
+                    return web.json_response({"message": "detecting"}, status=202,
+                                             headers={"Retry-After": "Sun, 22 Nov 2020 23:52:20 GMT"})
+                return web.json_response({"id": "new1", "state": "UNDEPLOYED"}, status=201)
+
+            app = web.Application()
+            app.router.add_post("/users/current/accounts", create)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            old = at.PROVISIONING
+            at.PROVISIONING = f"http://127.0.0.1:{port}"
+            api = at.MetaApi("tok")
+            told = []
+
+            async def progress(key):
+                told.append(key)
+            kw = dict(name="tg1-9", login="9", password="inv", server="XMGlobal-MT5 5", platform="mt5", magic=1)
+            try:
+                orig_sleep = asyncio.sleep
+
+                async def fast(_):
+                    await orig_sleep(0)
+                at.asyncio.sleep = fast
+                acc = await api.create_account(**kw, progress=progress)
+                self.assertEqual(acc["id"], "new1")
+                self.assertEqual(told, ["setup"])          # один раз, не на каждый 202
+                self.assertEqual(len(tids), 1)             # повторы с тем же transaction-id
+                left["n"] = 100
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await api.create_account(**kw, max_wait=0)
+                self.assertEqual(cm.exception.code, "BROKER_SETUP")
+            finally:
+                at.asyncio.sleep = orig_sleep
+                at.PROVISIONING = old
+                await api.close()
+                await runner.cleanup()
+        run(go())
+
+    def test_connect_reports_progress_while_terminal_starts(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi()
+                tr = trader(db, api)
+                tr.poll = 30                               # второй опрос «через 30 с», третий — после минуты
+                api.polls = -2
+                orig_sleep = asyncio.sleep
+
+                async def fast(_):
+                    await orig_sleep(0)
+                at.asyncio.sleep = fast
+                told = []
+
+                async def progress(key):
+                    told.append(key)
+                try:
+                    await tr.connect(1, "mt5", "Exness-MT5Trial7", "1", "p", progress=progress)
+                finally:
+                    at.asyncio.sleep = orig_sleep
+                self.assertEqual(told, ["broker"])
+                self.assertIsNotNone(await db.get_trade_account(1))
+                await db.close()
         run(go())
 
     def test_broker_market_heal_redeploys_disconnected_account(self):
