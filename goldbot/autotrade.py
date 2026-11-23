@@ -80,7 +80,19 @@ class MetaApiError(Exception):
         self.code, self.status = code, status
 
 
+# MetaApi отказывает из-за баланса самого сервиса MetaApi (не брокерского счёта): 402 или текст про оплату
+_BILLING = re.compile(r"insufficient (funds|balance)|top[ -]?up|billing|payment required|not enough (funds|money)|"
+                      r"negative balance|balance is (too )?low|replenish", re.I)
+
+
 def _error(status: int, body: Any) -> MetaApiError:
+    e = _error_raw(status, body)
+    if status == 402 or (not e.code and _BILLING.search(str(body))):
+        e.code = "BILLING"
+    return e
+
+
+def _error_raw(status: int, body: Any) -> MetaApiError:
     if isinstance(body, dict):
         details = body.get("details")
         code = details.get("code", "") if isinstance(details, dict) else (details if isinstance(details, str) else "")
