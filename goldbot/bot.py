@@ -2188,7 +2188,8 @@ class App:
                 return
             await state.update_data(login=login)
             await state.set_state(AutoStates.password)
-            await m.answer(t(lang, "at_password"))
+            # админ может подключить счёт только для цен — ему подходит и инвесторский пароль
+            await m.answer(t(lang, "at_password_admin" if self.is_admin(m.from_user.id) else "at_password"))
 
         @r.message(AutoStates.password, F.text, not_cmd)
         async def password_typed(m: Message, state: FSMContext):
