@@ -354,7 +354,8 @@ class AutoTrader:
     symbol_override: str = ""
     region: str = ""
     magic: int = 7501
-    connect_timeout: float = 360
+    connect_timeout: float = 600
+    auth_grace: float = 180           # брокер столько секунд подряд не пускает терминал — неверный логин/пароль
     poll: float = 5
     concurrency: int = 10
     retry_delays: tuple[float, ...] = (5.0, 20.0)
@@ -436,7 +437,12 @@ class AutoTrader:
             symbol = pick_symbol(await self.api.symbols(acc_id, region), self.symbol_override)
             if not symbol:
                 raise MetaApiError("no gold symbol", "NO_GOLD")
-        except Exception:
+        except Exception as e:
+            if getattr(e, "code", "") == "TIMEOUT" and uid in self.exempt:
+                # счёт админа не вошёл к брокеру: оставляем его в MetaApi, чтобы в кабинете app.metaapi.cloud было
+                # видно состояние и ошибку; при следующей попытке подключения он уберётся сам (_remove_orphans)
+                log.warning("connect %s: timeout, account %s left in MetaApi for diagnosis", uid, acc_id)
+                raise
             await self._remove_quietly(acc_id)
             raise
         aid = await self.db.save_trade_account(uid, acc_id, region, platform, server, login, symbol,
@@ -468,9 +474,13 @@ class AutoTrader:
                 await self._remove_quietly(a.get("_id") or a.get("id"))
 
     async def _wait_connected(self, acc_id: str, progress=None) -> dict:
+        """Ждёт, пока терминал MetaApi войдёт к брокеру. Брокер отказывает дольше auth_grace секунд
+        (DISCONNECTED_FROM_BROKER) — E_AUTH сразу, не дожидаясь таймаута. Таймаут — TIMEOUT с последним
+        состоянием счёта в тексте ошибки, чтобы было видно, на чём застряло."""
         waited = 0.0
-        last = ""
+        last, state, info_err = "", "", ""
         told = False
+        refused = 0.0   # сколько секунд подряд брокер не пускает терминал
         while waited <= self.connect_timeout:
             if progress and not told and waited >= 60:   # терминал запускается дольше минуты — говорим, что ждём
                 told = True
@@ -481,6 +491,14 @@ class AutoTrader:
                 log.info("get account %s: %s", acc_id, e)
                 a = {}
             last = a.get("connectionStatus", last)
+            state = a.get("state", state)
+            log.info("connect %s: %s %s (%.0f s)", acc_id, state, last, waited)
+            if state == "DEPLOYED" and last == "DISCONNECTED_FROM_BROKER":
+                refused += self.poll
+                if refused >= self.auth_grace:
+                    raise MetaApiError(f"broker refuses the login ({state}, {last})", "E_AUTH")
+            else:
+                refused = 0.0
             if a.get("state") == "DEPLOYED" and last == "CONNECTED":
                 region = a.get("region") or self.region or "new-york"
                 try:
@@ -488,11 +506,13 @@ class AutoTrader:
                     return {**info, "_region": region}
                 except MetaApiError as e:  # терминал ещё синхронизируется
                     log.info("account info not ready for %s: %s", acc_id, e)
+                    info_err = str(e)[:120]
             await asyncio.sleep(self.poll)
             waited += self.poll
         if last == "DISCONNECTED_FROM_BROKER":
-            raise MetaApiError("cannot connect to broker", "E_AUTH")
-        raise MetaApiError("connection timeout", "TIMEOUT")
+            raise MetaApiError(f"broker refuses the login ({state}, {last})", "E_AUTH")
+        detail = f"{state or '?'}, {last or '?'}" + (f"; {info_err}" if info_err else "")
+        raise MetaApiError(f"connection timeout ({detail})", "TIMEOUT")
 
     async def _remove_quietly(self, acc_id: str) -> None:
         for call in (self.api.undeploy, self.api.remove):

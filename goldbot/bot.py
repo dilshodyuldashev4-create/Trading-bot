@@ -6,6 +6,7 @@ import csv
 import html
 import io
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -121,6 +122,9 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
     if not key and isinstance(e, asyncio.TimeoutError):
         key = "at_err_timeout"
+    if key == "at_err_timeout":   # на чём застряло — состояние счёта в MetaApi из текста ошибки
+        m = re.search(r"\((.*)\)", str(e))
+        return t(lang, key, detail=html.escape(m.group(1) if m else "—")[:200])
     if key:
         return (t(lang, key, server=html.escape(server)) if key in ("at_err_server", "at_err_setup")
                 else t(lang, key))

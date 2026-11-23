@@ -991,6 +991,37 @@ class MarketFeedTests(unittest.TestCase):
                 await runner.cleanup()
         run(go())
 
+    def test_connect_names_the_real_reason(self):
+        """Брокер не пускает терминал — E_AUTH через auth_grace, а не таймаут; таймаут — с состоянием счёта."""
+        from goldbot.bot import connect_error_text
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = FakeApi()
+
+                async def refused(acc_id):
+                    return {"state": "DEPLOYED", "connectionStatus": "DISCONNECTED_FROM_BROKER", "region": "london"}
+                api.get_account = refused
+                tr = trader(db, api)
+                tr.poll, tr.auth_grace, tr.connect_timeout = 0, 0, 5
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await tr.connect(1, "mt5", "XMGlobal-MT5 5", "9", "p")
+                self.assertEqual(cm.exception.code, "E_AUTH")
+                self.assertEqual(api.removed, ["acc1"])
+
+                async def stuck(acc_id):
+                    return {"state": "DEPLOYING", "connectionStatus": "DISCONNECTED", "region": "london"}
+                api.get_account = stuck
+                tr.poll, tr.connect_timeout = 1, 0
+                with self.assertRaises(at.MetaApiError) as cm:
+                    await tr.connect(1, "mt5", "XMGlobal-MT5 5", "9", "p")
+                self.assertEqual(cm.exception.code, "TIMEOUT")
+                text = connect_error_text("ru", cm.exception, "XMGlobal-MT5 5")
+                self.assertIn("DEPLOYING, DISCONNECTED", text)
+                await db.close()
+        run(go())
+
     def test_connect_reports_progress_while_terminal_starts(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:
