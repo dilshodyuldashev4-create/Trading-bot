@@ -119,6 +119,7 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
         return t(lang, "at_pay") + t(lang, "at_pay_each")
     key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
            "DEMO_NOT_ALLOWED": "at_err_demo", "READ_ONLY": "at_err_readonly", "BROKER_SETUP": "at_err_setup",
+           "BILLING": "at_err_billing",
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
     if not key and isinstance(e, asyncio.TimeoutError):
         key = "at_err_timeout"
@@ -1862,6 +1863,44 @@ class App:
                 await self.engine.check_day_stop()
             await m.answer(f"✅ Сигнал #{sid} закрыт: {status.upper()}, сообщение отправлено всем")
 
+        @r.message(Command("offset"))
+        async def offset_cmd(m: Message, command: CommandObject):
+            """Админу: /offset 3609.58 — текущая цена из MT5 брокера; бот считает поправку к запасному источнику
+            и держит её без срока, пока нет цены от MetaApi. /offset off — убрать."""
+            if not self.is_admin(m.from_user.id):
+                return
+            p = self.provider
+            if not isinstance(p, Failover):
+                await m.answer("Поправка работает только при MARKET_FROM_BROKER=1 и METAAPI_TOKEN")
+                return
+            arg = (command.args or "").strip().replace(",", ".")
+            if arg.lower() in ("off", "0", "нет"):
+                p.manual_offset = None
+                await self.db.set_kv("manual_offset", "")
+                await m.answer("Поправка убрана: запасная цена показывается как есть.")
+                return
+            try:
+                broker = float(arg)
+            except ValueError:
+                cur = f"{p.manual_offset:+.2f}" if p.manual_offset is not None else "нет"
+                await m.answer("Пришлите текущую цену золота из MT5 вашего брокера, например <code>/offset 3609.58</code>.\n"
+                               f"Сейчас поправка: {cur}. Убрать: <code>/offset off</code>")
+                return
+            try:
+                spot = await asyncio.wait_for(p.backup.price(), 10)
+            except Exception as e:  # noqa: BLE001
+                await m.answer(f"Запасной источник не ответил: {html.escape(str(e))[:150]}. Попробуйте ещё раз.")
+                return
+            off = round(broker - spot, 2)
+            if abs(off) > 50:
+                await m.answer(f"Разница {off:+.2f} слишком большая — проверьте цену (запасной источник: {spot:.2f}).")
+                return
+            p.manual_offset = off
+            await self.db.set_kv("manual_offset", f"{off}")
+            await m.answer(f"✅ Поправка {off:+.2f} (брокер {broker:.2f}, запасной {spot:.2f}).\n"
+                           "Пока нет цены от MetaApi, бот показывает запасную цену и свечи с этой поправкой. "
+                           "Брокер подключится — бот перейдёт на его цену сам.")
+
         @r.message(Command("feed"))
         async def feed(m: Message):
             """Админу: откуда сейчас берутся цены, последняя ошибка MetaApi и живая проверка обоих источников."""
@@ -1900,6 +1939,8 @@ class App:
             if p.heal_note:
                 lines.append(f"Автопочинка ({self.fmt_dt(datetime.fromtimestamp(p.heal_at, timezone.utc))}): "
                              f"{html.escape(p.heal_note)}")
+            if p.manual_offset is not None:
+                lines.append(f"Поправка админа (/offset): {p.manual_offset:+.2f} — без срока, когда нет свежей сверки")
             if p.offset is not None:
                 when = self.fmt_dt(datetime.fromtimestamp(p.offset_at, timezone.utc))
                 tail = ("запасная цена показывается с этой поправкой" if p.offset_fresh else
@@ -1909,7 +1950,7 @@ class App:
                 t0 = time.monotonic()
                 try:
                     price = await asyncio.wait_for(prov.price(), 10)
-                    extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.offset_fresh else ""
+                    extra = f" → с поправкой {p.backup_adjusted(price):.2f}" if prov is p.backup and p.current_offset() is not None else ""
                     lines.append(f"{name}: {price:.2f}{extra} ({time.monotonic() - t0:.1f} с)")
                 except Exception as e:  # noqa: BLE001
                     lines.append(f"{name}: ❌ {html.escape(type(e).__name__ + ': ' + str(e))[:200]} "
@@ -2649,6 +2690,12 @@ class App:
 
     async def run(self) -> None:
         await self.db.connect()
+        mo = await self.db.get_kv("manual_offset")
+        if mo and isinstance(self.provider, Failover):
+            try:
+                self.provider.manual_offset = float(mo)
+            except ValueError:
+                pass
         cap = await self.db.get_kv("stars_cap")
         if cap and cap.isdigit() and int(cap) < self.stars_cap:   # Telegram раньше не принял большую сумму
             await self.set_stars_cap(int(cap))

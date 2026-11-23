@@ -105,6 +105,15 @@ class HelpersTests(unittest.TestCase):
         self.assertAlmostEqual(at.retry_after(when), 30, delta=2)
         self.assertEqual(at.retry_after("Sun, 22 Nov 2020 23:52:20 GMT"), 0)   # уже прошло — повторяем сразу
 
+    def test_metaapi_billing_error(self):
+        from goldbot.bot import connect_error_text
+        e = at._error(402, {"error": "PaymentRequired", "message": "Payment required"})
+        self.assertEqual(e.code, "BILLING")
+        e = at._error(403, {"error": "ForbiddenError", "message": "Insufficient funds on your account balance"})
+        self.assertEqual(e.code, "BILLING")
+        self.assertIn("баланс", connect_error_text("ru", e, "S"))
+        self.assertEqual(at._error(400, {"message": "bad"}).code, "")
+
     def test_pick_symbol(self):
         self.assertEqual(at.pick_symbol(["EURUSD", "XAUUSD.ecn", "XAUUSDm"]), "XAUUSDm")
         self.assertEqual(at.pick_symbol(["XAUUSDm", "XAUUSD"]), "XAUUSD")
@@ -1098,6 +1107,35 @@ class MarketFeedTests(unittest.TestCase):
                 at.PROVISIONING = old
                 await api.close()
                 await runner.cleanup()
+        run(go())
+
+    def test_manual_offset_shifts_backup_price_and_candles(self):
+        import pandas as pd
+
+        from goldbot.market import Failover, Provider
+
+        class Down(Provider):
+            async def candles(self, tf, count):
+                raise RuntimeError("down")
+
+            async def price(self):
+                raise RuntimeError("down")
+
+        class Spot(Provider):
+            async def candles(self, tf, count):
+                return pd.DataFrame({"open": [1.0], "high": [2.0], "low": [0.5], "close": [1.5]})
+
+            async def price(self):
+                return 3600.0
+
+        async def go():
+            f = Failover(Down(), Spot(), hold=0)
+            self.assertEqual(await f.price(), 3600.0)
+            f.manual_offset = 9.58
+            self.assertAlmostEqual(await f.price(), 3609.58)
+            df = await f.candles("15min", 1)
+            self.assertAlmostEqual(df["close"].iloc[0], 11.08)
+            self.assertAlmostEqual(df["high"].iloc[0], 11.58)
         run(go())
 
     def test_broker_market_reads_candles_and_bid(self):

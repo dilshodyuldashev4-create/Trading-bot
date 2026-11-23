@@ -193,6 +193,7 @@ class Failover(Provider):
         self._down_since: float | None = None   # time.monotonic() первого сбоя цены после последнего ответа
         self._heal_mono = -1e18
         self._heal_task: asyncio.Task | None = None
+        self.manual_offset: float | None = None   # поправка, заданная админом по цене из MT5 (/offset), без срока
         self.heal_note = ""                 # итог последнего heal() (для /feed)
         self.heal_at = 0.0
 
@@ -242,7 +243,15 @@ class Failover(Provider):
                     log.warning("market data: broker %s failed (%s: %s), switching to backup",
                                 name, type(e).__name__, e)
                 self.backup_for.add(name)
-        return await getattr(self.backup, name)(*args)
+        res = await getattr(self.backup, name)(*args)
+        off = self.current_offset()
+        if name == "candles" and off and isinstance(res, pd.DataFrame):
+            # свечи запасного источника сдвигаем к графику брокера, чтобы уровни совпадали с MT5
+            res = res.copy()
+            for c in ("open", "high", "low", "close"):
+                if c in res:
+                    res[c] = res[c] + off
+        return res
 
     async def candles(self, tf: str, count: int) -> pd.DataFrame:
         return await self._call("candles", self.candle_timeout, tf, count)
@@ -259,11 +268,16 @@ class Failover(Provider):
             return
         self.offset, self.offset_at = broker - b, time.time()
 
-    def backup_adjusted(self, p: float) -> float:
-        """Цена запасного источника, приведённая к графику брокера (если разница измерена недавно)."""
+    def current_offset(self) -> float | None:
+        """Поправка к запасному источнику: свежая сверка с брокером, иначе заданная админом (/offset)."""
         if self.offset_fresh:
-            return p + self.offset
-        return p
+            return self.offset
+        return self.manual_offset
+
+    def backup_adjusted(self, p: float) -> float:
+        """Цена запасного источника, приведённая к графику брокера."""
+        off = self.current_offset()
+        return p + off if off is not None else p
 
     async def price(self) -> float:
         if time.monotonic() >= self._skip_until.get("price", 0):
