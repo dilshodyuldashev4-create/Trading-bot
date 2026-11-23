@@ -117,12 +117,13 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
     if code == "NOT_PAID":
         return t(lang, "at_pay") + t(lang, "at_pay_each")
     key = {"E_AUTH": "at_err_auth", "E_SRV_NOT_FOUND": "at_err_server", "REAL_NOT_ALLOWED": "at_err_real",
-           "DEMO_NOT_ALLOWED": "at_err_demo", "READ_ONLY": "at_err_readonly",
+           "DEMO_NOT_ALLOWED": "at_err_demo", "READ_ONLY": "at_err_readonly", "BROKER_SETUP": "at_err_setup",
            "NO_GOLD": "at_err_gold", "TIMEOUT": "at_err_timeout"}.get(code)
     if not key and isinstance(e, asyncio.TimeoutError):
         key = "at_err_timeout"
     if key:
-        return t(lang, key, server=html.escape(server)) if key == "at_err_server" else t(lang, key)
+        return (t(lang, key, server=html.escape(server)) if key in ("at_err_server", "at_err_setup")
+                else t(lang, key))
     return t(lang, "at_err_other", error=html.escape(code or str(e) or type(e).__name__)[:150])
 
 
@@ -973,7 +974,7 @@ class App:
             if r.ok:
                 text = t(lang, "at_opened", id=s.id, side=side, symbol=html.escape(r.symbol), lot=f"{r.volume:.2f}",
                          price=f"{r.price:.2f}", sl=f"{r.sl:.2f}", tp=f"{r.tp:.2f}")
-            elif r.error == "DUPLICATE":
+            elif r.error in ("DUPLICATE", "EMPTY"):   # пустой счёт — без сообщений, пополнят — сделки пойдут
                 continue
             else:
                 text = t(lang, "at_open_fail", id=s.id, error=trade_error_text(lang, r.error))
@@ -982,7 +983,7 @@ class App:
             await self._send(r.uid, lambda u=r.uid, x=text: self.bot.send_message(u, x))
         log.info("autotrade #%s: %s opened, %s failed", s.id, sum(r.ok for r in results),
                  sum(not r.ok for r in results))
-        failed = [r for r in results if not r.ok and r.error not in ("DUPLICATE", "NO_MONEY", "SPREAD", "DAY_LOSS", "DAY_SIDE")]
+        failed = [r for r in results if not r.ok and r.error not in ("DUPLICATE", "EMPTY", "NO_MONEY", "SPREAD", "DAY_LOSS", "DAY_SIDE")]
         if failed:   # админу — на каких счетах сделка не открылась и почему
             lines = [f"• {html.escape(r.login or str(r.uid))} (id {r.uid}): {html.escape(r.error)}" for r in failed[:20]]
             await self.notify_admins(f"⚠️ <b>Сигнал #{s.id}: сделка не открылась на {len(failed)} счетах</b>\n"
@@ -1388,9 +1389,13 @@ class App:
             charge = not (paid_until or same or self.is_admin(uid))   # новый счёт — одно оплаченное подключение
             if charge and not await self.db.use_credit(uid):
                 raise MetaApiError("not paid", "NOT_PAID")
+            async def progress(key: str) -> None:   # подключение идёт дольше обычного — говорим, на каком шаге
+                await self.bot.send_message(chat_id, t(lang, f"at_progress_{key}", server=html.escape(server)))
+
             try:
                 info = await self.autotrader.connect(uid, platform, server, login, password, prop=prop,
-                                                     paid_until=self.db.paid_until({"paid_until": paid_until}))
+                                                     paid_until=self.db.paid_until({"paid_until": paid_until}),
+                                                     progress=progress)
             except Exception:
                 if charge:
                     await self.db.add_credit(uid)   # не подключился — оплаченное подключение возвращаем
@@ -2260,12 +2265,19 @@ class App:
                 elif ev == "up":
                     await self.notify_admins("✅ Проверка рынка снова работает, сигналы идут.")
                 on_backup = bool(getattr(self.provider, "on_backup", False))
-                ev = backup_price.update(market_open(now) and on_backup)
+                # пока админ подключает счёт (старый уже отключён, новый ещё нет), предупреждать не о чем
+                connecting = any(a in self._connecting for a in config.admin_ids)
+                ev = backup_price.update(market_open(now) and on_backup and not connecting)
                 if ev == "down":
-                    err = html.escape(getattr(self.provider, "last_error", "") or "—")
-                    await self.notify_admins(
-                        "⚠️ <b>Цена брокера (MetaApi) не приходит</b>, бот берёт запасную цену с поправкой.\n"
-                        f"Ошибка: <code>{err}</code>\nПроверьте счёт админа в 🤖 Автоторговля и /feed.")
+                    raw = getattr(self.provider, "last_error", "") or "—"
+                    if "no market data account" in raw:
+                        await self.notify_admins(
+                            "ℹ️ <b>Счёт для цен не подключён</b>, бот берёт запасную цену.\n"
+                            "Подключите счёт в 🤖 Автоторговля (для цен подходит инвесторский пароль).")
+                    else:
+                        await self.notify_admins(
+                            "⚠️ <b>Цена брокера (MetaApi) не приходит</b>, бот берёт запасную цену с поправкой.\n"
+                            f"Ошибка: <code>{html.escape(raw)}</code>\nПроверьте счёт админа в 🤖 Автоторговля и /feed.")
                 elif ev == "up":
                     await self.notify_admins("✅ Цена брокера снова приходит.")
             except Exception:  # noqa: BLE001
