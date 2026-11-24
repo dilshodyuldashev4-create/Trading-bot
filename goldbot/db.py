@@ -92,6 +92,37 @@ CREATE TABLE IF NOT EXISTS auto_trades (
     created_at TEXT NOT NULL,
     PRIMARY KEY (signal_id, account_id)
 );
+CREATE TABLE IF NOT EXISTS prop_subs (
+    user_id INTEGER PRIMARY KEY,
+    plan TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    size REAL NOT NULL,
+    balance REAL NOT NULL,
+    day TEXT,
+    day_balance REAL,
+    peak REAL,
+    days INTEGER NOT NULL DEFAULT 0,
+    last_day TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    only_prop INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prop_trades (
+    signal_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    direction INTEGER NOT NULL,
+    entry REAL NOT NULL,
+    sl REAL NOT NULL,
+    tp REAL NOT NULL,
+    lot REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    declined INTEGER NOT NULL DEFAULT 0,
+    pnl REAL,
+    msg_id INTEGER,
+    created_at TEXT NOT NULL,
+    closed_at TEXT,
+    PRIMARY KEY (signal_id, user_id)
+);
 """
 
 
@@ -648,4 +679,67 @@ class DB:
     async def set_kv(self, k: str, v: str) -> None:
         await self.conn.execute("INSERT INTO kv (k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
                                 (k, v))
+        await self.conn.commit()
+
+    # ── сигналы для проп-фирм (goldbot/prop_signals.py) ────────────────────────
+    async def get_prop_sub(self, uid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM prop_subs WHERE user_id=?", (uid,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def save_prop_sub(self, uid: int, plan: str, stage: str, size: float, balance: float | None = None) -> None:
+        """Анкета проп-подписчика: новый счёт или этап — баланс, торговые дни и день начинаются заново
+        (выбор «только проп-сигналы» сохраняется)."""
+        bal = size if balance is None else balance
+        old = await self.get_prop_sub(uid)
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO prop_subs (user_id, plan, stage, size, balance, day, day_balance, peak, days, "
+            "last_day, enabled, only_prop, created_at) VALUES (?,?,?,?,?,NULL,?,?,0,NULL,1,?,?)",
+            (uid, plan, stage, size, bal, bal, max(bal, size), int(bool(old and old.get("only_prop"))), _iso(now())))
+        await self.conn.commit()
+
+    async def update_prop_sub(self, uid: int, **fields) -> None:
+        if not fields:
+            return
+        cols = ", ".join(f"{k}=?" for k in fields)
+        await self.conn.execute(f"UPDATE prop_subs SET {cols} WHERE user_id=?", (*fields.values(), uid))
+        await self.conn.commit()
+
+    async def prop_subs(self, enabled_only: bool = True) -> list[dict]:
+        q = "SELECT * FROM prop_subs" + (" WHERE enabled=1" if enabled_only else "")
+        cur = await self.conn.execute(q)
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def add_prop_trade(self, sid: int, uid: int, direction: int, entry: float, sl: float, tp: float,
+                             lot: float, msg_id: int | None = None) -> None:
+        await self.conn.execute(
+            "INSERT OR REPLACE INTO prop_trades (signal_id, user_id, direction, entry, sl, tp, lot, msg_id, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)", (sid, uid, direction, entry, sl, tp, lot, msg_id, _iso(now())))
+        await self.conn.commit()
+
+    async def open_prop_trades(self, uid: int | None = None, sid: int | None = None) -> list[dict]:
+        q, args = "SELECT * FROM prop_trades WHERE status='open'", []
+        if uid is not None:
+            q, args = q + " AND user_id=?", [*args, uid]
+        if sid is not None:
+            q, args = q + " AND signal_id=?", [*args, sid]
+        cur = await self.conn.execute(q, args)
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def get_prop_trade(self, sid: int, uid: int) -> dict | None:
+        cur = await self.conn.execute("SELECT * FROM prop_trades WHERE signal_id=? AND user_id=?", (sid, uid))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def close_prop_trade(self, sid: int, uid: int, status: str, pnl: float | None) -> bool:
+        """Закрывает проп-сделку; False — уже была закрыта (чтобы не посчитать результат дважды)."""
+        cur = await self.conn.execute(
+            "UPDATE prop_trades SET status=?, pnl=?, closed_at=? WHERE signal_id=? AND user_id=? AND status='open'",
+            (status, pnl, _iso(now()), sid, uid))
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def set_prop_declined(self, sid: int, uid: int, declined: bool) -> None:
+        await self.conn.execute("UPDATE prop_trades SET declined=? WHERE signal_id=? AND user_id=?",
+                                (int(declined), sid, uid))
         await self.conn.commit()

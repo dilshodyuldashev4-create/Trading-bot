@@ -31,6 +31,7 @@ import json
 from . import changelog, econ_calendar, news_alerts
 from . import daily_report as dr
 from . import prop as pr
+from . import prop_signals as ps
 from .autotrade import split_volume, BROKERS, AutoTrader, BrokerMarket, MetaApi, MetaApiError, demo_servers, sl_tp_dist
 from .config import config
 from .db import DB, now
@@ -52,7 +53,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
-        [b("btn_stats")],
+        [b("btn_stats"), b("btn_propsig")],
         [b("btn_sub"), b("btn_profile")],
         *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
@@ -85,6 +86,11 @@ class AdminStates(StatesGroup):
 
 class CapitalStates(StatesGroup):
     waiting = State()
+
+
+class PropSigStates(StatesGroup):
+    size = State()      # анкета проп-сигналов: ждём размер счёта
+    balance = State()   # ждём текущий баланс проп-счёта
 
 
 class AutoStates(StatesGroup):
@@ -356,6 +362,7 @@ class App:
         self.engine.reversal_min_pips = config.reversal_min_pips
         self.engine.adx_max, self.engine.adx_keys = config.adx_max, config.adx_keys
         self.engine.has_prop = self.has_prop
+        self.engine.on_price = self.prop_check      # стоп и тейк проп-сделок подписчиков проп-сигналов
         self.engine.pin_hours = config.candle_pin_hours
         self.engine.confluence_min = config.confluence_min
         self.engine.confluence_single = config.confluence_single
@@ -539,10 +546,15 @@ class App:
     async def broadcast_signal(self, s: NewSignal) -> None:
         """Каждому подписчику — картинка и текст с его лотом (по его капиталу)."""
         self.spawn(self.autotrade_open(s))   # на подключённых счетах сделка открывается сразу
-        if s.prop_only:   # пробой при сильном разгоне (ADX): только проп-счета, подписчикам не шлём
+        try:   # отдельный проп-сигнал тем, кто заполнил анкету проп-фирмы
+            await self.broadcast_prop_signal(s)
+        except Exception:  # noqa: BLE001
+            log.exception("prop signal #%s", s.id)
+        if s.prop_only:   # пробой при сильном разгоне (ADX): только проп-счета и проп-сигналы
             return
         await self.chan_post_signal(s)
-        uids = await self.db.active_user_ids()
+        only_prop = await self.ps_only_uids()   # отключили обычные сигналы ради проп-сигналов
+        uids = [u for u in await self.db.active_user_ids() if u not in only_prop]
         langs = await self.db.user_langs()
         caps = await self.db.user_capitals()
         images: dict[float, bytes] = {}  # лот → картинка (рисуем один раз на каждый разный лот)
@@ -590,6 +602,7 @@ class App:
     async def broadcast_news_close(self, s: dict, price: float, ev: dict, mins: int) -> None:
         """Перед важной новостью: всем — закрыть сделку по рынку."""
         self.spawn(self.autotrade_close(s["id"]))
+        await self.prop_signal_closed(s, "news", price)
         if s.get("prop_only"):
             return
         self.spawn(self.update_cards(s, "news", price))
@@ -602,7 +615,8 @@ class App:
                      title=html.escape(ev.get("title", "")), price=f"{price:.2f}", pips=f"{res:+.0f}")
 
         await self.chan_text(text, await self.chan_reply(s["id"]))
-        n = await self.broadcast(await self.db.all_user_ids(),
+        skip = await self.ps_only_uids() - set(await self.db.signal_lots(s["id"]))
+        n = await self.broadcast([u for u in await self.db.all_user_ids() if u not in skip],
                                  lambda u: self.bot.send_message(u, text(norm(langs.get(u)))))
         log.info("news close #%s sent to %s users", s["id"], n)
 
@@ -610,6 +624,7 @@ class App:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
         # что не закрыл брокер по своим SL/TP — закрываем (проп-счета ведут свои SL/TP, кроме стопа и тейка сигнала)
         self.spawn(self.autotrade_close(s["id"], skip_prop=status in ("be", "rev")))
+        await self.prop_signal_closed(s, status, price)
         if s.get("prop_only"):   # сигнал только для проп-счетов: подписчикам о нём не писали
             return
         side = "BUY" if s["direction"] == 1 else "SELL"
@@ -690,7 +705,9 @@ class App:
             return await self.bot.send_message(cid, body, **chan_reply)
         await self.to_channel(chan_close)
 
-        # кто нажал «Отклонить» под этим сигналом — результат по нему не присылаем
+        # кто нажал «Отклонить» под этим сигналом — результат по нему не присылаем; кто получает только
+        # проп-сигналы и этот сигнал не получал — тоже (у него свой итог проп-сделки)
+        declined |= await self.ps_only_uids() - set(results) - set(cards)
         await self.broadcast([u for u in await self.db.all_user_ids() if u not in declined], make)
 
     async def broadcast_partial(self, s: dict, price: float) -> None:
@@ -1227,11 +1244,222 @@ class App:
             await self._send(uid, lambda u=uid, x=text, mk=markup: self.bot.send_message(u, x, reply_markup=mk))
 
     async def has_prop(self) -> bool:
-        """Есть ли включённые проп-счета (для сигналов только для проп-счетов)."""
+        """Есть ли включённые проп-счета или подписчики проп-сигналов (для сигналов только для проп-счетов)."""
+        if await self.ps_active_subs():
+            return True
         if not self.autotrader:
             return False
         accs = await self.db.trade_accounts(enabled_only=True, exempt=frozenset(config.admin_ids))
         return any(a.get("prop_plan") in pr.PLANS and not a.get("prop_halt") for a in accs)
+
+    # ── сигналы для проп-фирм (ручная торговля, goldbot/prop_signals.py) ─────
+    def ps_cfg(self) -> dict:
+        return {"risk_pct": config.prop_risk_pct, "cap": config.prop_risk_cap,
+                "max_trade": config.prop_max_trade_pct, "dd_pct": config.prop_dd_pct, "dd_mult": config.prop_dd_mult}
+
+    async def ps_active_subs(self) -> list[dict]:
+        """Подписчики проп-сигналов с включённым потоком и активной подпиской."""
+        subs = await self.db.prop_subs()
+        if not subs:
+            return []
+        active = set(await self.db.active_user_ids())
+        return [x for x in subs if x["user_id"] in active]
+
+    async def ps_only_uids(self) -> set[int]:
+        """Кто отключил обычные сигналы и получает только проп-сигналы."""
+        return {x["user_id"] for x in await self.db.prop_subs() if x.get("only_prop")}
+
+    async def ps_day_stopped(self) -> bool:
+        return await self.db.get_kv("ps_day_stop") == pr.day_key(now(), config.prop_day_tz)
+
+    def ps_reset(self) -> str:
+        return pr.reset_time(config.display_tz, now(), config.prop_day_tz)
+
+    async def ps_status(self, sub: dict, lang: str) -> str:
+        """Напоминание проп-подписчику: баланс, до цели, до дневного и общего лимита, риск на следующую сделку."""
+        st = ps.state(sub, **self.ps_cfg())
+        if st["goal"] is None:
+            goal = t(lang, "ps_rem_funded")
+        elif st["passed"]:
+            goal = t(lang, "ps_rem_passed", days=st["days"], min_days=st["min_days"])
+        else:
+            frac = max(st["progress"] or 0.0, 0.0)
+            goal = t(lang, "ps_rem_goal", left=ps.usd(st["to_goal"]), bar=pr.progress_bar(frac),
+                     done=f"{frac * 100:.0f}", days=st["days"], min_days=st["min_days"])
+        return t(lang, "ps_rem", plan=st["plan"].name, stage=self.stage_name(lang, sub.get("stage")),
+                 size=fmt_money(st["size"]), balance=ps.usd(st["balance"]),
+                 profit=f"{(st['balance'] / st['size'] - 1) * 100:+.2f}", goal=goal,
+                 day_left=ps.usd(st["day_left"]), day_floor=ps.usd(st["day_floor"]),
+                 total_left=ps.usd(st["total_left"]), floor=ps.usd(st["total_floor"]),
+                 risk=f"{st['risk_pct']:g}", risk_usd=ps.usd(st["risk_usd"]),
+                 low=t(lang, "ps_rem_low") if st["low_risk"] else "",
+                 stop=t(lang, "ps_rem_stop", reset=self.ps_reset()) if await self.ps_day_stopped() else "")
+
+    async def ps_roll(self, sub: dict) -> dict:
+        """Новый торговый день фирмы — запоминаем баланс на начало дня."""
+        upd = ps.roll_day(sub, now(), config.prop_day_tz)
+        if upd:
+            await self.db.update_prop_sub(sub["user_id"], **upd)
+            sub = {**sub, **upd}
+        return sub
+
+    def ps_menu_kb(self, lang: str, sub: dict) -> InlineKeyboardMarkup:
+        only = (_btn(t(lang, "btn_ps_only_off"), "ps:o0") if sub.get("only_prop")
+                else _btn(t(lang, "btn_ps_only_on"), "ps:o1"))
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [_btn(t(lang, "btn_ps_balance"), "ps:bal")], [_btn(t(lang, "btn_ps_edit"), "ps:start")],
+            [only], [_btn(t(lang, "btn_ps_off"), "ps:off")]])
+
+    async def propsig_menu(self, chat_id: int, uid: int, lang: str, head: str = "") -> None:
+        """Кнопка «Сигналы для проп-фирм»: анкета заполнена — состояние счёта, иначе — что это и анкета."""
+        sub = await self.db.get_prop_sub(uid)
+        if not sub or not sub.get("enabled"):
+            await self.bot.send_message(chat_id, head + t(lang, "ps_intro"), reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[_btn(t(lang, "btn_ps_start"), "ps:start")]]))
+            return
+        sub = await self.ps_roll(sub)
+        u = await self.db.get_user(uid) or {}
+        text = (head + await self.ps_status(sub, lang) + "\n\n"
+                + t(lang, "ps_mode_only" if sub.get("only_prop") else "ps_mode_both")
+                + ("" if u and self.db.has_access(u) else t(lang, "ps_noaccess")))
+        await self.bot.send_message(chat_id, text, reply_markup=self.ps_menu_kb(lang, sub))
+
+    async def broadcast_prop_signal(self, s: NewSignal) -> int:
+        """Каждому подписчику проп-сигналов — свой сигнал: лот по его счёту и правилам проп-режима, тейк проп-счёта.
+        После первого стопа проп-сигнала за день (по времени FundedNext) — до полуночи проп-сигналов нет."""
+        subs = await self.ps_active_subs()
+        if not subs:
+            return 0
+        if await self.ps_day_stopped():
+            log.info("prop signal #%s skipped: prop day stopped after a stop loss", s.id)
+            return 0
+        sl_dist = abs(s.entry - s.sl)
+        if sl_dist <= 0:
+            return 0
+        tp = ps.prop_tp(s.entry, s.sl, s.tp, s.direction, config.partial_r, config.prop_tp_r)
+        sl_pips, tp_pips = sl_dist / PIP, abs(tp - s.entry) / PIP
+        langs = await self.db.user_langs()
+        side = "🟢 BUY" if s.direction == 1 else "🔴 SELL"
+        reset = self.ps_reset()
+        images: dict[float, bytes] = {}
+        sent = 0
+        for sub in subs:
+            uid = sub["user_id"]
+            lang = norm(langs.get(uid))
+            sub = await self.ps_roll(sub)
+            trades = [x for x in await self.db.open_prop_trades(uid) if not x.get("declined")]
+            plan = ps.plan_trade(sub, trades, sl_dist, risk_pct=config.prop_risk_pct,
+                                 strong_pct=config.prop_strong_risk_pct, strong=s.strong,
+                                 guard_pct=config.prop_guard_pct, cap=config.prop_risk_cap,
+                                 max_trade=config.prop_max_trade_pct, dd_pct=config.prop_dd_pct,
+                                 dd_mult=config.prop_dd_mult)
+            lot = plan["lot"]
+            if lot <= 0:
+                await self._send(uid, lambda u=uid, x=t(lang, "ps_skipped_limit", id=s.id): self.bot.send_message(u, x))
+                continue
+            loss, profit = money(lot, sl_pips), money(lot, tp_pips)
+            if lot not in images:
+                images[lot] = s.image
+                if s.render is not None:
+                    try:
+                        images[lot] = await asyncio.to_thread(
+                            s.render, tp=tp, tp1=None, lot=f"LOT {lot:.2f}", sl_note=f"−${fmt_usd(loss)}",
+                            tp_note=f"+${fmt_usd(profit)}")
+                    except Exception:  # noqa: BLE001
+                        log.exception("prop chart")
+            note = (t(lang, "ps_note_goal") if plan["reason"] == "goal" else
+                    t(lang, "ps_note_low") if ps.state(sub, **self.ps_cfg())["low_risk"] else "")
+            caption = t(lang, "ps_signal", id=s.id, side=side, entry=f"{s.entry:.2f}", sl=f"{s.sl:.2f}",
+                        tp=f"{tp:.2f}", sl_pips=f"{sl_pips:.0f}", tp_pips=f"{tp_pips:.0f}", lot=f"{lot:.2f}",
+                        size=fmt_money(float(sub["size"])), risk_usd=f"${fmt_usd(loss)}",
+                        risk_pct=f"{loss / float(sub['size']) * 100:.2f}".rstrip("0").rstrip("."),
+                        profit_usd=f"${fmt_usd(profit)}", note=note, reset=reset) + late_hint(lang, s.direction, s.entry)
+            box: dict = {}
+
+            async def send_card(u=uid, img=images[lot], caption=caption, lang=lang, box=box):
+                box["m"] = await self.bot.send_photo(
+                    u, BufferedInputFile(img, filename=f"prop_{s.id}.png"), caption=caption,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                        _btn(t(lang, "btn_accept"), f"psig:acc:{s.id}"),
+                        _btn(t(lang, "btn_decline"), f"psig:dec:{s.id}")]]))
+            if await self._send(uid, send_card):
+                await self.db.add_prop_trade(s.id, uid, s.direction, s.entry, s.sl, tp, lot,
+                                             getattr(box.get("m"), "message_id", None))
+                sent += 1
+            await asyncio.sleep(0.04)
+        log.info("prop signal #%s sent to %s users", s.id, sent)
+        return sent
+
+    async def prop_check(self, price: float) -> None:
+        """Каждая проверка цены: проп-сделки, которые дошли до своего стопа или тейка, закрываем."""
+        for tr in await self.db.open_prop_trades():
+            status = ps.hit(tr, price)
+            if status:
+                await self.close_prop_trade(tr, status, price)
+
+    async def prop_signal_closed(self, s: dict, status: str, price: float) -> None:
+        """Обычный сигнал закрылся: по стопу — проп-сделка тоже по стопу (стоп общий); по тейку — тейк проп-сделки
+        ближе, значит он уже был; перед новостью — по рынку. Безубыток и разворот проп-сделку не закрывают."""
+        mapped = {"sl": "sl", "tp": "tp", "news": "news"}.get(status)
+        if not mapped:
+            return
+        try:
+            for tr in await self.db.open_prop_trades(sid=s["id"]):
+                await self.close_prop_trade(tr, mapped, price)
+        except Exception:  # noqa: BLE001
+            log.exception("prop close #%s", s["id"])
+
+    async def close_prop_trade(self, tr: dict, status: str, price: float) -> None:
+        """Итог проп-сделки: новый баланс подписчика и напоминание; стоп — проп-сигналов до полуночи FundedNext нет."""
+        sid, uid = tr["signal_id"], tr["user_id"]
+        pnl = money(tr["lot"], ps.trade_pips(tr, status, price))
+        if not await self.db.close_prop_trade(sid, uid, status, None if tr.get("declined") else pnl):
+            return
+        if status == "sl" and not await self.ps_day_stopped():
+            await self.db.set_kv("ps_day_stop", pr.day_key(now(), config.prop_day_tz))
+            log.info("prop signals: day stopped after SL of #%s", sid)
+        sub = await self.db.get_prop_sub(uid)
+        if tr.get("declined") or not sub or not sub.get("enabled"):
+            return
+        lang = await self.lang_of(uid)
+        before = ps.state(sub, **self.ps_cfg())
+        upd = ps.apply_result(sub, pnl, now(), config.prop_day_tz)
+        sub = {**sub, **upd}
+        st = ps.state(sub, **self.ps_cfg())
+        markup = None
+        extra = ""
+        if status == "sl":
+            extra += t(lang, "ps_day_stop", reset=self.ps_reset())
+        if st["passed"] and st["days"] >= st["min_days"] and not (before["passed"] and before["days"] >= before["min_days"]):
+            extra += t(lang, "ps_passed")
+            nxt = pr.next_stage(ps.acc_view(sub))
+            if nxt:
+                markup = InlineKeyboardMarkup(inline_keyboard=[[_btn(
+                    t(lang, "btn_ps_next", next=self.stage_name(lang, nxt)), "ps:next")]])
+        elif st["passed"] and not before["passed"]:
+            extra += t(lang, "ps_passed_days", days=st["days"], min_days=st["min_days"])
+        if st["failed"]:
+            upd["enabled"] = 0
+            extra += t(lang, "ps_failed")
+        await self.db.update_prop_sub(uid, **upd)
+        side = "BUY" if tr["direction"] == 1 else "SELL"
+        exit_ = {"sl": tr["sl"], "tp": tr["tp"]}.get(status, price)
+        text = (t(lang, f"ps_close_{status}", id=sid, side=side, exit=f"{exit_:.2f}", lot=f"{tr['lot']:.2f}",
+                  pnl=("+" if pnl >= 0 else "") + ps.usd(pnl))
+                + await self.ps_status(sub, lang) + extra)
+        await self._send(uid, lambda u=uid, x=text, mk=markup, r=reply_to(tr.get("msg_id")):
+                         self.bot.send_message(u, x, reply_markup=mk, **r))
+
+    async def prop_morning(self) -> int:
+        """Утром вместе с разбором рынка — каждому проп-подписчику состояние его счёта."""
+        langs = await self.db.user_langs()
+        n = 0
+        for sub in await self.ps_active_subs():
+            sub = await self.ps_roll(sub)
+            lang = norm(langs.get(sub["user_id"]))
+            text = t(lang, "ps_morning") + await self.ps_status(sub, lang)
+            n += await self._send(sub["user_id"], lambda u=sub["user_id"], x=text: self.bot.send_message(u, x))
+        return n
 
     # ── живая карточка сигнала ────────────────────────────────────────────
     async def update_cards(self, s: dict, status: str | None = None, price: float | None = None) -> int:
@@ -2014,6 +2242,7 @@ class App:
             await m.answer(t(await self.lang_of(m.from_user.id), "cap_bad"))
 
         self._register_autotrade()
+        self._register_propsig()
 
     def _register_autotrade(self) -> None:
         r = self.router
@@ -2270,6 +2499,129 @@ class App:
                                         data.get("prop_paid_until") if prop else None))
 
     # ── фоновые задачи ───────────────────────────────────────────────────────
+    def _register_propsig(self) -> None:
+        r = self.router
+
+        async def size_chosen(chat_id: int, uid: int, state: FSMContext, size: float) -> None:
+            data = await state.get_data()
+            await state.clear()
+            lang = await self.lang_of(uid)
+            plan, stage = data.get("ps_plan"), data.get("ps_stage")
+            if plan not in pr.PLANS or stage not in pr.PLANS[plan].stages:
+                await self.propsig_menu(chat_id, uid, lang)
+                return
+            await self.db.save_prop_sub(uid, plan, stage, size)
+            log.info("prop signals: user %s %s %s $%s", uid, plan, stage, size)
+            await self.bot.send_message(chat_id, t(lang, "ps_only_ask"), reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[_btn(t(lang, "btn_ps_only"), "ps:only:1")],
+                                 [_btn(t(lang, "btn_ps_both"), "ps:only:0")]]))
+
+        @r.message(F.text.in_(variants("btn_propsig")))
+        @r.message(Command("propsignals"))
+        async def propsig_cmd(m: Message, state: FSMContext):
+            await state.clear()
+            await self.propsig_menu(m.chat.id, m.from_user.id, await self.lang_of(m.from_user.id))
+
+        @r.callback_query(F.data.startswith("ps:"))
+        async def propsig_cb(c: CallbackQuery, state: FSMContext):
+            uid, chat = c.from_user.id, c.message.chat.id
+            lang = await self.lang_of(uid)
+            parts = c.data.split(":")
+            act = parts[1]
+            await c.answer()
+            if act == "start":
+                await state.clear()
+                await c.message.answer(t(lang, "ps_plan_ask"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [_btn(p.name, f"ps:pl:{k}")] for k, p in pr.PLANS.items()]))
+            elif act == "pl" and len(parts) > 2 and parts[2] in pr.PLANS:
+                plan = pr.PLANS[parts[2]]
+                await state.update_data(ps_plan=parts[2])
+                await c.message.edit_text(t(lang, "ps_stage_ask", plan=plan.name), reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[[_btn(self.stage_name(lang, st), f"ps:st:{st}")] for st in plan.stages]))
+            elif act == "st" and len(parts) > 2:
+                await state.update_data(ps_stage=parts[2])
+                await state.set_state(PropSigStates.size)
+                btns = [_btn(f"${x // 1000}K", f"ps:sz:{x}") for x in ps.SIZE_PRESETS]
+                await c.message.edit_text(t(lang, "ps_size_ask"), reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[btns[i:i + 3] for i in range(0, len(btns), 3)]))
+            elif act == "sz" and len(parts) > 2:
+                try:
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+                await size_chosen(chat, uid, state, float(parts[2]))
+            elif act == "only" and len(parts) > 2:
+                only = parts[2] == "1"
+                await self.db.update_prop_sub(uid, only_prop=int(only))
+                try:
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+                await self.propsig_menu(chat, uid, lang,
+                                        head=t(lang, "ps_saved", mode=t(lang, "ps_mode_only" if only else "ps_mode_both")))
+            elif act in ("o0", "o1"):
+                await self.db.update_prop_sub(uid, only_prop=int(act == "o1"))
+                await self.propsig_menu(chat, uid, lang)
+            elif act == "bal":
+                await state.set_state(PropSigStates.balance)
+                await c.message.answer(t(lang, "ps_balance_ask"))
+            elif act == "off":
+                await self.db.update_prop_sub(uid, enabled=0)
+                await c.message.answer(t(lang, "ps_off"))
+            elif act == "next":
+                sub = await self.db.get_prop_sub(uid)
+                nxt = pr.next_stage(ps.acc_view(sub)) if sub else None
+                if not nxt:
+                    return
+                await self.db.save_prop_sub(uid, sub["plan"], nxt, float(sub["size"]))
+                try:
+                    await c.message.edit_reply_markup(reply_markup=None)
+                except Exception:  # noqa: BLE001
+                    pass
+                await self.propsig_menu(chat, uid, lang, head=t(lang, "ps_next_done", stage=self.stage_name(lang, nxt)))
+
+        @r.message(PropSigStates.size, F.text, ~F.text.startswith("/"))
+        async def propsig_size_typed(m: Message, state: FSMContext):
+            v = parse_capital(m.text)
+            if v is None or not ps.MIN_SIZE <= v <= ps.MAX_SIZE:
+                await m.answer(t(await self.lang_of(m.from_user.id), "ps_size_bad"))
+                return
+            await size_chosen(m.chat.id, m.from_user.id, state, v)
+
+        @r.message(PropSigStates.balance, F.text, ~F.text.startswith("/"))
+        async def propsig_balance_typed(m: Message, state: FSMContext):
+            uid = m.from_user.id
+            lang = await self.lang_of(uid)
+            v = parse_capital(m.text)
+            if v is None:
+                await m.answer(t(lang, "ps_size_bad"))
+                return
+            await state.clear()
+            sub = await self.db.get_prop_sub(uid)
+            if not sub:
+                await self.propsig_menu(m.chat.id, uid, lang)
+                return
+            await self.db.update_prop_sub(uid, balance=round(v, 2), peak=max(float(sub.get("peak") or 0), v),
+                                          enabled=1)
+            await self.propsig_menu(m.chat.id, uid, lang, head=t(lang, "ps_balance_set"))
+
+        @r.callback_query(F.data.startswith("psig:"))
+        async def propsig_decision(c: CallbackQuery):
+            _, choice, sid = c.data.split(":")
+            sid, uid = int(sid), c.from_user.id
+            lang = await self.lang_of(uid)
+            tr = await self.db.get_prop_trade(sid, uid)
+            if not tr or tr["status"] != "open":
+                await c.answer(t(lang, "sig_already_closed"), show_alert=True)
+                return
+            await self.db.set_prop_declined(sid, uid, choice == "dec")
+            await c.answer()
+            await c.message.answer(t(lang, "ps_declined" if choice == "dec" else "ps_accepted", id=sid))
+            try:
+                await c.message.edit_reply_markup(reply_markup=None)
+            except Exception:  # noqa: BLE001
+                pass
+
     async def tell_admins(self, text: str, **kw) -> None:
         """Сообщение всем админам (не зависит от ADMIN_ALERTS)."""
         for a in config.admin_ids:
@@ -2590,6 +2942,10 @@ class App:
         n = await self.broadcast(await self.db.active_user_ids(),
                                  lambda u: self.bot.send_message(u, texts.get(norm(langs.get(u)), texts["ru"])))
         log.info("morning review sent to %s users", n)
+        try:
+            await self.prop_morning()
+        except Exception:  # noqa: BLE001
+            log.exception("prop morning")
         return True
 
     async def morning_review_loop(self) -> None:

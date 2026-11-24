@@ -1356,3 +1356,219 @@ DAILY_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _texts in DAILY_TEXTS.items():
     TEXTS[_lang].update(_texts)
+
+# ── сигналы для проп-фирм: анкета, отдельный поток, напоминания (goldbot/prop_signals.py) ─────────────
+PROPSIG_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "btn_propsig": "🏆 Сигналы для проп-фирм",
+        "ps_intro": ("🏆 <b>Сигналы для проп-фирм (FundedNext и др.)</b>\n\n"
+                     "Отдельный поток сигналов для тех, кто проходит челлендж или торгует на финансируемом счёте:\n"
+                     "• лот и риск в $ посчитаны по вашему счёту: обычно 0.5% на сделку, никогда больше 1%;\n"
+                     "• после первого Stop Loss за день проп-сигналов до полуночи FundedNext больше нет: "
+                     "по проверке на истории 2023–2026 это главное, что спасает счёт;\n"
+                     "• баланс ниже начального на 2% — риск снижается в 4 раза, пока счёт не восстановится;\n"
+                     "• тейк ближе, без фиксации части и безубытка: держите до SL или TP;\n"
+                     "• бот сам ведёт ваш баланс и напоминает, сколько осталось до цели и до лимитов.\n\n"
+                     "На истории с этими правилами бот не провалил ни одного 2-Step (0 из 755 попыток). "
+                     "Это не гарантия: рынок может вести себя иначе.\n\nЗаполните короткую анкету 👇"),
+        "btn_ps_start": "📝 Заполнить анкету",
+        "ps_plan_ask": "1/3. Какой у вас тип счёта? Если у вас другая проп-фирма — выберите самый похожий по правилам.",
+        "ps_stage_ask": "2/3. <b>{plan}</b>: какой у вас этап?",
+        "ps_size_ask": "3/3. Размер счёта (начальный баланс)? Выберите или напишите сумму, например <code>10000</code>.",
+        "ps_size_bad": "Не понял сумму. Напишите размер счёта числом от $1 000, например <code>25000</code>.",
+        "ps_only_ask": ("Обычные сигналы бота рассчитаны на личный счёт: другой риск и тейк. "
+                        "<b>Отключить обычные сигналы</b>, чтобы не путаться, и получать только проп-сигналы?"),
+        "btn_ps_only": "🔕 Отключить обычные, только проп",
+        "btn_ps_both": "🔔 Нет, присылать все сигналы",
+        "ps_saved": "✅ <b>Анкета сохранена.</b> Проп-сигналы будут приходить сами.\n{mode}\n\n",
+        "ps_mode_only": "🔕 Обычные сигналы отключены: приходят только проп-сигналы.",
+        "ps_mode_both": "🔔 Приходят и обычные сигналы, и проп-сигналы.",
+        "ps_noaccess": "\n\n⛔️ Сигналы приходят при активной подписке: /subscribe",
+        "btn_ps_balance": "✏️ Обновить баланс",
+        "btn_ps_edit": "📝 Изменить счёт или этап",
+        "btn_ps_only_on": "🔕 Только проп-сигналы",
+        "btn_ps_only_off": "🔔 Получать и обычные сигналы",
+        "btn_ps_off": "⛔️ Выключить проп-сигналы",
+        "ps_balance_ask": "Напишите текущий баланс вашего проп-счёта (закрытые сделки), например <code>10250</code>.",
+        "ps_balance_set": "✅ Баланс обновлён.\n\n",
+        "ps_off": "⛔️ Проп-сигналы выключены, обычные сигналы снова приходят. Включить: 🏆 Сигналы для проп-фирм.",
+        "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
+                   "💰 Баланс: <b>{balance}</b> ({profit}%)\n{goal}"
+                   "📉 До дневного лимита: <b>{day_left}</b> (на сегодня не ниже {day_floor})\n"
+                   "🛡 До общего лимита: <b>{total_left}</b> (баланс не ниже {floor})\n"
+                   "⚖️ Риск на следующую сделку: <b>{risk}% = {risk_usd}</b>{low}{stop}"),
+        "ps_rem_goal": "🎯 До цели: <b>{left}</b> {bar} {done}% · торговых дней {days}/{min_days}\n",
+        "ps_rem_passed": "🎯 Цель этапа выполнена! Торговых дней {days}/{min_days}: дальше минимальный лот 0.01.\n",
+        "ps_rem_funded": "🎯 Финансируемый счёт: цели нет, главное — не трогать лимиты.\n",
+        "ps_rem_low": "\n🛡 Баланс ниже начального на 2% и больше: риск снижен, пока счёт не восстановится.",
+        "ps_rem_stop": "\n⛔️ Сегодня был стоп: проп-сигналов до {reset} не будет.",
+        "ps_signal": ("🏆 <b>ПРОП-СИГНАЛ #{id}</b> · XAUUSD {side}\n\n"
+                      "📍 Вход: <b>{entry}</b>\n"
+                      "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} пипсов)\n"
+                      "🎯 Take Profit: <b>{tp}</b> ({tp_pips} пипсов)\n\n"
+                      "💼 Ваш лот: <b>{lot}</b> (счёт ${size})\n"
+                      "🛑 Риск: <b>−{risk_usd}</b> ({risk_pct}% счёта) · 🎯 Прибыль: <b>+{profit_usd}</b>{note}\n\n"
+                      "📌 Без фиксации части и безубытка: держите до SL или TP. "
+                      "Сделка закроется по стопу — до {reset} проп-сигналов больше не будет."),
+        "ps_note_goal": "\n🎯 Цель этапа уже есть — минимальный лот, только чтобы набрать торговые дни.",
+        "ps_note_low": "\n🛡 Баланс ниже начального на 2%+: риск снижен.",
+        "ps_accepted": "✅ Проп-сигнал #{id} принят. Результат и новый баланс пришлю, когда сделка закроется.",
+        "ps_declined": "❌ Проп-сигнал #{id} отклонён: в ваш баланс он не войдёт.",
+        "ps_close_tp": "✅ <b>Проп-сигнал #{id} {side}: Take Profit</b> {exit}\n💼 Лот {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_sl": "❌ <b>Проп-сигнал #{id} {side}: Stop Loss</b> {exit}\n💼 Лот {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_news": "📰 <b>Проп-сигнал #{id} {side}: закройте по рынку</b> {exit} перед важной новостью\n💼 Лот {lot}: <b>{pnl}</b>\n\n",
+        "ps_day_stop": ("\n\n⛔️ <b>Торговый день для проп-счёта остановлен.</b> После первого стопа за день новых "
+                        "проп-сигналов до {reset} не будет: так счёт не уходит в серию убытков."),
+        "ps_passed": "\n\n🎉 <b>Цель этапа выполнена!</b> Когда FundedNext выдаст следующий счёт, нажмите кнопку ниже.",
+        "ps_passed_days": ("\n\n🎯 <b>Цель по прибыли выполнена!</b> Осталось набрать торговых дней: {days}/{min_days}. "
+                           "До этого бот даёт минимальный лот 0.01, чтобы не потерять результат."),
+        "btn_ps_next": "➡️ Перейти: {next}",
+        "ps_next_done": "✅ Новый этап: <b>{stage}</b>. Баланс и торговые дни начаты заново.\n\n",
+        "ps_failed": ("\n\n⛔️ <b>Баланс дошёл до общего лимита счёта.</b> Проп-сигналы остановлены. Если счёт ещё "
+                      "живой — обновите баланс; новый счёт — заполните анкету заново."),
+        "ps_morning": "🌅 <b>Ваш проп-счёт на сегодня</b>\n\n",
+        "ps_skipped_limit": "⚠️ Проп-сигнал #{id} пропущен: по вашему счёту риск не помещается в лимиты (открытые сделки или дневной лимит).",
+    },
+    "en": {
+        "btn_propsig": "🏆 Prop firm signals",
+        "ps_intro": ("🏆 <b>Prop firm signals (FundedNext and others)</b>\n\n"
+                     "A separate signal stream for traders on a challenge or a funded account:\n"
+                     "• lot and risk in $ are sized to your account: usually 0.5% per trade, never more than 1%;\n"
+                     "• after the first Stop Loss of the day there are no more prop signals until FundedNext midnight: "
+                     "in tests on 2023–2026 history this is what saves the account;\n"
+                     "• balance 2% below the start — risk is cut 4 times until the account recovers;\n"
+                     "• closer take profit, no partial close or breakeven: hold until SL or TP;\n"
+                     "• the bot tracks your balance and reminds you how far you are from the target and the limits.\n\n"
+                     "With these rules the bot failed no 2-Step in history (0 of 755 attempts). "
+                     "This is not a guarantee: the market can behave differently.\n\nFill in a short form 👇"),
+        "btn_ps_start": "📝 Fill in the form",
+        "ps_plan_ask": "1/3. What is your account type? If you use another prop firm, pick the one with the closest rules.",
+        "ps_stage_ask": "2/3. <b>{plan}</b>: which stage are you on?",
+        "ps_size_ask": "3/3. Account size (starting balance)? Pick one or type the amount, e.g. <code>10000</code>.",
+        "ps_size_bad": "I didn't get the amount. Type the account size as a number from $1,000, e.g. <code>25000</code>.",
+        "ps_only_ask": ("The bot's regular signals are made for a personal account: different risk and take profit. "
+                        "<b>Turn off regular signals</b> so you don't mix them up, and get only prop signals?"),
+        "btn_ps_only": "🔕 Turn off regular, prop only",
+        "btn_ps_both": "🔔 No, send all signals",
+        "ps_saved": "✅ <b>Form saved.</b> Prop signals will arrive automatically.\n{mode}\n\n",
+        "ps_mode_only": "🔕 Regular signals are off: you get only prop signals.",
+        "ps_mode_both": "🔔 You get both regular and prop signals.",
+        "ps_noaccess": "\n\n⛔️ Signals arrive with an active subscription: /subscribe",
+        "btn_ps_balance": "✏️ Update balance",
+        "btn_ps_edit": "📝 Change account or stage",
+        "btn_ps_only_on": "🔕 Prop signals only",
+        "btn_ps_only_off": "🔔 Get regular signals too",
+        "btn_ps_off": "⛔️ Turn off prop signals",
+        "ps_balance_ask": "Type the current balance of your prop account (closed trades), e.g. <code>10250</code>.",
+        "ps_balance_set": "✅ Balance updated.\n\n",
+        "ps_off": "⛔️ Prop signals are off, regular signals are back. Turn on: 🏆 Prop firm signals.",
+        "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
+                   "💰 Balance: <b>{balance}</b> ({profit}%)\n{goal}"
+                   "📉 To the daily limit: <b>{day_left}</b> (today not below {day_floor})\n"
+                   "🛡 To the overall limit: <b>{total_left}</b> (balance not below {floor})\n"
+                   "⚖️ Risk on the next trade: <b>{risk}% = {risk_usd}</b>{low}{stop}"),
+        "ps_rem_goal": "🎯 To the target: <b>{left}</b> {bar} {done}% · trading days {days}/{min_days}\n",
+        "ps_rem_passed": "🎯 Stage target reached! Trading days {days}/{min_days}: minimum lot 0.01 from now on.\n",
+        "ps_rem_funded": "🎯 Funded account: no target, the main thing is to stay away from the limits.\n",
+        "ps_rem_low": "\n🛡 Balance is 2% or more below the start: risk is reduced until the account recovers.",
+        "ps_rem_stop": "\n⛔️ There was a stop today: no prop signals until {reset}.",
+        "ps_signal": ("🏆 <b>PROP SIGNAL #{id}</b> · XAUUSD {side}\n\n"
+                      "📍 Entry: <b>{entry}</b>\n"
+                      "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
+                      "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n\n"
+                      "💼 Your lot: <b>{lot}</b> (account ${size})\n"
+                      "🛑 Risk: <b>−{risk_usd}</b> ({risk_pct}% of the account) · 🎯 Profit: <b>+{profit_usd}</b>{note}\n\n"
+                      "📌 No partial close or breakeven: hold until SL or TP. "
+                      "If the trade hits the stop, there will be no more prop signals until {reset}."),
+        "ps_note_goal": "\n🎯 The stage target is already reached — minimum lot, only to collect trading days.",
+        "ps_note_low": "\n🛡 Balance is 2%+ below the start: risk is reduced.",
+        "ps_accepted": "✅ Prop signal #{id} accepted. I'll send the result and your new balance when the trade closes.",
+        "ps_declined": "❌ Prop signal #{id} declined: it won't count in your balance.",
+        "ps_close_tp": "✅ <b>Prop signal #{id} {side}: Take Profit</b> {exit}\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_sl": "❌ <b>Prop signal #{id} {side}: Stop Loss</b> {exit}\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_news": "📰 <b>Prop signal #{id} {side}: close at market</b> {exit} before important news\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_day_stop": ("\n\n⛔️ <b>The trading day for the prop account is stopped.</b> After the first stop of the day there "
+                        "will be no new prop signals until {reset}: this keeps the account out of a losing streak."),
+        "ps_passed": "\n\n🎉 <b>Stage target reached!</b> When FundedNext gives you the next account, press the button below.",
+        "ps_passed_days": ("\n\n🎯 <b>Profit target reached!</b> Trading days still needed: {days}/{min_days}. "
+                           "Until then the bot gives the minimum lot 0.01 so you don't lose the result."),
+        "btn_ps_next": "➡️ Move to: {next}",
+        "ps_next_done": "✅ New stage: <b>{stage}</b>. Balance and trading days start over.\n\n",
+        "ps_failed": ("\n\n⛔️ <b>The balance reached the account's overall limit.</b> Prop signals are stopped. If the account "
+                      "is still alive, update the balance; for a new account, fill in the form again."),
+        "ps_morning": "🌅 <b>Your prop account today</b>\n\n",
+        "ps_skipped_limit": "⚠️ Prop signal #{id} skipped: for your account the risk doesn't fit the limits (open trades or the daily limit).",
+    },
+    "uz": {
+        "btn_propsig": "🏆 Prop-firma signallari",
+        "ps_intro": ("🏆 <b>Prop-firma signallari (FundedNext va boshqalar)</b>\n\n"
+                     "Challenge oʻtayotgan yoki moliyalashtirilgan hisobda savdo qilayotganlar uchun alohida signallar:\n"
+                     "• lot va $ dagi risk hisobingizga qarab hisoblanadi: odatda bitimga 0.5%, hech qachon 1% dan koʻp emas;\n"
+                     "• kunning birinchi Stop Lossidan keyin FundedNext yarim tunigacha prop-signal boʻlmaydi: "
+                     "2023–2026 tarixidagi sinovda hisobni aynan shu saqlaydi;\n"
+                     "• balans boshlangʻichdan 2% past — hisob tiklanguncha risk 4 barobar kamayadi;\n"
+                     "• take profit yaqinroq, qisman yopish va zararsizlik yoʻq: SL yoki TP gacha ushlang;\n"
+                     "• bot balansingizni oʻzi yuritadi va maqsad hamda limitlargacha qancha qolganini eslatadi.\n\n"
+                     "Shu qoidalar bilan tarixda bot birorta ham 2-Step ni boy bermagan (755 urinishdan 0). "
+                     "Bu kafolat emas: bozor boshqacha boʻlishi mumkin.\n\nQisqa anketani toʻldiring 👇"),
+        "btn_ps_start": "📝 Anketani toʻldirish",
+        "ps_plan_ask": "1/3. Hisobingiz turi qanday? Boshqa prop-firma boʻlsa, qoidalari eng yaqinini tanlang.",
+        "ps_stage_ask": "2/3. <b>{plan}</b>: qaysi bosqichdasiz?",
+        "ps_size_ask": "3/3. Hisob hajmi (boshlangʻich balans)? Tanlang yoki summani yozing, masalan <code>10000</code>.",
+        "ps_size_bad": "Summani tushunmadim. Hisob hajmini $1 000 dan katta son bilan yozing, masalan <code>25000</code>.",
+        "ps_only_ask": ("Botning oddiy signallari shaxsiy hisob uchun: risk va take profit boshqacha. "
+                        "Chalkashmaslik uchun <b>oddiy signallarni oʻchirib</b>, faqat prop-signallarni olasizmi?"),
+        "btn_ps_only": "🔕 Oddiylarini oʻchirish, faqat prop",
+        "btn_ps_both": "🔔 Yoʻq, hamma signallar kelsin",
+        "ps_saved": "✅ <b>Anketa saqlandi.</b> Prop-signallar oʻzi keladi.\n{mode}\n\n",
+        "ps_mode_only": "🔕 Oddiy signallar oʻchirildi: faqat prop-signallar keladi.",
+        "ps_mode_both": "🔔 Oddiy signallar ham, prop-signallar ham keladi.",
+        "ps_noaccess": "\n\n⛔️ Signallar faol obunada keladi: /subscribe",
+        "btn_ps_balance": "✏️ Balansni yangilash",
+        "btn_ps_edit": "📝 Hisob yoki bosqichni oʻzgartirish",
+        "btn_ps_only_on": "🔕 Faqat prop-signallar",
+        "btn_ps_only_off": "🔔 Oddiy signallar ham kelsin",
+        "btn_ps_off": "⛔️ Prop-signallarni oʻchirish",
+        "ps_balance_ask": "Prop-hisobingizning hozirgi balansini yozing (yopilgan bitimlar), masalan <code>10250</code>.",
+        "ps_balance_set": "✅ Balans yangilandi.\n\n",
+        "ps_off": "⛔️ Prop-signallar oʻchirildi, oddiy signallar yana keladi. Yoqish: 🏆 Prop-firma signallari.",
+        "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
+                   "💰 Balans: <b>{balance}</b> ({profit}%)\n{goal}"
+                   "📉 Kunlik limitgacha: <b>{day_left}</b> (bugun {day_floor} dan past emas)\n"
+                   "🛡 Umumiy limitgacha: <b>{total_left}</b> (balans {floor} dan past emas)\n"
+                   "⚖️ Keyingi bitim riski: <b>{risk}% = {risk_usd}</b>{low}{stop}"),
+        "ps_rem_goal": "🎯 Maqsadgacha: <b>{left}</b> {bar} {done}% · savdo kunlari {days}/{min_days}\n",
+        "ps_rem_passed": "🎯 Bosqich maqsadi bajarildi! Savdo kunlari {days}/{min_days}: endi minimal lot 0.01.\n",
+        "ps_rem_funded": "🎯 Moliyalashtirilgan hisob: maqsad yoʻq, asosiysi — limitlarga yaqinlashmaslik.\n",
+        "ps_rem_low": "\n🛡 Balans boshlangʻichdan 2% va undan koʻp past: hisob tiklanguncha risk kamaytirildi.",
+        "ps_rem_stop": "\n⛔️ Bugun stop boʻldi: {reset} gacha prop-signal boʻlmaydi.",
+        "ps_signal": ("🏆 <b>PROP-SIGNAL #{id}</b> · XAUUSD {side}\n\n"
+                      "📍 Kirish: <b>{entry}</b>\n"
+                      "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
+                      "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n\n"
+                      "💼 Sizning lotingiz: <b>{lot}</b> (hisob ${size})\n"
+                      "🛑 Risk: <b>−{risk_usd}</b> (hisobning {risk_pct}%) · 🎯 Foyda: <b>+{profit_usd}</b>{note}\n\n"
+                      "📌 Qisman yopish va zararsizlik yoʻq: SL yoki TP gacha ushlang. "
+                      "Bitim stop bilan yopilsa, {reset} gacha boshqa prop-signal boʻlmaydi."),
+        "ps_note_goal": "\n🎯 Bosqich maqsadi bajarilgan — faqat savdo kunlarini yigʻish uchun minimal lot.",
+        "ps_note_low": "\n🛡 Balans boshlangʻichdan 2%+ past: risk kamaytirildi.",
+        "ps_accepted": "✅ Prop-signal #{id} qabul qilindi. Bitim yopilganda natija va yangi balansni yuboraman.",
+        "ps_declined": "❌ Prop-signal #{id} rad etildi: balansingizga kirmaydi.",
+        "ps_close_tp": "✅ <b>Prop-signal #{id} {side}: Take Profit</b> {exit}\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_sl": "❌ <b>Prop-signal #{id} {side}: Stop Loss</b> {exit}\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_close_news": "📰 <b>Prop-signal #{id} {side}: bozor narxida yoping</b> {exit}, muhim yangilikdan oldin\n💼 Lot {lot}: <b>{pnl}</b>\n\n",
+        "ps_day_stop": ("\n\n⛔️ <b>Prop-hisob uchun savdo kuni toʻxtatildi.</b> Kunning birinchi stopidan keyin {reset} gacha "
+                        "yangi prop-signal boʻlmaydi: shunda hisob zararlar seriyasiga tushmaydi."),
+        "ps_passed": "\n\n🎉 <b>Bosqich maqsadi bajarildi!</b> FundedNext keyingi hisobni berganda, quyidagi tugmani bosing.",
+        "ps_passed_days": ("\n\n🎯 <b>Foyda maqsadi bajarildi!</b> Yana savdo kunlari kerak: {days}/{min_days}. "
+                           "Ungacha natijani yoʻqotmaslik uchun bot minimal lot 0.01 beradi."),
+        "btn_ps_next": "➡️ Oʻtish: {next}",
+        "ps_next_done": "✅ Yangi bosqich: <b>{stage}</b>. Balans va savdo kunlari qaytadan boshlandi.\n\n",
+        "ps_failed": ("\n\n⛔️ <b>Balans hisobning umumiy limitiga yetdi.</b> Prop-signallar toʻxtatildi. Hisob hali tirik "
+                      "boʻlsa — balansni yangilang; yangi hisob uchun anketani qaytadan toʻldiring."),
+        "ps_morning": "🌅 <b>Bugungi prop-hisobingiz</b>\n\n",
+        "ps_skipped_limit": "⚠️ Prop-signal #{id} oʻtkazib yuborildi: hisobingiz uchun risk limitlarga sigʻmaydi (ochiq bitimlar yoki kunlik limit).",
+    },
+}
+for _lang, _texts in PROPSIG_TEXTS.items():
+    TEXTS[_lang].update(_texts)
