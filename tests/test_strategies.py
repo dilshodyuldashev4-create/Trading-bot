@@ -174,3 +174,22 @@ class NewStrategiesTests(unittest.TestCase):
         self.assertEqual(kama_h4(df.iloc[:last + 1])[-1], 1)
         self.assertIn("kama_h4", PORTFOLIO)
         self.assertTrue(STRATEGIES["kama_h4"].daily_trend)
+
+    def test_klinger_h4(self):
+        from goldbot.live_strategy import PORTFOLIO, STRATEGIES
+        from goldbot.strategies.popular import klinger_h4
+        # боковик, затем рост на растущем объёме: BUY только на свече M15, которой закрывается H4
+        prices = [100.0 + 0.3 * ((i // 16) % 2) for i in range(10 * 96)] + [100.0 + 0.05 * i for i in range(96)]
+        df = make_df(prices, start="2025-01-06 00:00")
+        df["volume"] = np.r_[np.full(10 * 96, 100.0), np.linspace(200, 600, 96)]
+        sig = klinger_h4(df)
+        hits = np.flatnonzero(sig == 1)
+        self.assertTrue(len(hits) >= 1)
+        last = hits[-1]
+        self.assertEqual((df.index[last].hour % 4, df.index[last].minute), (3, 45))
+        for k in range(1, 4):
+            self.assertEqual(klinger_h4(df.iloc[:last + 1 - k])[-1], 0)
+        # без объёма (источник свечей не отдаёт volume) сигналов нет
+        self.assertEqual(int(np.abs(klinger_h4(df.assign(volume=0.0))).sum()), 0)
+        self.assertIn("klinger_h4", PORTFOLIO)
+        self.assertTrue(STRATEGIES["klinger_h4"].daily_trend)

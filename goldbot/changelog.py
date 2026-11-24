@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-24.2",
+        "ru": [
+            "📊 Новая стратегия: объёмный осциллятор Klinger на H4 по дневному тренду. "
+            "На истории 2023–2026 прибыль бота выросла с +613 % до +660 %, а просадка стала меньше",
+        ],
+        "en": [
+            "📊 New strategy: Klinger volume oscillator on H4 with the daily trend. "
+            "On 2023–2026 history the bot's profit grew from +613% to +660% with a smaller drawdown",
+        ],
+        "uz": [
+            "📊 Yangi strategiya: kunlik trend boʻyicha H4 da Klinger hajm ostsillyatori. "
+            "2023–2026 tarixida bot foydasi +613 % dan +660 % gacha oshdi, pasayish esa kamaydi",
+        ],
+    },
+    {
         "version": "2026-11-24.1",
         "ru": [
             "📊 Новая стратегия: пересечение адаптивной средней KAMA на H4 по дневному тренду. "
