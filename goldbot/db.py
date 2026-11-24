@@ -495,6 +495,14 @@ class DB:
             "AND s.status='sl' AND s.closed_at>=?", (aid, _iso(since)))
         return int((await cur.fetchone())[0])
 
+    async def stop_loss_signals_since(self, aid: int, since: datetime) -> list[int]:
+        """Сигналы со сделкой бота на счёте, закрытые по Stop Loss начиная с since."""
+        cur = await self.conn.execute(
+            "SELECT a.signal_id FROM auto_trades a JOIN signals s ON s.id = a.signal_id "
+            "WHERE a.account_id=? AND a.position_id IS NOT NULL AND a.position_id != '' "
+            "AND s.status='sl' AND s.closed_at>=?", (aid, _iso(since)))
+        return [int(r[0]) for r in await cur.fetchall()]
+
     async def first_direction_since(self, aid: int, since: datetime) -> int:
         """Сторона первой сделки бота на счёте с since (1 BUY, -1 SELL, 0 — сделок не было)."""
         cur = await self.conn.execute(
