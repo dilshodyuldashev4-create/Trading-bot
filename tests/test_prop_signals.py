@@ -141,6 +141,38 @@ class FlowTests(unittest.TestCase):
                 await db.close()
         asyncio.run(go())
 
+    def test_only_prop_gets_no_regular_messages(self):
+        async def go():
+            import pandas as pd
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                for uid in (1, 2):
+                    await db.add_user(uid, "u", "U", 3)
+                await db.save_prop_sub(1, "2step", "phase1", 10_000)
+                await db.update_prop_sub(1, only_prop=1)
+                app = make_app(db)
+                # серия стопов обычных сигналов: «торговый день закрыт» — только обычным подписчикам
+                await app.broadcast_day_closed(3)
+                self.assertEqual([x[0] for x in app.bot.sent], [2])
+                # итоги дня по обычным сигналам — тоже
+                app.bot.sent.clear()
+                sid = await db.add_signal("combo", 1, 2900, 2890, 2930)
+                await db.close_signal(sid, "sl")
+                self.assertTrue(await app.daily_report(pd.Timestamp("2026-11-25 22:10", tz="UTC")))
+                self.assertEqual([x[0] for x in app.bot.sent], [2])
+                # выключил проп-сигналы — обычные снова приходят
+                await db.update_prop_sub(1, enabled=0)
+                self.assertEqual(await app.ps_only_uids(), set())
+                await db.close()
+        asyncio.run(go())
+
+    def test_menu_button_wins_over_waiting_input(self):
+        from goldbot import bot as botmod
+        from goldbot.i18n import t
+        self.assertIn(t("ru", "btn_propsig"), botmod.MENU_TEXTS)
+        self.assertIn(t("uz", "btn_auto"), botmod.MENU_TEXTS)
+
 
 if __name__ == "__main__":
     unittest.main()

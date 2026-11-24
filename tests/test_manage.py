@@ -320,7 +320,11 @@ class WeeklyReportTests(unittest.TestCase):
                 await app.db.add_signal_lot(sid, 1, 0.1)
                 await app.db.set_partial(sid)
                 await app.db.close_signal(sid, "tp")
-                sunday = pd.Timestamp("2026-11-22 12:00", tz=botmod.config.display_tz).tz_convert("UTC")
+                # ближайшее воскресенье после сегодняшнего дня: сигнал создан сейчас и входит в эту неделю
+                today = pd.Timestamp.now(tz=botmod.config.display_tz).normalize()
+                sunday = (today + pd.Timedelta(days=(6 - today.weekday()) % 7, hours=12)).tz_convert("UTC")
+                if sunday <= pd.Timestamp.now(tz="UTC"):   # сегодня воскресенье, полдень уже прошёл
+                    sunday = pd.Timestamp.now(tz="UTC") + pd.Timedelta(minutes=1)
                 self.assertFalse(await app.weekly_report(sunday - pd.Timedelta(days=1)))   # суббота
                 self.assertTrue(await app.weekly_report(sunday + pd.Timedelta(minutes=1)))
                 self.assertFalse(await app.weekly_report(sunday + pd.Timedelta(minutes=5)))  # один раз
