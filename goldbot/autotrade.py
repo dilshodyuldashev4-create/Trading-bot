@@ -408,6 +408,7 @@ class AutoTrader:
     dd_pct: float = 0.0
     dd_mult: float = 0.5
     _reopen: dict = field(default_factory=dict)   # (сигнал, счёт) → сколько раз сверка уже открывала заново
+    _prop_seen: set = field(default_factory=set)  # (счёт, позиция) проп-сделок, закрытых брокером, — итог уже учтён
 
     # ── подключение ────────────────────────────────────────────────────────
     async def connect(self, uid: int, platform: str, server: str, login: str, password: str,
@@ -746,6 +747,8 @@ class AutoTrader:
             if tr["status"] == "open":
                 pos = positions.get(str(tr["position_id"]))
                 if pos is None:
+                    if acc.get("prop_plan"):   # проп-сделка закрылась у брокера: убыток — стоп дня
+                        await self._prop_broker_closed(acc, tr)
                     continue   # брокер закрыл по SL/TP — итог бот пришлёт, когда закроется сигнал
                 if tr["signal_status"] != "open":
                     if acc.get("prop_plan") and not self.prop_partial:
@@ -818,6 +821,7 @@ class AutoTrader:
         positions = [p for p in await self.api.positions(acc["meta_id"], acc["region"])
                      if not p.get("symbol") or p.get("symbol") == acc["symbol"]]
         contract = float(spec.get("contractSize") or 100)
+        await self._prop_scan_closed(acc, {str(p.get("id")) for p in positions})
         if await self._day_stopped(acc):
             await self.db.update_prop_state(acc["id"], prop_halt="loss")
             raise MetaApiError("prop day stop after a stop loss", "PROP_DAY_LOSS")
@@ -842,11 +846,56 @@ class AutoTrader:
         return {**acc, **upd, "_new_day": acc.get("prop_halt") in ("daily", "loss")}
 
     async def _day_stopped(self, acc: dict) -> bool:
-        """Сегодня (по времени FundedNext) уже было prop_day_losses сделок бота, закрытых по Stop Loss."""
+        """Сегодня (по времени FundedNext) уже было prop_day_losses убыточных сделок бота на проп-счёте:
+        по сигналам, закрытым по Stop Loss, и по проп-сделкам, которые брокер закрыл в минус сам (после безубытка
+        или разворота сигнала проп-сделка идёт к своему исходному SL — статус сигнала этого не покажет)."""
         if self.prop_day_losses <= 0:
             return False
         since = pr.day_start(_now(), self.prop_day_tz)
-        return await self.db.stop_losses_since(acc["id"], since) >= self.prop_day_losses
+        sids = set(await self.db.stop_loss_signals_since(acc["id"], since))
+        try:
+            noted = json.loads(await self.db.get_kv(f"prop_loss:{acc['id']}") or "{}")
+        except ValueError:
+            noted = {}
+        if noted.get("day") == pr.day_key(_now(), self.prop_day_tz):
+            sids |= set(noted.get("sids") or [])
+        return len(sids) >= self.prop_day_losses
+
+    async def _prop_scan_closed(self, acc: dict, open_ids: set[str]) -> None:
+        """Перед новой сделкой: проп-сделки бота, которых уже нет у брокера, — проверить на убыток (не ждать сверки)."""
+        for tr in await self.db.open_auto_trades():
+            if tr["account_id"] == acc["id"] and tr["status"] == "open" and str(tr["position_id"]) not in open_ids:
+                try:
+                    await self._prop_broker_closed(acc, tr)
+                except Exception as e:  # noqa: BLE001
+                    log.info("prop closed check %s: %s", tr["position_id"], e)
+
+    async def _prop_broker_closed(self, acc: dict, tr: dict) -> None:
+        """Проп-сделку закрыл брокер (SL/TP): убыток, закрытый сегодня по времени FundedNext, запоминаем для стопа дня."""
+        pos = str(tr.get("position_id") or "")
+        key = (acc["id"], pos)
+        if not pos or key in self._prop_seen:
+            return
+        deals = await self.api.deals_by_position(acc["meta_id"], acc["region"], pos)
+        exits = [d for d in deals or [] if "OUT" in str(d.get("entryType") or "").upper()]
+        if not exits:
+            return   # история у брокера ещё не обновилась — проверим при следующей сверке
+        self._prop_seen.add(key)
+        profit = sum(float(d.get(k) or 0) for d in deals for k in ("profit", "commission", "swap"))
+        when = _parse_time(exits[-1].get("time")) or _now()
+        today = pr.day_key(_now(), self.prop_day_tz)
+        if profit < 0 and pr.day_key(when, self.prop_day_tz) == today:
+            k = f"prop_loss:{acc['id']}"
+            try:
+                noted = json.loads(await self.db.get_kv(k) or "{}")
+            except ValueError:
+                noted = {}
+            sids = set(noted.get("sids") or []) if noted.get("day") == today else set()
+            sids.add(int(tr["signal_id"]))
+            await self.db.set_kv(k, json.dumps({"day": today, "sids": sorted(sids)}))
+            log.info("prop loss %.2f on %s (#%s): day stop counts it", profit, acc["login"], tr["signal_id"])
+        if tr.get("signal_status") not in (None, "open") and not _fresh(tr.get("signal_closed_at"), 300):
+            await self.db.set_auto_trade_status(tr["signal_id"], acc["id"], "closed")   # сигнал уже отчитан
 
     async def _day_guard(self, acc: dict, info: dict, direction: int) -> float:
         """Защита обычного счёта перед новой сделкой: стоп дня (DAY_LOSS), только сторона первой сделки дня
@@ -1110,6 +1159,16 @@ def _now():
 NO_REOPEN = {"EMPTY", "NO_MONEY", "TRADE_RETCODE_NO_MONEY", "PROP_LIMIT", "PROP_DAY_LOSS", "DAY_LOSS", "DAY_SIDE",
              "DUPLICATE", "NO_ACCOUNT",
              "REAL_NOT_ALLOWED", "DEMO_NOT_ALLOWED", "READ_ONLY", "BROKER_SETUP", "TRADE_RETCODE_TRADE_DISABLED"}
+
+
+def _parse_time(v) -> "datetime | None":
+    """Время сделки MetaApi (ISO, «...Z») → datetime с часовым поясом; None — не разобрать."""
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
 def _fresh(iso: str | None, within: float) -> bool:

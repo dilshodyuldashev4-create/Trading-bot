@@ -87,6 +87,66 @@ class GuardTraderTests(unittest.TestCase):
                 await db.close()
         run(go())
 
+    def test_prop_trade_lost_after_signal_breakeven_stops_the_day(self):
+        """Сигнал закрылся в безубыток, а проп-сделка (без фиксации) дошла до своего SL — это тоже стоп дня."""
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = PropApi(equity=25_000.0)
+                now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                result = {"profit": 30.0}
+
+                async def deals(acc_id, region, pid):
+                    return [{"entryType": "DEAL_ENTRY_IN", "profit": 0},
+                            {"entryType": "DEAL_ENTRY_OUT", "profit": result["profit"], "commission": -1.5,
+                             "time": now}]
+                api.deals_by_position = deals
+                tr = at.AutoTrader(db, api, poll=0, retry_delays=(0, 0))
+                await tr.connect(1, "mt5", "FundedNext-Server", "123", "pw",
+                                 prop={"plan": "2step", "stage": "phase1", "size": 25_000})
+                # первая сделка закрылась у брокера в плюс — день продолжается
+                s0 = await db.add_signal("liq_m15", 1, 2650, 2630, 2680)
+                await tr.open_signal(s0, 1, 20.0, 30.0, uids={1})
+                await db.close_signal(s0, "be")
+                api.pos = []
+                await tr.reconcile()
+                self.assertEqual(await tr.prop_check(), [])
+                # вторая: сигнал в безубыток, проп-сделка закрылась по своему SL в минус
+                s1 = await db.add_signal("squeeze", 1, 2650, 2630, 2680)
+                self.assertTrue((await tr.open_signal(s1, 1, 20.0, 30.0, uids={1}))[0].ok)
+                await db.close_signal(s1, "be")
+                api.pos = []
+                result["profit"] = -125.0
+                await tr.reconcile()
+                events = await tr.prop_check()
+                self.assertEqual([e["kind"] for e in events], ["loss_stop"])
+                s2 = await db.add_signal("amd", 1, 2650, 2630, 2680)
+                self.assertEqual(await tr.open_signal(s2, 1, 20.0, 30.0, uids={1}), [])
+                await db.close()
+        run(go())
+
+    def test_prop_loss_seen_at_open_without_waiting_for_reconcile(self):
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = await make_db(d)
+                api = PropApi(equity=25_000.0)
+                now = datetime.now(timezone.utc).isoformat()
+
+                async def deals(acc_id, region, pid):
+                    return [{"entryType": "DEAL_ENTRY_OUT", "profit": -125.0, "time": now}]
+                api.deals_by_position = deals
+                tr = at.AutoTrader(db, api, poll=0, retry_delays=(0, 0))
+                await tr.connect(1, "mt5", "FundedNext-Server", "123", "pw",
+                                 prop={"plan": "2step", "stage": "phase1", "size": 25_000})
+                s1 = await db.add_signal("squeeze", 1, 2650, 2630, 2680)
+                await tr.open_signal(s1, 1, 20.0, 30.0, uids={1})
+                api.pos = []   # брокер закрыл по SL раньше, чем закрылся сигнал
+                s2 = await db.add_signal("amd", 1, 2650, 2630, 2680)
+                res = await tr.open_signal(s2, 1, 20.0, 30.0, uids={1})
+                self.assertEqual(res[0].error, "PROP_DAY_LOSS")
+                await db.close()
+        run(go())
+
     def test_risk_drops_in_drawdown(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:
