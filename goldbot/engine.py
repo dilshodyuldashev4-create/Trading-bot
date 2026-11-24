@@ -174,6 +174,7 @@ class SignalEngine:
         self.news_pause_min = 0              # пауза новых сигналов вокруг новостей США (0 — выкл.)
         self.news_pause_impact: tuple[str, ...] = ("High",)
         # оценка фона новостей: (данные рынка) → {"bias", "strength", ...} или None; строка в сигнале
+        self.on_price: Optional[Callable[[float], Awaitable[None]]] = None  # каждая проверка цены
         self.news_bias: Optional[Callable[[str], Awaitable[dict | None]]] = None
         self.news_block = False  # True — не давать сигнал против сильного фона
         # за сколько минут до важной новости США закрывать открытые сделки (0 — не закрывать)
@@ -495,6 +496,11 @@ class SignalEngine:
         price = await self.provider.price()
         self._set_price(price)
         await self.check_open(price)
+        if self.on_price is not None:   # проп-сигналы: свои стоп и тейк у каждой проп-сделки
+            try:
+                await self.on_price(price)
+            except Exception:  # noqa: BLE001
+                log.exception("on_price")
         await self.news_close_check(now, price)
 
         opened = await self.db.open_signals()
@@ -645,7 +651,8 @@ class SignalEngine:
                                                           tp1, tp1_p, part, lang)
                                 + news_line(info, d, lang)
                                 + (news_event_line(ev, self.tz, lang) if news_mode else "")),
-                       lambda **kw: render_signal(df, d, entry, sl, tp, title, tz=self.tz, tp1=tp1, **kw), sl_p, tp_p,
+                       lambda **kw: render_signal(df, d, entry, sl, kw.pop("tp", tp), title, tz=self.tz,
+                                                  **{"tp1": tp1, **kw}), sl_p, tp_p,
                        strong=side == d and strength == "strong", tp1=tp1, tp1_pips=tp1_p, part=part,
                        prop_only=prop_only, size=size)
         await self.on_signal(ns)

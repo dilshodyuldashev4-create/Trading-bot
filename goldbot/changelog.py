@@ -24,6 +24,33 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-24.3",
+        "ru": [
+            "🏆 Новая кнопка «Сигналы для проп-фирм»: выберите тип счёта, этап (челлендж 1, 2 или финансируемый) "
+            "и размер счёта — бот будет присылать отдельные проп-сигналы с лотом и риском по вашему счёту",
+            "⛔️ После первого стопа за день проп-сигналов до полуночи FundedNext больше нет — так бот на истории "
+            "не провалил ни одного 2-Step",
+            "💰 Бот сам ведёт баланс проп-счёта и напоминает, сколько осталось до цели, до дневного и общего лимита "
+            "и сколько рисковать на следующую сделку. Обычные сигналы можно отключить, чтобы не путаться",
+        ],
+        "en": [
+            "🏆 New button “Prop firm signals”: pick your account type, stage (challenge 1, 2 or funded) and size — "
+            "the bot sends separate prop signals with the lot and risk sized to your account",
+            "⛔️ After the first stop of the day there are no more prop signals until FundedNext midnight — with this "
+            "rule the bot failed no 2-Step in history",
+            "💰 The bot tracks your prop balance and reminds you how far you are from the target, the daily and "
+            "overall limits and how much to risk on the next trade. Regular signals can be turned off",
+        ],
+        "uz": [
+            "🏆 Yangi tugma «Prop-firma signallari»: hisob turi, bosqich (challenge 1, 2 yoki moliyalashtirilgan) "
+            "va hajmni tanlang — bot hisobingizga mos lot va risk bilan alohida prop-signallar yuboradi",
+            "⛔️ Kunning birinchi stopidan keyin FundedNext yarim tunigacha prop-signal boʻlmaydi — shu qoida bilan "
+            "bot tarixda birorta ham 2-Step ni boy bermagan",
+            "💰 Bot prop-hisob balansini oʻzi yuritadi va maqsad, kunlik va umumiy limitgacha qancha qolganini hamda "
+            "keyingi bitimda qancha risk qilishni eslatadi. Oddiy signallarni oʻchirib qoʻyish mumkin",
+        ],
+    },
+    {
         "version": "2026-11-24.2",
         "ru": [
             "📊 Новая стратегия: объёмный осциллятор Klinger на H4 по дневному тренду. "
