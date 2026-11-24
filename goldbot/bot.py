@@ -24,7 +24,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton,
                            InlineKeyboardMarkup, KeyboardButton, LabeledPrice, Message,
-                           PreCheckoutQuery, ReplyKeyboardMarkup, ReplyParameters)
+                           PreCheckoutQuery, ReplyKeyboardMarkup, ReplyParameters, WebAppInfo)
 
 import json
 
@@ -415,6 +415,8 @@ class App:
         self._tasks: set[asyncio.Task] = set()
         self._card_r: dict[int, float] = {}   # сигнал → ход сделки (R) в последнем обновлении живой карточки
         self._bot_name: str | None = None     # @имя бота — для ссылки в постах канала
+        from .webapp import WebApp   # noqa: PLC0415 — webapp импортирует bot
+        self.webapp = WebApp(self) if config.webapp_on else None
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -840,6 +842,12 @@ class App:
 
         await self.chan_text(make_text)
         await self.broadcast(await self.db.all_user_ids(), make)
+
+    def app_button(self, lang: str) -> InlineKeyboardButton | None:
+        """Кнопка «Открыть приложение» (Mini App), если адрес приложения уже известен."""
+        wa = getattr(self, "webapp", None)
+        url = wa.url if wa else None
+        return InlineKeyboardButton(text=t(lang, "btn_app"), web_app=WebAppInfo(url=url)) if url else None
 
     async def lang_of(self, uid: int) -> str:
         u = await self.db.get_user(uid)
@@ -1831,12 +1839,23 @@ class App:
                            + t(lang, "sub_price", price=config.sub_price_stars, days=config.sub_days))
             await self.send_invoice(m.chat.id, lang)
 
+        @r.message(Command("app"))
+        async def app_cmd(m: Message):
+            lang = await self.lang_of(m.from_user.id)
+            btn = self.app_button(lang)
+            if not btn:
+                await m.answer(t(lang, "app_off"))
+                return
+            await m.answer(t(lang, "app_text"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[btn]]))
+
         @r.message(F.text.in_(variants("btn_profile")))
         @r.message(Command("profile"))
         async def profile(m: Message):
             u = await self.db.get_user(m.from_user.id) or {}
             lang = norm(u.get("lang"))
+            app_btn = self.app_button(lang)
             kb = InlineKeyboardMarkup(inline_keyboard=[
+                *([[app_btn]] if app_btn else []),
                 [InlineKeyboardButton(text=t(lang, "btn_capital"), callback_data="cap:menu")],
                 [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")],
                 *([[_btn(t(lang, "btn_auto"), "at:menu")]] if self.autotrader else [])])
@@ -3098,12 +3117,16 @@ class App:
             asyncio.create_task(self.reconcile_loop()),
             asyncio.create_task(self.release_offer_on_start()),
         ]
+        if self.webapp:
+            tasks.append(asyncio.create_task(self.webapp.loop()))
         try:
             await self.dp.start_polling(self.bot)
         finally:
             for task in tasks:
                 task.cancel()
             await self.provider.close()
+            if self.webapp:
+                await self.webapp.stop()
             if self.autotrader:
                 await self.autotrader.api.close()
             await self.db.close()

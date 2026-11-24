@@ -5,3 +5,14 @@ services:
     restart: always          # перезапуск при падении и после перезагрузки сервера
     volumes:
       - ./botdata:/data      # база пользователей и сигналов
+    environment:
+      # Mini App: бот сам берёт https-адрес у туннеля ниже и ставит кнопку приложения в меню
+      - WEBAPP_TUNNEL=http://cloudflared:2000
+
+  # бесплатный https-туннель Cloudflare для приложения в Telegram (без домена и без открытых портов)
+  cloudflared:
+    image: cloudflare/cloudflared:2024.12.2
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://goldbot:8080
+    restart: always
+    depends_on:
+      - goldbot

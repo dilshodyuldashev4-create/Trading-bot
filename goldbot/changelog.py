@@ -24,6 +24,27 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-25.1",
+        "ru": [
+            "📱 Появилось приложение бота прямо в Telegram — кнопка «🟡 Gold App» слева от поля ввода (или /app). "
+            "В нём живая цена и открытые сигналы, статистика с графиком доходности и историей сделок, проп-панель "
+            "с прогрессом к цели и лимитами, настройки и оплата подписки",
+            "💬 Кнопки в чате работают как раньше: пользуйтесь тем, что удобнее. Сигналы по-прежнему приходят сообщениями",
+        ],
+        "en": [
+            "📱 The bot now has an app right inside Telegram — the «🟡 Gold App» button left of the message field (or /app). "
+            "It shows the live price and open signals, stats with an equity curve and trade history, the prop dashboard "
+            "with target progress and limits, settings and subscription payment",
+            "💬 Chat buttons work as before: use whichever you like. Signals still arrive as messages",
+        ],
+        "uz": [
+            "📱 Botning Telegram ichidagi ilovasi paydo boʻldi — xabar maydoni chapidagi «🟡 Gold App» tugmasi (yoki /app). "
+            "Unda jonli narx va ochiq signallar, daromad grafigi va bitimlar tarixi bilan statistika, maqsad va "
+            "limitlar koʻrsatilgan prop-panel, sozlamalar va obuna toʻlovi bor",
+            "💬 Chatdagi tugmalar avvalgidek ishlaydi: qaysi biri qulay boʻlsa, shundan foydalaning. Signallar avvalgidek xabar boʻlib keladi",
+        ],
+    },
+    {
         "version": "2026-11-24.4",
         "ru": [
             "🛡 Риск по умолчанию снижен с 2 % до 1 % на сделку: лот в сигналах и в автоторговле стал вдвое меньше. "
