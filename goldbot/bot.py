@@ -51,6 +51,7 @@ log = logging.getLogger(__name__)
 def menu(lang: str) -> ReplyKeyboardMarkup:
     b = lambda key: KeyboardButton(text=t(lang, key))  # noqa: E731
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+        *([[b("btn_app_menu")]] if config.webapp_on else []),   # приложение в Telegram (Mini App)
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats"), b("btn_propsig")],
@@ -62,7 +63,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
 # все подписи кнопок главного меню на всех языках
 MENU_TEXTS = frozenset().union(*(variants(k) for k in (
     "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
-    "btn_fundednext")))
+    "btn_fundednext", "btn_app_menu")))
 
 
 LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -1839,6 +1840,7 @@ class App:
                            + t(lang, "sub_price", price=config.sub_price_stars, days=config.sub_days))
             await self.send_invoice(m.chat.id, lang)
 
+        @r.message(F.text.in_(variants("btn_app_menu")))
         @r.message(Command("app"))
         async def app_cmd(m: Message):
             lang = await self.lang_of(m.from_user.id)
@@ -3060,7 +3062,8 @@ class App:
         async def send(u: int):
             m = await self.bot.send_photo(
                 u, photo.get("id") or BufferedInputFile(changelog.LOGO.read_bytes(), "logo.jpg"),
-                caption=changelog.release_text(rel, langs.get(u)))
+                caption=changelog.release_text(rel, langs.get(u)),
+                reply_markup=menu(norm(langs.get(u))))   # заодно обновляем клавиатуру (новые кнопки)
             if m.photo and "id" not in photo:
                 photo["id"] = m.photo[-1].file_id
             return m
