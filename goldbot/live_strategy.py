@@ -9,7 +9,7 @@ import pandas as pd
 
 from .i18n import t
 from .strategies.fvg_bos import fvg_bos_signals
-from .strategies.popular import days_breakout, donchian_breakout, donchian_h1, kama_h4
+from .strategies.popular import days_breakout, donchian_breakout, donchian_h1, kama_h4, klinger_h4
 from .strategies.research import squeeze_breakout, swing_sweep
 from .strategies.sessions import asian_breakout_day, asian_range_breakout, bank_manipulation, silver_bullet
 
@@ -37,7 +37,7 @@ def _fvg_raw(df: pd.DataFrame) -> np.ndarray:
 
 
 # Ключи стратегий с общим описанием «что ждёт бот» (тренд + текст exp_<key>)
-GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1", "days5", "kama_h4"}
+GENERIC = {"squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1", "days5", "kama_h4", "klinger_h4"}
 
 STRATEGIES = {
     "combo": LiveStrategy(
@@ -85,12 +85,17 @@ STRATEGIES = {
         "kama_h4", "Пересечение KAMA H4 по дневному тренду", "15min", kama_h4,
         "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, безубыток, тейк 3R: 196 сделок, в плюсе 57%, +30R",
         daily_trend=True),
+    # reports/profit3_research.md, третья волна. Нужен тиковый объём в свечах; без объёма сигналов нет
+    "klinger_h4": LiveStrategy(
+        "klinger_h4", "Klinger Volume Oscillator H4 по дневному тренду", "15min", klinger_h4,
+        "Бэктест XAUUSD 12.2023–08.2026, стоп 2 ATR, 50% на +1R, безубыток, тейк 3R: 289 сделок, в плюсе 55%, +33R",
+        daily_trend=True),
 }
 
 
 # STRATEGY=all — самые прибыльные стратегии на M15 (по одной на сетап, чтобы один и тот же сигнал не приходил
 # дважды). У каждой не больше одной открытой сделки, а встречный сигнал (против открытой сделки) не даётся.
-PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1", "days5", "kama_h4")
+PORTFOLIO = ("squeeze", "donchian", "fvg_m15", "liq_m15", "amd", "asia", "donchian_h1", "days5", "kama_h4", "klinger_h4")
 
 
 def resolve_keys(spec: str) -> list[str]:

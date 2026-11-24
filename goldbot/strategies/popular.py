@@ -116,3 +116,20 @@ def kama_h4(df, n: int = 10):
     x = np.where(x != np.r_[0, x[:-1]], x, 0)
     s = pd.Series(x, index=h4.index + pd.Timedelta(hours=3, minutes=45))
     return s.reindex(df.index).fillna(0).to_numpy().astype(np.int8)
+
+
+def klinger_h4(df, fast: int = 21, slow: int = 34, signal: int = 8):
+    """Klinger Volume Oscillator на H4: KVO = EMA(fast) − EMA(slow) объёмной силы (тиковый объём со знаком
+    движения типичной цены), пересёк сигнальную EMA(signal) снизу — BUY, сверху — SELL (только свеча пересечения).
+    Сигнал на свече M15, которой закрывается H4 (свечи H4 с 00:00 UTC). Без объёма (все нули) сигналов нет.
+    Короткие средние 21/34/8, чтобы хватало 1000 свечей M15 истории (reports/profit3_research.md, третья волна)."""
+    h4 = df.resample("4h", label="left", closed="left").agg(
+        {"high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
+    tp = h4.high + h4.low + h4.close
+    vf = h4.volume * np.sign(tp.diff()).fillna(0)
+    kvo = vf.ewm(span=fast, adjust=False).mean() - vf.ewm(span=slow, adjust=False).mean()
+    sg = kvo.ewm(span=signal, adjust=False).mean()
+    x = np.where(kvo > sg, 1, np.where(kvo < sg, -1, 0))
+    x = np.where(x != np.r_[0, x[:-1]], x, 0)
+    s = pd.Series(x, index=h4.index + pd.Timedelta(hours=3, minutes=45))
+    return s.reindex(df.index).fillna(0).to_numpy().astype(np.int8)
