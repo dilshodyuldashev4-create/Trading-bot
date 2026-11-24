@@ -60,8 +60,11 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
     ])
 
 
+# прежние подписи кнопки приложения: могли остаться в клавиатуре у подписчиков — нажатие тоже открывает приложение
+APP_OLD_TEXTS = frozenset({"🟡 Приложение", "🟡 App", "🟡 Ilova"})
+
 # все подписи кнопок главного меню на всех языках
-MENU_TEXTS = frozenset().union(*(variants(k) for k in (
+MENU_TEXTS = APP_OLD_TEXTS | frozenset().union(*(variants(k) for k in (
     "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
     "btn_fundednext", "btn_app_menu")))
 
@@ -1854,7 +1857,7 @@ class App:
                            + t(lang, "sub_price", price=config.sub_price_stars, days=config.sub_days))
             await self.send_invoice(m.chat.id, lang)
 
-        @r.message(F.text.in_(variants("btn_app_menu")))
+        @r.message(F.text.in_(variants("btn_app_menu") | APP_OLD_TEXTS))
         @r.message(Command("app"))
         async def app_cmd(m: Message):
             lang = await self.lang_of(m.from_user.id)

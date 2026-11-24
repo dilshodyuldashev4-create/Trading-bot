@@ -286,7 +286,11 @@ class MenuButtonTests(unittest.TestCase):
             kb = botmod.menu(lang)
             first = kb.keyboard[0][0].text
             self.assertEqual(first, botmod.t(lang, "btn_app_menu"))
+            self.assertEqual(first, "Mini app 📱")
             self.assertIn(first, botmod.MENU_TEXTS)   # нажатие не попадёт во ввод капитала/баланса
+        for old in ("🟡 Приложение", "🟡 App", "🟡 Ilova"):   # старая клавиатура у подписчиков
+            self.assertIn(old, botmod.MENU_TEXTS)
+            self.assertIn(old, botmod.APP_OLD_TEXTS)
 
     def test_inline_button_uses_current_url(self):
         app = botmod.App.__new__(botmod.App)
