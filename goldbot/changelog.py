@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-24.4",
+        "ru": [
+            "🛡 Риск по умолчанию снижен с 2 % до 1 % на сделку: лот в сигналах и в автоторговле стал вдвое меньше. "
+            "Прибыль меньше, но и просадки вдвое мельче",
+        ],
+        "en": [
+            "🛡 Default risk lowered from 2% to 1% per trade: the lot in signals and in auto-trading is now half as big. "
+            "Smaller profit, but drawdowns are half as deep",
+        ],
+        "uz": [
+            "🛡 Standart risk savdo uchun 2 % dan 1 % gacha kamaytirildi: signallar va avtosavdodagi lot ikki baravar kichik. "
+            "Foyda kamroq, lekin pasayishlar ham ikki baravar kichik",
+        ],
+    },
+    {
         "version": "2026-11-24.3",
         "ru": [
             "🏆 Новая кнопка «Сигналы для проп-фирм»: выберите тип счёта, этап (челлендж 1, 2 или финансируемый) "

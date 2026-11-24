@@ -74,14 +74,14 @@ class Config:
     confluence_min: int = int(os.getenv("CONFLUENCE_MIN", "60"))
     confluence_single: float = float(os.getenv("CONFLUENCE_SINGLE", "0.75"))
     confluence_strong: float = float(os.getenv("CONFLUENCE_STRONG", "1.5"))
-    # лот по капиталу подписчика (по умолчанию risk 2%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
+    # лот по капиталу подписчика (по умолчанию risk 1%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
     late_pips: float = float(os.getenv("LATE_PIPS", "30"))
     # после стольких стопов подряд за день бот закрывает торговый день (0 — не закрывать)
     max_sl_streak: int = int(os.getenv("MAX_SL_STREAK", "0"))
     lot_mode: str = os.getenv("LOT_MODE", "risk")
-    lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "2"))
+    lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "1"))
 
     # подписка
     trial_days: int = int(os.getenv("TRIAL_DAYS", "3"))
@@ -158,7 +158,7 @@ class Config:
     autotrade_accounts: str = os.getenv("AUTOTRADE_ACCOUNTS", "any").strip().lower()
     autotrade_demo_only: bool = autotrade_accounts == "demo"
     autotrade_real_only: bool = autotrade_accounts == "real"
-    autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "2")))
+    autotrade_risk_pct: float = float(os.getenv("AUTOTRADE_RISK_PCT", os.getenv("LOT_RISK_PCT", "1")))
     autotrade_max_lot: float = float(os.getenv("AUTOTRADE_MAX_LOT", "1"))
     autotrade_symbol: str = os.getenv("AUTOTRADE_SYMBOL", "")       # пусто — бот сам находит XAUUSD/GOLD у брокера
     # автоторговля платная: AUTOTRADE_MONTH_USD долларов за 30 дней (админам бесплатно), оплата Telegram Stars по

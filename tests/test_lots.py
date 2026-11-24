@@ -46,9 +46,9 @@ class CaptionTests(unittest.TestCase):
                 visible = re.sub(r"<[^>]+>", "", cap_text)
                 self.assertLessEqual(len(visible), 1024, (lang, cap))  # лимит подписи к фото
                 self.assertIn("2903.00", cap_text)  # до какой цены входить (30 пипсов)
-        ru = botmod.lot_text("ru", 1000)
+        ru = botmod.lot_text("ru", 2000)   # риск по умолчанию 1 % (LOT_RISK_PCT)
         self.assertIn("0.02", ru)
-        self.assertIn("−$20 (2%)", ru)
+        self.assertIn("−$20 (1%)", ru)
         self.assertNotIn("⚠️", ru)
         self.assertIn("⚠️", botmod.lot_text("ru", 100))  # $100: даже 0.01 — это 10%
 
@@ -72,7 +72,7 @@ class FlowTests(unittest.TestCase):
                 await db.connect()
                 for uid in (1, 2, 3):
                     await db.add_user(uid, None, None, 3)
-                await db.set_capital(1, 1000)
+                await db.set_capital(1, 2000)   # риск 1 %: 0.02 лота
                 await db.set_capital(2, 500)
                 await db.set_lang(2, "en")  # у 3 капитала нет
 
@@ -105,11 +105,11 @@ class FlowTests(unittest.TestCase):
                 await app.broadcast_close(sig, "tp", 2920)
                 msgs = dict(app.bot.sent)
                 self.assertIn("+$40", msgs[1])
-                self.assertIn("$1 040", msgs[1])
+                self.assertIn("$2 040", msgs[1])
                 self.assertIn("$520", msgs[2])
                 self.assertNotIn("💼", msgs[3])
                 caps = await db.user_capitals()
-                self.assertEqual((caps[1], caps[2]), (1040, 520))
+                self.assertEqual((caps[1], caps[2]), (2040, 520))
 
                 await db.add_capital(2, -10000)  # не уходим в минус
                 self.assertEqual((await db.user_capitals())[2], 0)
