@@ -59,6 +59,12 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
     ])
 
 
+# все подписи кнопок главного меню на всех языках
+MENU_TEXTS = frozenset().union(*(variants(k) for k in (
+    "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
+    "btn_fundednext")))
+
+
 LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text=label, callback_data=f"lang:{code}")] for code, label in LANG_BUTTONS])
 
@@ -817,7 +823,8 @@ class App:
             return self.bot.send_message(u, text)
 
         await self.chan_text(lambda lang: t(lang, "day_closed", n=streak))
-        n = await self.broadcast(await self.db.active_user_ids(), make)
+        only_prop = await self.ps_only_uids()   # у них свой проп-поток со своим стопом дня
+        n = await self.broadcast([u for u in await self.db.active_user_ids() if u not in only_prop], make)
         log.info("day closed after %s SL, sent to %s users", streak, n)
 
     async def broadcast_all(self, make_text) -> None:
@@ -1751,6 +1758,9 @@ class App:
             now_price = await self.engine.fresh_price()   # цена на момент ответа, а не прошлой проверки
             price = t(lang, "price_now", price=f"{now_price:.2f}") if now_price else ""
             opened = [x for x in await self.db.open_signals() if not x.get("prop_only")]
+            if m.from_user.id in await self.ps_only_uids():   # только проп-сигналы: показываем его проп-сделку
+                opened = [{"id": x["signal_id"], **x} for x in await self.db.open_prop_trades(m.from_user.id)
+                          if not x.get("declined")]
             active = ""
             if opened:
                 s = opened[-1]
@@ -2237,12 +2247,14 @@ class App:
             await self.db.revoke(uid)
             await m.answer(f"⛔️ Доступ {uid} закрыт")
 
+        # кнопки «Сигналы для проп-фирм», «Автоторговля», «FundedNext» — раньше обработчиков «ждём ввод»:
+        # нажатие кнопки меню во время анкеты или подключения счёта открывает раздел, а не считается ответом
+        self._register_propsig()
+        self._register_autotrade()
+
         @r.message(CapitalStates.waiting, F.text, ~F.text.startswith("/"))
         async def capital_bad(m: Message):  # ждём капитал, а прислали не число и не кнопку меню
             await m.answer(t(await self.lang_of(m.from_user.id), "cap_bad"))
-
-        self._register_autotrade()
-        self._register_propsig()
 
     def _register_autotrade(self) -> None:
         r = self.router
@@ -2580,7 +2592,7 @@ class App:
                     pass
                 await self.propsig_menu(chat, uid, lang, head=t(lang, "ps_next_done", stage=self.stage_name(lang, nxt)))
 
-        @r.message(PropSigStates.size, F.text, ~F.text.startswith("/"))
+        @r.message(PropSigStates.size, F.text, ~F.text.startswith("/"), ~F.text.in_(MENU_TEXTS))
         async def propsig_size_typed(m: Message, state: FSMContext):
             v = parse_capital(m.text)
             if v is None or not ps.MIN_SIZE <= v <= ps.MAX_SIZE:
@@ -2588,7 +2600,7 @@ class App:
                 return
             await size_chosen(m.chat.id, m.from_user.id, state, v)
 
-        @r.message(PropSigStates.balance, F.text, ~F.text.startswith("/"))
+        @r.message(PropSigStates.balance, F.text, ~F.text.startswith("/"), ~F.text.in_(MENU_TEXTS))
         async def propsig_balance_typed(m: Message, state: FSMContext):
             uid = m.from_user.id
             lang = await self.lang_of(uid)
@@ -2782,7 +2794,8 @@ class App:
                 return await self.bot.send_photo(cid, BufferedInputFile(images[lang], "week.png"), caption=body)
             return await self.bot.send_message(cid, body)
         await self.to_channel(chan_week)
-        n = await self.broadcast(await self.db.all_user_ids(), make)
+        only_prop = await self.ps_only_uids()   # отчёт по обычным сигналам — не тем, кто их отключил
+        n = await self.broadcast([u for u in await self.db.all_user_ids() if u not in only_prop], make)
         log.info("weekly report sent to %s users", n)
         return True
 
@@ -2851,7 +2864,8 @@ class App:
         async def chan_day(cid, lang):
             return await send(cid, lang, dr.caption(lang, day, date, await self.chan_cta(lang)))
         await self.to_channel(chan_day)
-        n = await self.broadcast(await self.db.all_user_ids(), make)
+        only_prop = await self.ps_only_uids()   # отчёт по обычным сигналам — не тем, кто их отключил
+        n = await self.broadcast([u for u in await self.db.all_user_ids() if u not in only_prop], make)
         log.info("daily report %s: %s signals, sent to %s users", date, len(day.rows), n)
         return True
 
