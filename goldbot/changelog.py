@@ -24,6 +24,24 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-25.3",
+        "ru": [
+            "📰 Проп-счета перед самыми сильными новостями США (зарплаты NFP, инфляция CPI, ставка ФРС): за 30 минут "
+            "бот закрывает проп-сделки по рынку и не открывает новые, пока новость не выйдет. На истории так меньше "
+            "проваленных челленджей и цель достигается быстрее. Обычные сигналы работают как раньше",
+        ],
+        "en": [
+            "📰 Prop accounts before the strongest US news (NFP payrolls, CPI inflation, Fed rate): 30 minutes before, "
+            "the bot closes prop trades at market and opens no new ones until the release is out. In the backtest this "
+            "means fewer failed challenges and faster targets. Regular signals work as before",
+        ],
+        "uz": [
+            "📰 AQShning eng kuchli yangiliklari (NFP ish haqi, CPI inflyatsiya, FRS stavkasi) oldidan prop-hisoblar: "
+            "30 daqiqa oldin bot prop-bitimlarni bozor narxida yopadi va yangilik chiqmaguncha yangisini ochmaydi. "
+            "Tarixda bu bilan challenge kamroq yiqiladi va maqsadga tezroq yetiladi. Oddiy signallar avvalgidek ishlaydi",
+        ],
+    },
+    {
         "version": "2026-11-25.2",
         "ru": [
             "📱 У бота появилось приложение прямо в Telegram — нажмите кнопку «🟡 Приложение» вверху меню "
