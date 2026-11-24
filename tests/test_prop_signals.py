@@ -130,7 +130,7 @@ class FlowTests(unittest.TestCase):
                 await db.add_user(1, "u", "U", 3)
                 await db.set_lang(1, "en")
                 await db.save_prop_sub(1, "lite", "phase1", 10_000)
-                await db.update_prop_sub(1, balance=10_790.0, days=2)
+                await db.update_prop_sub(1, balance=10_790.0, days=5)
                 app = make_app(db)
                 await db.add_prop_trade(7, 1, 1, 2000.0, 1990.0, 2015.0, 0.1)
                 await app.prop_check(2016.0)                         # +$150 → цель +8 % есть

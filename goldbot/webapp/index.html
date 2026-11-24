@@ -219,6 +219,78 @@ input{font:inherit;color:inherit}
 .splash p{margin:0;color:var(--muted);font-weight:600}
 .note{font-size:12px;color:var(--dim);text-align:center;margin:18px 8px 0;line-height:1.5}
 a{color:var(--gold2)}
+
+/* обучение */
+.lcard{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px;border-radius:18px;background:var(--card);border:1px solid var(--line2);margin-top:10px;transition:transform .15s,border-color .2s}
+.lcard:active{transform:scale(.98)}
+.lcard .ln{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-size:21px;flex:none;background:var(--card2);border:1px solid var(--line2);position:relative}
+.lcard.done .ln{background:linear-gradient(160deg,#f7d46b2e,#a66d1022);border-color:#f7d46b55}
+.lcard.done .ln::after{content:"✓";position:absolute;right:-5px;bottom:-5px;width:19px;height:19px;border-radius:50%;background:var(--gold);color:#1b1404;font-size:11px;font-weight:900;display:grid;place-items:center;box-shadow:0 0 0 2px var(--bg)}
+.lcard.next{border-color:#f7d46b88;box-shadow:0 0 0 3px #f7d46b18}
+.lcard .mid{flex:1;min-width:0}
+.lcard .mid small{display:block;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--gold3)}
+.lcard .mid b{display:block;font-size:15px;margin:1px 0}
+.lcard .mid span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lcard .go{color:var(--dim);font-weight:800}
+.lhead{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.lhead .back{padding:8px 12px 8px 8px;border-radius:12px;font-weight:700;font-size:13.5px;color:var(--muted);background:var(--card);border:1px solid var(--line2)}
+.lhero{text-align:center;padding:24px 18px 20px}
+.lhero .big{width:74px;height:74px;margin:0 auto 12px;border-radius:24px;display:grid;place-items:center;font-size:36px;background:linear-gradient(160deg,#f7d46b30,#a66d1018);border:1px solid #f7d46b55;box-shadow:0 10px 34px #f5b83d33}
+.lhero h2{margin:0 0 6px;font-size:23px;font-weight:800}
+.lsteps{display:flex;gap:5px;justify-content:center;margin-top:14px}
+.lsteps i{width:22px;height:4px;border-radius:4px;background:#ffffff1c}
+.lsteps i.on{background:var(--gold)}
+.lsteps i.cur{background:var(--gold2);box-shadow:0 0 10px #f7d46b}
+.lp{margin:0 0 12px;font-size:15px;line-height:1.6;color:#e6e2d6}
+.lp:last-child{margin-bottom:0}
+.lh{margin:18px 0 8px;font-size:16px;font-weight:800}
+.lh:first-child{margin-top:0}
+.ll{list-style:none;margin:0 0 12px;padding:0}
+.ll:last-child{margin-bottom:0}
+.ll li{position:relative;padding:7px 0 7px 22px;font-size:14.5px;line-height:1.5;color:#e6e2d6;border-bottom:1px dashed var(--line2)}
+.ll li:last-child{border-bottom:0}
+.ll li::before{content:"";position:absolute;left:4px;top:15px;width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px #f5b83d88}
+.ll li b{color:var(--gold2)}
+.callout{display:flex;gap:10px;padding:13px 14px;border-radius:16px;font-size:14px;line-height:1.5;margin:0 0 12px}
+.callout:last-child{margin-bottom:0}
+.callout .e{font-size:17px;line-height:1.3;flex:none}
+.callout.tip{background:#f7d46b10;border:1px solid #f7d46b33;color:#f3e7c4}
+.callout.warn{background:#ff5d7310;border:1px solid #ff5d7333;color:#ffd5db}
+.ex{border-radius:16px;border:1px solid var(--line);overflow:hidden;margin:0 0 12px;background:#0d0f16}
+.ex:last-child{margin-bottom:0}
+.ex .eh{padding:10px 14px;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--gold2);background:linear-gradient(90deg,#f7d46b1a,transparent)}
+.ex .er{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid var(--line2);font-size:14px}
+.ex .er span{color:var(--muted)}
+.ex .er span{flex:1 1 45%}
+.ex .er b{flex:1 1 55%;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+.pl{display:grid;grid-template-columns:1.3fr 1.2fr .8fr 1fr .7fr;font-size:12.5px;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin:0 0 12px;background:#0d0f16}
+.pl>div{padding:9px 7px;border-top:1px solid var(--line2);text-align:center;min-width:0}
+.pl>div.n{text-align:left;font-weight:800;padding-left:12px}
+.pl>div.hd{border-top:0;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--gold2);background:#f7d46b12}
+.pl .num{font-size:12.5px}
+.calc .row2{display:grid;grid-template-columns:1.3fr 1fr;gap:10px}
+.calc .row2>div{min-width:0}
+.calc .field input{width:100%}
+.calc .lbl{margin:12px 0 0}
+.calc .res{margin-top:14px;padding:16px;border-radius:18px;text-align:center;background:linear-gradient(160deg,rgba(40,30,8,.9),rgba(14,12,8,.9));border:1px solid #f7d46b55}
+.calc .res b{display:block;font-size:34px;font-weight:700;line-height:1.1}
+.calc .res small{display:block;margin-top:4px;color:var(--muted);font-size:13px}
+.calc .res .w{color:var(--gold2);margin-top:6px}
+.qopt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px;border-radius:16px;background:var(--card);border:1px solid var(--line2);margin-top:8px;font-weight:700;font-size:14.5px;transition:.2s}
+.qopt .k{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;background:var(--card2);font-size:12px;font-weight:800;color:var(--muted)}
+.qopt.ok{border-color:#3ee09a;background:#3ee09a14;box-shadow:0 0 0 3px #3ee09a1f}
+.qopt.ok .k{background:var(--green);color:#04170e}
+.qopt.no{border-color:#ff5d73;background:#ff5d7312;animation:shake .4s}
+.qopt.no .k{background:var(--red);color:#2a0710}
+.qopt[disabled]{cursor:default}
+@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.qwhy{margin-top:12px;padding:12px 14px;border-radius:14px;font-size:14px;line-height:1.5}
+.qwhy.ok{background:#3ee09a12;border:1px solid #3ee09a33}
+.qwhy.no{background:#ff5d7310;border:1px solid #ff5d7333}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;padding:3px 8px;border-radius:7px;color:var(--green);background:#3ee09a14;white-space:nowrap}
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:35;overflow:hidden}
+.confetti i{position:absolute;top:-12px;width:8px;height:12px;border-radius:2px;animation:fall 1.6s cubic-bezier(.3,.6,.4,1) forwards}
+@keyframes fall{to{transform:translateY(105vh) rotate(720deg);opacity:.2}}
 </style>
 </head>
 <body>
@@ -236,6 +308,7 @@ a{color:var(--gold2)}
   </div>
   <section class="page on" id="p-home"></section>
   <section class="page" id="p-stats"></section>
+  <section class="page" id="p-learn"></section>
   <section class="page" id="p-prop"></section>
   <section class="page" id="p-profile"></section>
 </div>
@@ -243,6 +316,7 @@ a{color:var(--gold2)}
 <nav class="nav" id="nav">
   <button data-p="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9.5h14V10"/><path d="M10 19.5v-5h4v5"/></svg><span data-t="tab_home"></span></button>
   <button data-p="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/><path d="M16 6h4v4"/></svg><span data-t="tab_stats"></span></button>
+  <button data-p="learn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v5"/></svg><span data-t="tab_learn"></span></button>
   <button data-p="prop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span data-t="tab_prop"></span></button>
   <button data-p="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span data-t="tab_profile"></span></button>
 </nav>
@@ -254,7 +328,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let S = null, T = {}, page = "home", period = 30, hFilter = "all", hShow = 25, propEdit = false, form = {};
 let lastPrice = null, marketTimer = null, busy = false;
-const PAGES = ["home", "stats", "prop", "profile"];
+const PAGES = ["home", "stats", "learn", "prop", "profile"];
+let learnDone = new Set(), lesson = null, quiz = {}, calcS = null;
 
 function tr(k, v) { let s = T[k] ?? k; if (v) for (const [a, b] of Object.entries(v)) s = s.split("{" + a + "}").join(b); return s; }
 function haptic(kind = "light") { try { if (["success","error","warning"].includes(kind)) tg.HapticFeedback.notificationOccurred(kind); else if (kind === "sel") tg.HapticFeedback.selectionChanged(); else tg.HapticFeedback.impactOccurred(kind); } catch (e) {} }
@@ -289,6 +364,7 @@ function apply(j) { S = j; T = j.t; document.documentElement.lang = j.lang; rend
 /* ── навигация ── */
 function go(p) {
   if (!PAGES.includes(p)) return;
+  if (p === "learn" && page === "learn") lesson = null;
   page = p; haptic("sel");
   document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
   document.querySelectorAll(".page").forEach(s => s.classList.toggle("on", s.id === "p-" + p));
@@ -304,7 +380,7 @@ function renderAll() {
   $("#topSub").textContent = subLine();
   render(page);
 }
-function render(p) { ({ home: renderHome, stats: renderStats, prop: renderProp, profile: renderProfile })[p](); }
+function render(p) { ({ home: renderHome, stats: renderStats, learn: renderLearn, prop: renderProp, profile: renderProfile })[p](); syncBack(); }
 function subLine() { const s = S.sub; return s.kind === "paid" ? tr("sub_paid", { date: fmtDate(s.until, false) }) : s.kind === "trial" ? tr("sub_trial", { date: fmtDate(s.until, false) }) : tr("sub_expired"); }
 function subChip() {
   const s = S.sub;
@@ -410,6 +486,7 @@ function renderHome() {
     <div><small>${esc(tr("signals"))}</small><b class="num">${c30.n}</b></div>
     <div><small>${esc(tr("wins"))}</small><b class="num pos">${c30.w}</b></div><div><small>${esc(tr("losses"))}</small><b class="num neg">${c30.l}</b></div></div></div>
     ${chart(c30.pts, 120, "homeChart")}<button class="btn ghost mt" onclick="go('stats')">${esc(tr("tab_stats"))} →</button></div>`;
+  h += learnMini();
   if (S.prop) h += propMini();
   if (S.sub.kind !== "paid") h += subCard();
   h += `<p class="note">${esc(tr("app_note"))}</p></div>`;
@@ -567,6 +644,159 @@ function wireProp() {
   el.querySelectorAll("[data-do]").forEach(b => b.onclick = () => toChat(b.dataset.do));
 }
 
+/* ── обучение ── */
+const LKEY = "learn_done";
+const lessons = () => S.learn.lessons;
+function fill(x) { let s = String(x ?? ""); for (const [k, v] of Object.entries(S.learn.vars || {})) s = s.split("{" + k + "}").join(v); return esc(s).replace(/(\d) (\d{3})/g, "$1\u00a0$2"); }
+function cloud() { try { return tg && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") && tg.CloudStorage ? tg.CloudStorage : null; } catch (e) { return null; } }
+function setDone(str) { const ids = new Set(lessons().map(l => l.id)); learnDone = new Set(String(str || "").split(",").filter(x => ids.has(x))); }
+function loadLearn() {
+  try { setDone(localStorage.getItem(LKEY + S.user.id)); } catch (e) {}
+  const c = cloud();
+  if (c) try { c.getItem(LKEY, (err, v) => { if (!err && v != null && v !== "") { const before = learnDone.size; setDone(v); if (learnDone.size !== before && (page === "learn" || page === "home")) render(page); } }); } catch (e) {}
+}
+function saveLearn() {
+  const v = [...learnDone].join(",");
+  try { localStorage.setItem(LKEY + S.user.id, v); } catch (e) {}
+  const c = cloud(); if (c) try { c.setItem(LKEY, v, () => {}); } catch (e) {}
+}
+function nextLesson() { return lessons().find(l => !learnDone.has(l.id)) || null; }
+function openLesson(id) { lesson = id; quiz = {}; calcS = null; haptic("light"); if (page !== "learn") go("learn"); else { renderLearn(); syncBack(); } window.scrollTo({ top: 0 }); }
+function closeLesson() { lesson = null; haptic("sel"); renderLearn(); syncBack(); window.scrollTo({ top: 0 }); }
+function syncBack() { try { const b = tg && tg.BackButton; if (!b) return; if (page === "learn" && lesson) b.show(); else b.hide(); } catch (e) {} }
+if (tg && tg.BackButton) try { tg.BackButton.onClick(() => { if (lesson) closeLesson(); }); } catch (e) {}
+
+function learnMini() {
+  const L = lessons(), n = learnDone.size, nx = nextLesson();
+  if (!nx) return "";
+  return `<div class="card"><h3>🎓 ${esc(tr("learn_home"))}<span class="sp"></span><span class="num" style="letter-spacing:0">${esc(tr("learn_progress", { n, m: L.length }))}</span></h3>
+    <div class="bar" style="margin-top:0"><i class="gold" data-w="${(n / L.length * 100).toFixed(1)}%"></i></div>
+    <button class="lcard next" onclick="openLesson('${nx.id}')"><div class="ln">${nx.icon}</div><div class="mid"><small>${esc(tr("lesson_n", { n: L.indexOf(nx) + 1 }))} · ${esc(tr("lesson_min", { n: nx.min }))}</small><b>${esc(nx.title)}</b><span>${esc(nx.sub)}</span></div><span class="go">→</span></button></div>`;
+}
+function renderLearn() {
+  const el = $("#p-learn");
+  if (lesson && !lessons().some(l => l.id === lesson)) lesson = null;
+  if (lesson) { el.innerHTML = lessonView(lesson); wireLesson(el); animate(el); return; }
+  const L = lessons(), n = learnDone.size, nx = nextLesson();
+  let h = `<div class="stagger"><div class="card gold hero"><div class="ringwrap">${ring(n / L.length, 112, 10, `${n}/${L.length}`, tr("tab_learn"))}
+    <div style="min-width:0"><div style="font-size:20px;font-weight:800;line-height:1.25">${esc(tr("learn_title"))}</div><p class="sub" style="margin:6px 0 0">${esc(tr("learn_sub"))}</p></div></div>
+    ${nx ? `<button class="btn mt2" onclick="openLesson('${nx.id}')">${esc(n ? tr("learn_continue", { title: nx.title }) : tr("learn_start"))}</button>`
+         : `<div class="chip ok mt2" style="white-space:normal;line-height:1.4">🏆 ${esc(tr("learn_done_all"))}</div>`}</div><div>`;
+  L.forEach((l, i) => {
+    const done = learnDone.has(l.id), isNext = nx && nx.id === l.id;
+    h += `<button class="lcard ${done ? "done" : ""} ${isNext ? "next" : ""}" data-lesson="${l.id}"><div class="ln">${l.icon}</div>
+      <div class="mid"><small>${esc(tr("lesson_n", { n: i + 1 }))} · ${esc(tr("lesson_min", { n: l.min }))}</small><b>${esc(l.title)}</b><span>${esc(l.sub)}</span></div>
+      ${done ? `<span class="badge">✓ ${esc(tr("done_badge"))}</span>` : `<span class="go">→</span>`}</button>`;
+  });
+  h += `</div>${n ? `<button class="btn ghost mt2" id="learnReset">↺ ${esc(tr("learn_again"))}</button>` : ""}</div>`;
+  el.innerHTML = h; animate(el);
+  el.querySelectorAll("[data-lesson]").forEach(b => b.onclick = () => openLesson(b.dataset.lesson));
+  const r = $("#learnReset"); if (r) r.onclick = () => confirmBox(tr("learn_again_q"), ok => { if (ok) { learnDone = new Set(); saveLearn(); renderLearn(); } });
+}
+function block(b) {
+  switch (b.t) {
+    case "p": return `<p class="lp">${fill(b.x)}</p>`;
+    case "h": return `<h4 class="lh">${fill(b.x)}</h4>`;
+    case "list": return `<ul class="ll">${b.x.map(x => `<li>${fill(x)}</li>`).join("")}</ul>`;
+    case "tip": return `<div class="callout tip"><span class="e">💡</span><div>${fill(b.x)}</div></div>`;
+    case "warn": return `<div class="callout warn"><span class="e">⚠️</span><div>${fill(b.x)}</div></div>`;
+    case "ex": return `<div class="ex"><div class="eh">${fill(b.h)}</div>${b.rows.map(([k, v]) => `<div class="er"><span>${fill(k)}</span><b>${fill(v)}</b></div>`).join("")}</div>`;
+    case "plans": return plansTable();
+    case "calc": return calcBox();
+    case "go":
+      if (b.to === "connect" && !S.auto.enabled) return "";
+      return `<button class="btn ghost" data-goto="${esc(b.to)}">${fill(b.x)} →</button>`;
+  }
+  return "";
+}
+function plansTable() {
+  const pct = v => (+v).toString().replace(".", S.lang === "en" ? "." : ",") + "%";
+  let h = `<div class="pl"><div class="hd n">${esc(tr("pl_plan"))}</div><div class="hd">${esc(tr("pl_target"))}</div><div class="hd">${esc(tr("pl_daily"))}</div><div class="hd">${esc(tr("pl_total"))}</div><div class="hd">${esc(tr("pl_days"))}</div>`;
+  for (const p of S.plans) {
+    const tg_ = Object.values(p.targets);
+    h += `<div class="n">${esc(p.name.replace(/^Stellar\s+/, ""))}</div><div class="num">${tg_.length ? tg_.map(pct).join(" + ") : "—"}</div>
+      <div class="${p.daily ? "num" : "sub"}">${p.daily ? pct(p.daily) : esc(tr("pl_none"))}</div><div class="num">${pct(p.total)}${p.trailing ? " ↗" : ""}</div><div class="num">${p.min_days || "—"}</div>`;
+  }
+  return h + `</div><div class="sub" style="margin:-4px 0 12px;font-size:12px">${esc(tr("pl_note"))} · ↗ ${esc(tr("trailing"))}</div>`;
+}
+function calcBox() {
+  if (!calcS) calcS = { cap: S.user.capital || 1000, risk: +S.learn.vars.risk || 1, stop: 100 };
+  const R = [0.5, 1, 2];
+  return `<div class="ex calc" style="padding:0 14px 14px"><div class="eh" style="margin:0 -14px">🧮 ${esc(tr("calc_title"))}</div>
+    <div class="row2"><div><div class="lbl">${esc(tr("calc_capital"))}</div><div class="field"><span class="goldtxt" style="font-weight:800">$</span><input id="cCap" type="text" inputmode="decimal" value="${calcS.cap}"></div></div>
+    <div><div class="lbl">${esc(tr("calc_stop"))}</div><div class="field"><input id="cStop" type="text" inputmode="decimal" value="${calcS.stop}"></div></div></div>
+    <div class="lbl">${esc(tr("calc_risk"))}</div><div class="seg" id="cRisk" style="margin-top:8px">${R.map(r => `<button data-r="${r}" class="${r === calcS.risk ? "on" : ""}">${r}%</button>`).join("")}</div>
+    <div class="res" id="cRes">${calcRes()}</div></div>`;
+}
+function calcRes() {
+  const { cap, risk, stop } = calcS;
+  if (!(cap > 0) || !(stop > 0)) return `<b class="num goldtxt">—</b><small>${esc(tr("bad_number"))}</small>`;
+  const raw = cap * risk / 100 / (stop * 0.1), units = Math.max(1, Math.min(10000, Math.floor(raw + 1e-9))), loss = units * stop * 0.1;
+  const real = loss / cap * 100;
+  return `<small style="margin:0 0 4px">${esc(tr("calc_lot"))}</small><b class="num goldtxt">${(units / 100).toFixed(2)}</b>
+    <small>${esc(tr("calc_loss", { loss: usd2(loss) }))}</small>${raw < 1 ? `<small class="w">${esc(tr("calc_min", { pct: +real.toFixed(1) }))}</small>` : ""}`;
+}
+function shuffled(id, n) {
+  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const idx = [...Array(n).keys()];
+  for (let i = n - 1; i > 0; i--) { h = (h * 1103515245 + 12345) >>> 0; const j = h % (i + 1); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+  return idx;
+}
+function quizBox(l) {
+  const q = l.quiz, order = shuffled(l.id, q.a.length), pick = quiz.pick, solved = quiz.ok;
+  let h = `<div class="card gold" id="quiz"><h3>🧠 ${esc(tr("quiz"))}</h3><div style="font-size:16px;font-weight:700;line-height:1.45">${fill(q.q)}</div>`;
+  order.forEach((i, k) => {
+    const c = solved && i === 0 ? "ok" : pick === i && i !== 0 ? "no" : "";
+    h += `<button class="qopt ${c}" data-a="${i}" ${solved ? "disabled" : ""}><span class="k">${c === "ok" ? "✓" : c === "no" ? "✕" : "ABC"[k]}</span><span>${fill(q.a[i])}</span></button>`;
+  });
+  if (solved) h += `<div class="qwhy ok"><b>✅ ${esc(tr("quiz_ok"))}</b> ${fill(q.why)}</div>`;
+  else if (pick != null) h += `<div class="qwhy no"><b>${esc(tr("quiz_no"))}.</b> ${esc(tr("quiz_retry"))}</div>`;
+  if (solved || learnDone.has(l.id)) {
+    const L = lessons(), i = L.findIndex(x => x.id === l.id), nx = L[i + 1];
+    h += nx ? `<button class="btn mt2" data-open="${nx.id}">${esc(tr("next_lesson"))}: ${esc(nx.title)} →</button>`
+            : `<button class="btn mt2" id="lFinish">🏆 ${esc(tr("finish"))}</button>`;
+  }
+  return h + `</div>`;
+}
+function lessonView(id) {
+  const L = lessons(), i = L.findIndex(x => x.id === id), l = L[i];
+  let h = `<div class="lhead"><button class="back" id="lBack">← ${esc(tr("back"))}</button><span class="sp" style="flex:1"></span>
+    <span class="sub">${esc(tr("lesson_n", { n: i + 1 }))} · ${esc(tr("lesson_min", { n: l.min }))}</span>${learnDone.has(id) ? `<span class="badge">✓ ${esc(tr("done_badge"))}</span>` : ""}</div>
+    <div class="stagger"><div class="card gold lhero"><div class="big">${l.icon}</div><h2>${esc(l.title)}</h2><div class="sub">${esc(l.sub)}</div>
+    <div class="lsteps">${L.map((x, k) => `<i class="${k === i ? "cur" : learnDone.has(x.id) ? "on" : ""}"></i>`).join("")}</div></div>`;
+  // блоки группируем в карточки: новая карточка начинается с подзаголовка или после калькулятора/таблицы
+  let cards = [[]];
+  for (const b of l.blocks) { if (b.t === "h" && cards[cards.length - 1].length) cards.push([]); cards[cards.length - 1].push(b); }
+  for (const c of cards) { const inner = c.map(block).join(""); if (inner) h += `<div class="card">${inner}</div>`; }
+  return h + quizBox(l) + `</div>`;
+}
+function confetti() {
+  const box = document.createElement("div"); box.className = "confetti";
+  const col = ["#fff1b8", "#f7d46b", "#e2a930", "#3ee09a", "#ffffff"];
+  for (let i = 0; i < 46; i++) { const c = document.createElement("i"); c.style.left = Math.random() * 100 + "%"; c.style.background = col[i % col.length]; c.style.animationDelay = Math.random() * .5 + "s"; c.style.animationDuration = 1.2 + Math.random() * 1.1 + "s"; box.appendChild(c); }
+  document.body.appendChild(box); setTimeout(() => box.remove(), 2800);
+}
+function wireLesson(el) {
+  const l = lessons().find(x => x.id === lesson);
+  $("#lBack").onclick = closeLesson;
+  el.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => { const to = b.dataset.goto; if (to === "connect") toChat("connect"); else go(to); });
+  el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openLesson(b.dataset.open));
+  const fin = $("#lFinish"); if (fin) fin.onclick = () => { closeLesson(); if (learnDone.size === lessons().length) confetti(); };
+  el.querySelectorAll(".qopt").forEach(b => b.onclick = () => {
+    if (quiz.ok) return;
+    const a = +b.dataset.a; quiz.pick = a;
+    if (a === 0) { quiz.ok = true; const first = !learnDone.has(l.id); learnDone.add(l.id); saveLearn(); haptic("success"); if (first && learnDone.size === lessons().length) confetti(); }
+    else haptic("error");
+    $("#quiz").outerHTML = quizBox(l); wireLesson(el);
+  });
+  const cap = $("#cCap"), stop = $("#cStop"), seg = $("#cRisk");
+  if (cap) {
+    const upd = () => { calcS.cap = parseNum(cap.value) ?? 0; calcS.stop = parseNum(stop.value) ?? 0; $("#cRes").innerHTML = calcRes(); };
+    cap.oninput = upd; stop.oninput = upd;
+    seg.onclick = e => { const b = e.target.closest("button"); if (!b) return; calcS.risk = +b.dataset.r; haptic("sel"); seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); upd(); };
+  }
+}
+
 /* ── профиль ── */
 function subCard() {
   const s = S.sub;
@@ -627,7 +857,7 @@ async function tick() {
 }
 
 async function load() {
-  try { apply(await api("state")); $("#splash").classList.add("off"); }
+  try { const first = !S; apply(await api("state")); if (first) { loadLearn(); render(page); } $("#splash").classList.add("off"); }
   catch (e) { $("#splashText").textContent = e.message === "auth" ? (T.auth_error || "Откройте приложение из бота в Telegram · Open the app from the bot") : "⚠️ " + (T.error || "Error"); }
 }
 if (tg) {

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import tempfile
 import time
 import unittest
@@ -11,9 +12,11 @@ from urllib.parse import urlencode
 from aiohttp.test_utils import TestClient, TestServer
 
 from goldbot import bot as botmod
+from goldbot import prop as pr
 from goldbot import webapp as wa
 from goldbot.config import config
 from goldbot.db import DB, now
+from goldbot.webapp_lessons import LESSONS, lessons_vars
 from goldbot.webapp_texts import TEXTS
 
 TOKEN = "123456:TEST-token"
@@ -62,6 +65,46 @@ class InitDataTests(unittest.TestCase):
         keys = set(TEXTS["ru"])
         for lang, tx in TEXTS.items():
             self.assertEqual(set(tx), keys, lang)
+
+    def test_lessons_same_structure_all_langs(self):
+        """Уроки на всех языках: одинаковые id, иконки, порядок и типы блоков, число вариантов ответа."""
+        def shape(ls):
+            return [(x["id"], x["icon"], x["min"], len(x["quiz"]["a"]),
+                     [(b["t"], b.get("to"), len(b.get("x")) if isinstance(b.get("x"), list) else None,
+                       len(b.get("rows") or [])) for b in x["blocks"]]) for x in ls]
+        base = shape(LESSONS["ru"])
+        self.assertGreaterEqual(len(base), 7)
+        for lang in TEXTS:
+            self.assertEqual(shape(LESSONS[lang]), base, lang)
+
+    def test_lessons_content_valid(self):
+        allowed = {"p", "h", "list", "tip", "warn", "ex", "plans", "calc", "go"}
+        keys = set(lessons_vars())
+        for lang, ls in LESSONS.items():
+            ids = [x["id"] for x in ls]
+            self.assertEqual(len(ids), len(set(ids)), lang)
+            for x in ls:
+                self.assertTrue(x["title"] and x["sub"] and x["quiz"]["q"] and x["quiz"]["why"], (lang, x["id"]))
+                self.assertEqual(len(set(x["quiz"]["a"])), len(x["quiz"]["a"]), (lang, x["id"]))
+                for b in x["blocks"]:
+                    self.assertIn(b["t"], allowed)
+                    if b["t"] == "go":
+                        self.assertIn(b["to"], {"profile", "prop", "stats", "connect"})
+                    text = json.dumps(b, ensure_ascii=False)
+                    for ph in re.findall(r"\{(\w+)\}", text):
+                        self.assertIn(ph, keys, (lang, x["id"], ph))   # подстановка знакомая приложению
+
+    def test_lesson_numbers_match_plans(self):
+        """Числа в уроках о FundedNext совпадают с правилами в goldbot/prop.py."""
+        p = pr.PLANS
+        self.assertEqual(p["2step"].targets["phase1"], 8)           # урок prop: $10 000 → $10 800
+        self.assertEqual((p["2step"].daily_pct, p["2step"].total_pct), (5, 10))   # урок limits: $25 000
+        self.assertEqual(p["1step"].daily_pct, 3)                    # квиз limits: $300
+        self.assertTrue(p["instant"].trailing and p["instant"].total_pct == 6)   # $9 400 → $9 900
+        self.assertEqual(pr.DD_PCT, 2.0)
+        self.assertEqual(pr.DD_MULT, 0.25)
+        self.assertEqual(pr.MAX_OPEN_PCT, 1.5)
+        self.assertEqual(pr.DAILY_CAP_PCT, 3.0)
 
     def test_index_present(self):
         html = (wa.STATIC / "index.html").read_text(encoding="utf-8")
@@ -133,6 +176,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(j["prop"])
         self.assertFalse(j["auto"]["enabled"])
         self.assertEqual(len(j["plans"]), 4)
+        self.assertEqual(j["learn"]["lessons"], LESSONS["uz"])
+        self.assertEqual(set(j["learn"]["vars"]), set(lessons_vars()))
 
     async def test_settings(self):
         st, j = await self.post("settings", {"lang": "en", "capital": 2500})
