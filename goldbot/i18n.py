@@ -16,6 +16,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_cal": "🗓 Календарь новостей",
         "btn_sub": "💎 Подписка",
         "btn_profile": "👤 Профиль",
+        "btn_app": "📱 Открыть приложение",
+        "app_text": ("📱 <b>Приложение XAUUSD Gold</b>\n\nСтатистика с графиком, проп-панель, настройки и оплата — в одном окне. "
+                     "Кнопки в чате работают как раньше, пользуйтесь тем, что удобнее 👇"),
+        "app_off": "📱 Приложение скоро будет доступно.",
         "btn_lang": "🌐 Сменить язык",
         "btn_stats": "📈 Статистика",
         "market_open": ("🟢 <b>Рынок золота открыт</b>\n\n"
@@ -308,6 +312,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_cal": "🗓 News calendar",
         "btn_sub": "💎 Subscription",
         "btn_profile": "👤 Profile",
+        "btn_app": "📱 Open the app",
+        "app_text": ("📱 <b>XAUUSD Gold app</b>\n\nStats with charts, the prop dashboard, settings and payment in one window. "
+                     "Chat buttons work as before, use whichever you like 👇"),
+        "app_off": "📱 The app will be available soon.",
         "btn_lang": "🌐 Change language",
         "btn_stats": "📈 Statistics",
         "market_open": ("🟢 <b>The gold market is open</b>\n\n"
@@ -601,6 +609,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_cal": "🗓 Yangiliklar taqvimi",
         "btn_sub": "💎 Obuna",
         "btn_profile": "👤 Profil",
+        "btn_app": "📱 Ilovani ochish",
+        "app_text": ("📱 <b>XAUUSD Gold ilovasi</b>\n\nGrafikli statistika, prop-panel, sozlamalar va toʻlov — bitta oynada. "
+                     "Chatdagi tugmalar avvalgidek ishlaydi, qaysi biri qulay boʻlsa, shundan foydalaning 👇"),
+        "app_off": "📱 Ilova tez orada ishga tushadi.",
         "btn_lang": "🌐 Tilni oʻzgartirish",
         "btn_stats": "📈 Statistika",
         "market_open": ("🟢 <b>Oltin bozori ochildi</b>\n\n"

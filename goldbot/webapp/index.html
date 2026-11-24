@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>XAUUSD Gold</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070a12; --bg2:#0c111d; --card:rgba(255,255,255,.045); --card2:rgba(255,255,255,.07);
+  --line:rgba(255,215,120,.14); --line2:rgba(255,255,255,.08);
+  --text:#f4f1e8; --muted:#8f97a8; --dim:#5d6578;
+  --gold1:#fff4c9; --gold2:#f7d46b; --gold3:#e2a930; --gold4:#a66d10;
+  --green:#3ee09a; --red:#ff5d73; --blue:#62a8ff;
+  --gold:linear-gradient(135deg,var(--gold1) 0%,var(--gold2) 30%,var(--gold3) 65%,var(--gold4) 100%);
+  --r:22px; --safe-b:env(safe-area-inset-bottom,0px);
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:Manrope,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;overscroll-behavior:none}
+body{min-height:100vh;overflow-x:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+input{font:inherit;color:inherit}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+
+/* фон: золотые туманности и сетка */
+.sky{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;animation:float 18s ease-in-out infinite}
+.orb.a{width:340px;height:340px;background:radial-gradient(circle,#f5b83d 0%,transparent 70%);top:-120px;right:-110px}
+.orb.b{width:300px;height:300px;background:radial-gradient(circle,#7a4dff55 0%,transparent 70%);bottom:10%;left:-140px;animation-delay:-6s}
+.orb.c{width:260px;height:260px;background:radial-gradient(circle,#e0a12c66 0%,transparent 70%);bottom:-120px;right:-60px;animation-delay:-12s}
+@keyframes float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-30px,40px) scale(1.12)}}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,215,120,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,215,120,.035) 1px,transparent 1px);
+  background-size:36px 36px;mask-image:radial-gradient(ellipse at 50% 0%,#000 0%,transparent 75%)}
+
+.app{position:relative;z-index:1;max-width:560px;margin:0 auto;padding:14px 16px calc(96px + var(--safe-b))}
+
+/* шапка */
+.top{display:flex;align-items:center;gap:12px;margin:2px 0 16px}
+.logo{width:46px;height:46px;border-radius:50%;box-shadow:0 0 0 1.5px #f7d46b88,0 6px 24px #f5b83d55;flex:none}
+.brand{flex:1;min-width:0}
+.brand b{display:block;font-size:18px;font-weight:800;letter-spacing:.02em;background:var(--gold);-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand span{font-size:12.5px;color:var(--muted)}
+.avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;border:1.5px solid var(--line);flex:none;
+  display:grid;place-items:center;font-weight:800;background:var(--card2);color:var(--gold2)}
+
+/* карточки */
+.card{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.025));border:1px solid var(--line2);
+  border-radius:var(--r);padding:18px;margin-bottom:14px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  box-shadow:0 10px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.05)}
+.card.gold{border-color:transparent;background:
+  linear-gradient(160deg,rgba(40,30,8,.92),rgba(14,12,8,.92)) padding-box,
+  linear-gradient(135deg,#fff1b8,#e2a930 40%,#6b4708 70%,#f7d46b) border-box;border:1px solid transparent}
+.card h3{margin:0 0 12px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px}
+.card h3 .sp{flex:1}
+.sub{color:var(--muted);font-size:13px;line-height:1.45}
+.row{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mt{margin-top:12px}.mt2{margin-top:18px}
+
+/* герой-цена */
+.hero{overflow:hidden}
+.hero::after{content:"";position:absolute;inset:-40% -20% auto auto;width:260px;height:260px;background:radial-gradient(circle,#f7d46b30,transparent 65%);pointer-events:none}
+.hello{font-size:22px;font-weight:800;margin:0 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700;
+  background:var(--card2);border:1px solid var(--line2);white-space:nowrap}
+.chip.ok{color:var(--green);background:#3ee09a14;border-color:#3ee09a33}
+.chip.warn{color:var(--gold2);background:#f7d46b14;border-color:#f7d46b33}
+.chip.bad{color:var(--red);background:#ff5d7314;border-color:#ff5d7333}
+.price{font-size:40px;font-weight:700;margin:14px 0 2px;line-height:1;transition:color .6s}
+.price.up{color:var(--green)}.price.down{color:var(--red)}
+.live{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 #3ee09a99;animation:pulse 1.8s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #3ee09a99}70%{box-shadow:0 0 0 10px #3ee09a00}100%{box-shadow:0 0 0 0 #3ee09a00}}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{background:var(--card);border:1px solid var(--line2);border-radius:16px;padding:12px 10px;text-align:center;min-width:0}
+.kpi b{display:block;font-size:19px;font-weight:700}
+.kpi span{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.03em}
+.pos{color:var(--green)}.neg{color:var(--red)}.goldtxt{background:var(--gold);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* сигнал */
+.sig{border-radius:18px;padding:14px;background:var(--card);border:1px solid var(--line2);margin-top:10px;position:relative;overflow:hidden}
+.sig::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
+.sig.buy::before{background:var(--green)}.sig.sell::before{background:var(--red)}
+.side{font-weight:800;font-size:13px;padding:4px 9px;border-radius:8px;letter-spacing:.05em}
+.side.buy{background:#3ee09a1f;color:var(--green)}.side.sell{background:#ff5d731f;color:var(--red)}
+.lv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.lv div{font-size:11px;color:var(--muted);font-weight:600}
+.lv b{display:block;color:var(--text);font-size:14px;margin-top:2px}
+.track{position:relative;height:6px;border-radius:6px;background:linear-gradient(90deg,#ff5d7355,#ffffff14 50%,#3ee09a55);margin-top:12px}
+.track i{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--gold2);transform:translate(-50%,-50%);box-shadow:0 0 0 4px #f7d46b33,0 0 14px #f7d46b;transition:left .8s cubic-bezier(.2,.8,.2,1)}
+
+/* сегменты, фильтры */
+.seg{display:flex;background:var(--card);border:1px solid var(--line2);border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;padding:9px 4px;border-radius:10px;font-size:13px;font-weight:700;color:var(--muted);transition:.25s}
+.seg button.on{background:var(--gold);color:#1b1404;box-shadow:0 4px 16px #e2a93055}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chips button{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:700;background:var(--card);border:1px solid var(--line2);color:var(--muted);white-space:nowrap;transition:.2s}
+.chips button.on{color:#1b1404;background:var(--gold);border-color:transparent}
+
+/* график */
+.chart{position:relative;height:190px;margin:6px -6px 0;touch-action:pan-y}
+.chart svg{width:100%;height:100%;display:block;overflow:visible}
+.chart .ln{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 4px 10px #f5b83d66)}
+.chart .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.4s cubic-bezier(.6,0,.2,1) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.chart .ar{opacity:0;animation:fade 1s .5s forwards}@keyframes fade{to{opacity:1}}
+.tip{position:absolute;top:0;transform:translateX(-50%);background:#14110a;border:1px solid var(--line);border-radius:10px;padding:6px 9px;font-size:12px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s}
+.tip.on{opacity:1}
+.empty{padding:26px 10px;text-align:center;color:var(--muted);font-size:14px}
+
+/* строки истории */
+.tr{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line2)}
+.tr:last-child{border-bottom:0}
+.ic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:none;font-weight:800;font-size:16px}
+.ic.w{background:#3ee09a1a;color:var(--green)}.ic.l{background:#ff5d731a;color:var(--red)}.ic.o{background:#f7d46b1a;color:var(--gold2)}.ic.n{background:var(--card2);color:var(--muted)}
+.tr .mid{flex:1;min-width:0}
+.tr .mid b{font-size:14px;display:block}
+.tr .mid span{font-size:12px;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .pp{text-align:right;font-weight:700;font-size:15px}
+.tr .pp small{display:block;font-size:11px;color:var(--muted);font-weight:600;font-family:Manrope,sans-serif}
+
+/* полосы */
+.bar{height:10px;border-radius:10px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;border-radius:10px;width:0;transition:width 1.1s cubic-bezier(.2,.8,.2,1)}
+.bar i.g{background:linear-gradient(90deg,#1fb07a,#3ee09a)}.bar i.y{background:linear-gradient(90deg,#e2a930,#f7d46b)}.bar i.r{background:linear-gradient(90deg,#c2334b,#ff5d73)}
+.bar i.gold{background:var(--gold)}
+.strat{padding:10px 0;border-bottom:1px solid var(--line2)}.strat:last-child{border-bottom:0}
+.strat .between span{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strat .between b{white-space:nowrap}.strat small{color:var(--muted);font-size:12px}
+
+/* кольцо */
+.ringwrap{display:flex;align-items:center;gap:18px}
+.ring{position:relative;width:132px;height:132px;flex:none}
+.ring svg{transform:rotate(-90deg)}
+.ring .c{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ring .c b{font-size:28px;font-weight:800}
+.ring .c em{font-style:normal;font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.ring circle.p{transition:stroke-dashoffset 1.4s cubic-bezier(.2,.8,.2,1)}
+.stat2{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1}
+.stat2 div{min-width:0}
+.stat2 small{display:block;font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.stat2 b{font-size:16px}
+
+/* кнопки */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px;border-radius:16px;font-weight:800;font-size:15px;
+  background:var(--gold);color:#1b1404;box-shadow:0 8px 28px #e2a93044,inset 0 1px 0 #fff8;transition:transform .15s,filter .2s;position:relative;overflow:hidden}
+.btn::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,#ffffff88,transparent);animation:shine 3.2s infinite}
+@keyframes shine{0%{left:-60%}60%,100%{left:130%}}
+.btn:active{transform:scale(.97)}
+.btn.ghost{background:var(--card2);color:var(--text);box-shadow:none;border:1px solid var(--line2)}
+.btn.ghost::after{display:none}
+.btn.red{background:#ff5d7318;color:var(--red);border:1px solid #ff5d7333;box-shadow:none}.btn.red::after{display:none}
+.btn[disabled]{filter:grayscale(.6) brightness(.7)}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mini{padding:8px 12px;border-radius:10px;font-size:12.5px;font-weight:700;background:var(--card2);border:1px solid var(--line2)}
+.mini.g{color:#1b1404;background:var(--gold);border-color:transparent}
+
+/* формы */
+.opt{display:block;width:100%;text-align:left;padding:14px;border-radius:16px;background:var(--card);border:1px solid var(--line2);margin-top:8px;transition:.2s}
+.opt b{display:block;font-size:15px}.opt span{font-size:12.5px;color:var(--muted)}
+.opt.on{border-color:#f7d46b;background:#f7d46b12;box-shadow:0 0 0 3px #f7d46b22}
+.lbl{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 4px}
+.toggle{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;background:var(--card);border:1px solid var(--line2);margin-top:8px;width:100%;text-align:left}
+.toggle .sw{width:46px;height:28px;border-radius:20px;background:#ffffff1f;position:relative;flex:none;transition:.25s}
+.toggle .sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.25s}
+.toggle.on .sw{background:var(--gold3)}.toggle.on .sw::after{left:21px}
+.field{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line2);border-radius:14px;padding:0 14px;margin-top:8px}
+.field input{flex:1;background:none;border:0;outline:0;padding:14px 0;font-size:17px;font-family:var(--mono);min-width:0}
+.field:focus-within{border-color:#f7d46b88}
+
+/* счета */
+.acc{padding:14px;border-radius:18px;background:var(--card);border:1px solid var(--line2);margin-top:10px}
+.acc .tag{white-space:nowrap;font-size:11px;font-weight:800;padding:3px 8px;border-radius:7px;background:var(--card2);color:var(--muted);letter-spacing:.04em}
+.acc .tag.real{color:var(--gold2);background:#f7d46b14}
+.acc .tag.prop{color:#b99cff;background:#7a4dff1f}
+
+/* нижняя навигация */
+.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + var(--safe-b));z-index:5;width:calc(100% - 28px);max-width:520px;
+  display:flex;padding:6px;border-radius:24px;background:rgba(14,16,24,.78);border:1px solid var(--line);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 6px;border-radius:18px;color:var(--dim);font-size:11px;font-weight:700;transition:.25s;position:relative}
+.nav button svg{width:22px;height:22px;transition:.25s}
+.nav button.on{color:var(--gold2);background:linear-gradient(180deg,#f7d46b1c,#f7d46b08)}
+.nav button.on svg{filter:drop-shadow(0 0 8px #f7d46b88);transform:translateY(-1px)}
+
+.page{display:none;animation:in .45s cubic-bezier(.2,.8,.2,1)}
+.page.on{display:block}
+@keyframes in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.stagger>*{opacity:0;animation:in .5s cubic-bezier(.2,.8,.2,1) forwards}
+.stagger>*:nth-child(1){animation-delay:.02s}.stagger>*:nth-child(2){animation-delay:.08s}.stagger>*:nth-child(3){animation-delay:.14s}
+.stagger>*:nth-child(4){animation-delay:.2s}.stagger>*:nth-child(5){animation-delay:.26s}.stagger>*:nth-child(n+6){animation-delay:.32s}
+
+/* лист снизу и тост */
+.sheet-bg{position:fixed;inset:0;background:#000a;z-index:20;opacity:0;pointer-events:none;transition:.25s}
+.sheet-bg.on{opacity:1;pointer-events:auto}
+.sheet{visibility:hidden;position:fixed;left:0;right:0;bottom:0;z-index:21;max-width:560px;margin:0 auto;background:#10131c;border:1px solid var(--line);border-bottom:0;
+  border-radius:26px 26px 0 0;padding:10px 18px calc(20px + var(--safe-b));transform:translateY(105%);transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.sheet.on{transform:none;visibility:visible}
+.sheet .grab{width:40px;height:5px;border-radius:5px;background:#ffffff26;margin:0 auto 14px}
+.sheet h4{margin:0 0 4px;font-size:18px}
+.toast{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translate(-50%,-140%);z-index:30;padding:12px 18px;border-radius:14px;
+  background:#16130a;border:1px solid var(--line);font-weight:700;font-size:14px;box-shadow:0 12px 40px #000a;transition:transform .35s cubic-bezier(.2,.8,.2,1);max-width:90%;text-align:center}
+.toast.on{transform:translate(-50%,0)}
+
+/* загрузка */
+.splash{position:fixed;inset:0;z-index:40;display:grid;place-content:center;justify-items:center;gap:18px;background:var(--bg);transition:opacity .5s}
+.splash.off{opacity:0;pointer-events:none}
+.splash img{width:110px;height:110px;border-radius:50%;animation:glow 1.8s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 0 2px #f7d46b66,0 0 30px #f5b83d44}50%{box-shadow:0 0 0 2px #f7d46bcc,0 0 70px #f5b83d99}}
+.splash p{margin:0;color:var(--muted);font-weight:600}
+.note{font-size:12px;color:var(--dim);text-align:center;margin:18px 8px 0;line-height:1.5}
+a{color:var(--gold2)}
+</style>
+</head>
+<body>
+<div class="sky"><div class="grid"></div><div class="orb a"></div><div class="orb b"></div><div class="orb c"></div></div>
+<div class="splash" id="splash"><img src="static/logo.png" alt=""><p id="splashText">…</p></div>
+<div class="toast" id="toast"></div>
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet"></div>
+
+<div class="app">
+  <div class="top">
+    <img class="logo" src="static/logo.png" alt="">
+    <div class="brand"><b>XAUUSD GOLD</b><span id="topSub"></span></div>
+    <div id="avatar"></div>
+  </div>
+  <section class="page on" id="p-home"></section>
+  <section class="page" id="p-stats"></section>
+  <section class="page" id="p-prop"></section>
+  <section class="page" id="p-profile"></section>
+</div>
+
+<nav class="nav" id="nav">
+  <button data-p="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9.5h14V10"/><path d="M10 19.5v-5h4v5"/></svg><span data-t="tab_home"></span></button>
+  <button data-p="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/><path d="M16 6h4v4"/></svg><span data-t="tab_stats"></span></button>
+  <button data-p="prop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span data-t="tab_prop"></span></button>
+  <button data-p="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span data-t="tab_profile"></span></button>
+</nav>
+
+<script>
+"use strict";
+const tg = window.Telegram && window.Telegram.WebApp;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let S = null, T = {}, page = "home", period = 30, hFilter = "all", hShow = 25, propEdit = false, form = {};
+let lastPrice = null, marketTimer = null, busy = false;
+const PAGES = ["home", "stats", "prop", "profile"];
+
+function tr(k, v) { let s = T[k] ?? k; if (v) for (const [a, b] of Object.entries(v)) s = s.split("{" + a + "}").join(b); return s; }
+function haptic(kind = "light") { try { if (["success","error","warning"].includes(kind)) tg.HapticFeedback.notificationOccurred(kind); else if (kind === "sel") tg.HapticFeedback.selectionChanged(); else tg.HapticFeedback.impactOccurred(kind); } catch (e) {} }
+function toast(msg, kind) { const el = $("#toast"); el.textContent = msg; el.classList.add("on"); if (kind) haptic(kind); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on"), 2600); }
+const loc = () => ({ ru: "ru-RU", en: "en-GB", uz: "uz-Latn-UZ" }[S?.lang] || "ru-RU");
+function fmtDate(iso, time = true) {
+  if (!iso) return "";
+  const o = { day: "2-digit", month: "2-digit", timeZone: S.tz }; if (time) { o.hour = "2-digit"; o.minute = "2-digit"; o.hour12 = false; } else o.year = "numeric";
+  try { return new Date(iso).toLocaleString(loc(), o); } catch (e) { return new Date(iso).toLocaleString(); }
+}
+function money(x, d = 0) { if (x == null || isNaN(x)) return "—"; const s = Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/,/g, " "); return (x < 0 ? "−$" : "$") + s; }
+function usd2(x) { if (x == null) return "—"; const r = Math.round(x * 100) / 100; return money(r, Number.isInteger(r) ? 0 : 2); }
+function pips(x) { if (x == null) return "—"; const r = Math.round(x); return (r > 0 ? "+" : r < 0 ? "−" : "") + Math.abs(r).toLocaleString("en-US").replace(/,/g, " "); }
+const cls = x => x > 0 ? "pos" : x < 0 ? "neg" : "";
+const daysLeft = iso => Math.max(0, Math.ceil((new Date(iso) - Date.now()) / 864e5));
+
+async function api(path, body) {
+  const r = await fetch("api/" + path, { method: "POST", headers: { "Content-Type": "application/json", "X-Init-Data": tg?.initData || "" }, body: JSON.stringify(body || {}) });
+  if (r.status === 401) throw new Error("auth");
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(j.error || "http " + r.status);
+  return j;
+}
+async function call(path, body, okMsg) {
+  if (busy) return null; busy = true;
+  try { const j = await api(path, body); if (j.t) apply(j); if (okMsg) toast(okMsg, "success"); return j; }
+  catch (e) { toast(T.error || "Error", "error"); return null; }
+  finally { busy = false; }
+}
+function apply(j) { S = j; T = j.t; document.documentElement.lang = j.lang; renderAll(); }
+
+/* ── навигация ── */
+function go(p) {
+  if (!PAGES.includes(p)) return;
+  page = p; haptic("sel");
+  document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+  document.querySelectorAll(".page").forEach(s => s.classList.toggle("on", s.id === "p-" + p));
+  window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  render(p);
+}
+$("#nav").addEventListener("click", e => { const b = e.target.closest("button"); if (b) go(b.dataset.p); });
+
+function renderAll() {
+  document.querySelectorAll("[data-t]").forEach(el => el.textContent = tr(el.dataset.t));
+  const u = S.user, name = u.name || tr("trader");
+  $("#avatar").innerHTML = u.photo ? `<img class="avatar" src="${esc(u.photo)}" alt="">` : `<div class="avatar">${esc(name.slice(0, 1).toUpperCase())}</div>`;
+  $("#topSub").textContent = subLine();
+  render(page);
+}
+function render(p) { ({ home: renderHome, stats: renderStats, prop: renderProp, profile: renderProfile })[p](); }
+function subLine() { const s = S.sub; return s.kind === "paid" ? tr("sub_paid", { date: fmtDate(s.until, false) }) : s.kind === "trial" ? tr("sub_trial", { date: fmtDate(s.until, false) }) : tr("sub_expired"); }
+function subChip() {
+  const s = S.sub;
+  if (s.kind === "expired") return `<span class="chip bad">● ${esc(tr("sub_expired"))}</span>`;
+  return `<span class="chip ${s.kind === "paid" ? "ok" : "warn"}">● ${esc(tr("days_left", { n: daysLeft(s.until) }))}</span>`;
+}
+
+/* ── расчёты статистики ── */
+function periodTrades(days) { const from = days ? Date.now() - days * 864e5 : 0; return S.stats.trades.filter(x => new Date(x.ts).getTime() >= from); }
+function calc(list) {
+  const win = S.stats.win, closed = list.filter(x => x.status !== "open");
+  const w = closed.filter(x => win.includes(x.status)), l = closed.filter(x => x.status === "sl");
+  const vals = closed.filter(x => x.pips != null);
+  const total = vals.reduce((a, x) => a + x.pips, 0);
+  const gp = vals.filter(x => x.pips > 0).reduce((a, x) => a + x.pips, 0), gl = -vals.filter(x => x.pips < 0).reduce((a, x) => a + x.pips, 0);
+  const asc = [...vals].sort((a, b) => new Date(a.closed || a.ts) - new Date(b.closed || b.ts));
+  let cum = 0, peak = 0, dd = 0, run = 0, streak = 0; const pts = [];
+  for (const x of asc) { cum += x.pips; peak = Math.max(peak, cum); dd = Math.max(dd, peak - cum); pts.push({ v: cum, ts: x.closed || x.ts, p: x.pips });
+    if (win.includes(x.status)) { run++; streak = Math.max(streak, run); } else if (x.status === "sl") run = 0; }
+  return { n: list.length, open: list.length - closed.length, w: w.length, l: l.length, wr: w.length + l.length ? 100 * w.length / (w.length + l.length) : null,
+    total, pf: gl > 0 ? gp / gl : gp > 0 ? Infinity : null, best: vals.length ? Math.max(...vals.map(x => x.pips)) : null,
+    worst: vals.length ? Math.min(...vals.map(x => x.pips)) : null, avg: vals.length ? total / vals.length : null, dd, streak, pts };
+}
+
+/* ── SVG ── */
+let uid = 0;
+function ring(frac, size = 132, stroke = 11, label = "", sub = "") {
+  const g = "rg" + (++uid), r = (size - stroke) / 2, c = 2 * Math.PI * r, f = Math.max(0, Math.min(1, frac || 0));
+  return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}">
+    <defs><linearGradient id="${g}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1b8"/><stop offset=".5" stop-color="#f5c542"/><stop offset="1" stop-color="#b87910"/></linearGradient></defs>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="${stroke}"/>
+    <circle class="p" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="url(#${g})" stroke-width="${stroke}" stroke-linecap="round"
+      stroke-dasharray="${c}" stroke-dashoffset="${c}" data-to="${c * (1 - f)}" style="filter:drop-shadow(0 0 6px #f5b83d88)"/></svg>
+    <div class="c"><b class="goldtxt num">${label}</b><em>${esc(sub)}</em></div></div>`;
+}
+function animate(root) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    root.querySelectorAll("circle.p[data-to]").forEach(c => c.style.strokeDashoffset = c.dataset.to);
+    root.querySelectorAll(".bar i[data-w]").forEach(b => b.style.width = b.dataset.w);
+    root.querySelectorAll("[data-count]").forEach(countUp);
+  }));
+}
+function countUp(el) {
+  const to = parseFloat(el.dataset.count), fmt = el.dataset.fmt || "pips", t0 = performance.now(), dur = 900;
+  const f = v => fmt === "pct" ? Math.round(v) + "%" : fmt === "usd" ? usd2(v) : pips(v);
+  const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = f(to * e); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+function chart(pts, h = 190, id = "c") {
+  if (pts.length < 2) return `<div class="empty">${esc(tr("no_trades"))}</div>`;
+  const W = 340, vals = [0, ...pts.map(p => p.v)], min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1, pad = 14;
+  const X = i => (i / (vals.length - 1)) * W, Y = v => pad + (1 - (v - min) / span) * (h - pad * 2);
+  let d = ""; vals.forEach((v, i) => d += (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1));
+  const area = d + `L${W} ${h}L0 ${h}Z`, z = Y(0), last = vals[vals.length - 1];
+  return `<div class="chart" id="${id}" style="height:${h}px"><svg viewBox="0 0 ${W} ${h}" preserveAspectRatio="none">
+    <defs><linearGradient id="gl${id}" x1="0" x2="1"><stop offset="0" stop-color="#b87910"/><stop offset=".6" stop-color="#f5c542"/><stop offset="1" stop-color="#fff1b8"/></linearGradient>
+    <linearGradient id="ga${id}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f5c542" stop-opacity=".35"/><stop offset="1" stop-color="#f5c542" stop-opacity="0"/></linearGradient></defs>
+    <line x1="0" x2="${W}" y1="${z}" y2="${z}" stroke="rgba(255,255,255,.14)" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"/>
+    <path class="ar" d="${area}" fill="url(#ga${id})"/>
+    <path class="ln draw" d="${d}" pathLength="1" stroke="url(#gl${id})"/>
+    <line class="cur" x1="0" x2="0" y1="0" y2="${h}" stroke="#f7d46b66" stroke-width="1" vector-effect="non-scaling-stroke" style="opacity:0"/>
+  </svg><div class="tip"></div><span style="position:absolute;right:2px;top:${Math.max(0, Y(last) - 26)}px;font-size:12px;font-weight:800" class="num ${cls(last)}">${pips(last)}</span></div>`;
+}
+function wireChart(id, pts) {
+  const el = document.getElementById(id); if (!el) return;
+  const tip = el.querySelector(".tip"), cur = el.querySelector(".cur"), vals = [{ v: 0, ts: null }, ...pts];
+  const move = e => {
+    const r = el.getBoundingClientRect(), x = Math.max(0, Math.min(r.width, (e.touches ? e.touches[0].clientX : e.clientX) - r.left));
+    const i = Math.round(x / r.width * (vals.length - 1)), p = vals[i], px = i / (vals.length - 1) * r.width;
+    cur.setAttribute("x1", px / r.width * 340); cur.setAttribute("x2", px / r.width * 340); cur.style.opacity = 1;
+    tip.innerHTML = `<b class="num ${cls(p.v)}">${pips(p.v)}</b> ${esc(tr("pips"))}${p.ts ? " · " + esc(fmtDate(p.ts)) : ""}`;
+    tip.style.left = Math.max(60, Math.min(r.width - 60, px)) + "px"; tip.classList.add("on");
+    if (el._i !== i) { el._i = i; haptic("sel"); }
+  };
+  const end = () => { tip.classList.remove("on"); cur.style.opacity = 0; };
+  el.addEventListener("pointermove", move); el.addEventListener("pointerdown", move);
+  el.addEventListener("pointerleave", end); el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+
+/* ── главная ── */
+function sigCard(s, price) {
+  const buy = s.dir === 1, now = price != null ? (s.dir * (price - s.entry)) / S.pip : null;
+  const lo = Math.min(s.sl, s.tp), hi = Math.max(s.sl, s.tp), pos = price != null ? Math.max(0, Math.min(1, (price - lo) / (hi - lo))) : null;
+  const toTp = buy ? pos : pos != null ? 1 - pos : null; // слева стоп, справа тейк
+  return `<div class="sig ${buy ? "buy" : "sell"}"><div class="between"><div class="row"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
+    <b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
+    ${now != null ? `<b class="num ${cls(now)}" data-live="${s.id}">${pips(now)}</b>` : ""}</div>
+    <div class="lv"><div>${esc(tr("entry"))}<b class="num">${s.entry.toFixed(2)}</b></div><div>SL<b class="num neg">${s.sl.toFixed(2)}</b></div><div>TP<b class="num pos">${s.tp.toFixed(2)}</b></div></div>
+    ${toTp != null ? `<div class="track"><i style="left:${(toTp * 100).toFixed(1)}%"></i></div>` : ""}
+    ${s.part ? `<div class="sub mt">✓ ${esc(tr("part_done"))}</div>` : ""}</div>`;
+}
+function renderHome() {
+  const u = S.user, m = S.market, c30 = calc(periodTrades(30)), name = u.name || tr("trader");
+  let h = `<div class="stagger">
+  <div class="card gold hero"><div class="between"><div><p class="hello">${esc(tr("hello", { name }))} 👋</p>${subChip()}</div></div>
+    <div class="live mt2"><span class="dot"></span>${esc(tr("live"))}</div>
+    <div class="price num" id="price">${m.price != null ? m.price.toFixed(2) : `<span class="sub">${esc(tr("price_wait"))}</span>`}</div></div>`;
+  h += `<div class="card"><h3>📡 ${esc(tr("open_trades"))}<span class="sp"></span>${m.open.length ? `<span class="chip warn num">${m.open.length}</span>` : ""}</h3><div id="openList">
+    ${m.open.length ? m.open.map(s => sigCard(s, m.price)).join("") : `<div class="sub">${esc(tr("no_open"))}</div>`}</div></div>`;
+  h += `<div class="card"><h3>📈 ${esc(tr("tab_stats"))}<span class="sp"></span><span style="text-transform:none;letter-spacing:0">${esc(tr("stats_30"))}</span></h3>
+    <div class="ringwrap">${ring((c30.wr ?? 0) / 100, 118, 10, c30.wr != null ? `<span data-count="${c30.wr}" data-fmt="pct">0%</span>` : "—", tr("wr"))}
+    <div class="stat2"><div><small>${esc(tr("total_pips"))}</small><b class="num ${cls(c30.total)}" data-count="${c30.total}">0</b></div>
+    <div><small>${esc(tr("signals"))}</small><b class="num">${c30.n}</b></div>
+    <div><small>${esc(tr("wins"))}</small><b class="num pos">${c30.w}</b></div><div><small>${esc(tr("losses"))}</small><b class="num neg">${c30.l}</b></div></div></div>
+    ${chart(c30.pts, 120, "homeChart")}<button class="btn ghost mt" onclick="go('stats')">${esc(tr("tab_stats"))} →</button></div>`;
+  if (S.prop) h += propMini();
+  if (S.sub.kind !== "paid") h += subCard();
+  h += `<p class="note">${esc(tr("app_note"))}</p></div>`;
+  const el = $("#p-home"); el.innerHTML = h; wireChart("homeChart", c30.pts); animate(el);
+}
+function propMini() {
+  const p = S.prop, f = p.progress;
+  return `<div class="card" onclick="go('prop')" style="cursor:pointer"><h3>🛡 ${esc(tr("prop_title"))}<span class="sp"></span>→</h3>
+    <div class="sub" style="margin:-6px 0 10px">${esc(p.plan_name)} · ${esc(p.stage_name)} · <span class="num">${money(p.size)}</span></div>
+    <div class="between"><div><div class="sub">${esc(tr("balance"))}</div><b class="num" style="font-size:22px">${usd2(p.balance)}</b> <span class="num ${cls(p.profit_pct)}">${p.profit_pct >= 0 ? "+" : ""}${p.profit_pct.toFixed(2)}%</span></div>
+    ${f != null ? `<div style="text-align:right"><div class="sub">${esc(tr("progress"))}</div><b class="goldtxt num" style="font-size:22px">${Math.round(f * 100)}%</b></div>` : ""}</div>
+    ${f != null ? `<div class="bar"><i class="gold" data-w="${(f * 100).toFixed(1)}%"></i></div>` : ""}
+    <div class="between mt sub"><span>${esc(tr("day_limit"))}: <b class="num" style="color:var(--text)">${usd2(p.day_left)}</b></span><span>${esc(tr("risk_next"))}: <b class="num" style="color:var(--text)">${+p.risk_pct.toFixed(2)}%</b></span></div></div>`;
+}
+
+/* ── статистика ── */
+function renderStats() {
+  const list = periodTrades(period), c = calc(list);
+  const P = [[7, "p7"], [30, "p30"], [90, "p90"], [0, "pall"]];
+  let h = `<div class="stagger"><div class="seg" id="perSeg">${P.map(([d, k]) => `<button data-d="${d}" class="${d === period ? "on" : ""}">${esc(tr(k))}</button>`).join("")}</div>
+  <div class="card mt"><div class="ringwrap">${ring((c.wr ?? 0) / 100, 132, 11, c.wr != null ? `<span data-count="${c.wr}" data-fmt="pct">0%</span>` : "—", tr("wr"))}
+    <div class="stat2"><div><small>${esc(tr("total_pips"))}</small><b class="num ${cls(c.total)}" data-count="${c.total}">0</b></div><div><small>${esc(tr("signals"))}</small><b class="num">${c.n}</b></div>
+    <div><small>✅ ${esc(tr("wins"))}</small><b class="num pos">${c.w}</b></div><div><small>❌ ${esc(tr("losses"))}</small><b class="num neg">${c.l}</b></div></div></div></div>
+  <div class="kpis">
+    <div class="kpi"><b class="num goldtxt">${c.pf == null ? "—" : c.pf === Infinity ? "∞" : c.pf.toFixed(2)}</b><span>${esc(tr("pf"))}</span></div>
+    <div class="kpi"><b class="num pos">${pips(c.best)}</b><span>${esc(tr("best"))}</span></div>
+    <div class="kpi"><b class="num neg">${pips(c.worst)}</b><span>${esc(tr("worst"))}</span></div>
+    <div class="kpi"><b class="num ${cls(c.avg)}">${pips(c.avg)}</b><span>${esc(tr("avg"))}</span></div>
+    <div class="kpi"><b class="num neg">${c.dd ? pips(-c.dd) : "0"}</b><span>${esc(tr("max_dd"))}</span></div>
+    <div class="kpi"><b class="num goldtxt">${c.streak}</b><span>${esc(tr("streak"))}</span></div></div>
+  <div class="card mt"><h3>✨ ${esc(tr("curve"))}</h3><div class="sub">${esc(tr("curve_note"))}</div>${chart(c.pts, 190, "statChart")}</div>`;
+  const by = {}; for (const x of list) { if (x.status === "open" || x.pips == null) continue; const k = x.strategy || "—"; (by[k] ||= { n: 0, w: 0, l: 0, p: 0 }); by[k].n++; by[k].p += x.pips; if (S.stats.win.includes(x.status)) by[k].w++; else if (x.status === "sl") by[k].l++; }
+  const rows = Object.entries(by).sort((a, b) => b[1].p - a[1].p), mx = Math.max(1, ...rows.map(([, v]) => Math.abs(v.p)));
+  if (rows.length) h += `<div class="card"><h3>🧠 ${esc(tr("by_strategy"))}</h3>${rows.map(([k, v]) => `<div class="strat"><div class="between"><span>${esc(S.stats.strategies[k] || k)}</span><b class="num ${cls(v.p)}">${pips(v.p)}</b></div>
+    <div class="bar" style="height:6px"><i class="${v.p >= 0 ? "g" : "r"}" data-w="${(Math.abs(v.p) / mx * 100).toFixed(1)}%"></i></div>
+    <small>${v.n} · ${esc(tr("wr"))} ${v.w + v.l ? Math.round(100 * v.w / (v.w + v.l)) + "%" : "—"}</small></div>`).join("")}</div>`;
+  const F = [["all", "f_all"], ["win", "f_win"], ["loss", "f_loss"], ["open", "f_open"]];
+  const fl = list.filter(x => hFilter === "all" || (hFilter === "open" ? x.status === "open" : hFilter === "win" ? S.stats.win.includes(x.status) : x.status !== "open" && !S.stats.win.includes(x.status) && (x.pips ?? 0) <= 0));
+  h += `<div class="card"><h3>🧾 ${esc(tr("history"))}</h3><div class="chips" id="hChips">${F.map(([k, l]) => `<button data-f="${k}" class="${k === hFilter ? "on" : ""}">${esc(tr(l))}</button>`).join("")}</div>
+    <div class="mt">${fl.length ? fl.slice(0, hShow).map(tradeRow).join("") : `<div class="empty">${esc(tr("no_trades"))}</div>`}</div>
+    ${fl.length > hShow ? `<button class="btn ghost mt" id="more">${esc(tr("more"))}</button>` : ""}</div>`;
+  if (S.myfxbook) h += `<button class="btn ghost" onclick="openLink('${esc(S.myfxbook)}')">🔎 ${esc(tr("myfxbook"))}</button>`;
+  h += `</div>`;
+  const el = $("#p-stats"); el.innerHTML = h; wireChart("statChart", c.pts); animate(el);
+  $("#perSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; period = +b.dataset.d; hShow = 25; haptic("sel"); renderStats(); };
+  $("#hChips").onclick = e => { const b = e.target.closest("button"); if (!b) return; hFilter = b.dataset.f; hShow = 25; haptic("sel"); renderStats(); };
+  const more = $("#more"); if (more) more.onclick = () => { hShow += 25; renderStats(); };
+}
+function tradeRow(x) {
+  const st = { tp: "st_tp", sl: "st_sl", be: "st_be", rev: "st_rev", news: "st_news", open: "st_open" }[x.status] || "st_closed";
+  const win = S.stats.win.includes(x.status), ic = x.status === "open" ? "o" : win ? "w" : x.status === "sl" ? "l" : "n";
+  return `<div class="tr"><div class="ic ${ic}">${x.dir === 1 ? "↗" : "↘"}</div><div class="mid"><b>${x.dir === 1 ? "BUY" : "SELL"} <span class="num" style="display:inline;color:var(--muted)">#${x.id}</span></b>
+    <span>${esc(fmtDate(x.ts))} · ${esc(tr(st))} · ${x.entry.toFixed(2)}</span></div>
+    <div class="pp num ${x.status === "open" ? "" : cls(x.pips)}">${x.status === "open" ? "⏳" : pips(x.pips)}<small>${esc(tr("pips"))}</small></div></div>`;
+}
+
+/* ── проп ── */
+function limitBar(title, left, total, extra) {
+  total = Math.max(total, left);
+  const f = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0, c = f > .5 ? "g" : f > .25 ? "y" : "r";
+  return `<div class="mt2"><div class="between"><b style="font-size:14px">${esc(title)}</b><span class="num"><b>${usd2(left)}</b> <span class="sub">/ ${usd2(total)}</span></span></div>
+    <div class="bar"><i class="${c}" data-w="${(f * 100).toFixed(1)}%"></i></div><div class="sub" style="margin-top:6px;font-size:12px">${esc(tr("can_lose"))}${extra ? " · " + extra : ""}</div></div>`;
+}
+function renderProp() {
+  const el = $("#p-prop"); let h = `<div class="stagger">`;
+  if (S.prop && !propEdit) {
+    const p = S.prop, f = p.progress;
+    h += `<div class="card gold"><div class="between"><h3 style="margin:0">🛡 ${esc(tr("prop_title"))}</h3><span class="chip warn">${esc(p.stage_name)}</span></div>
+      <div class="sub" style="margin-top:4px">${esc(p.plan_name)} · <span class="num">${money(p.size)}</span></div>
+      <div class="ringwrap mt2">${ring(f ?? 1, 140, 12, f != null ? Math.round(f * 100) + "%" : "★", f != null ? tr("progress") : p.stage_name)}
+      <div class="stat2"><div style="grid-column:span 2"><small>${esc(tr("balance"))}</small><b class="num" style="font-size:24px" data-count="${p.balance}" data-fmt="usd">$0</b></div>
+      <div><small>${esc(tr("profit"))}</small><b class="num ${cls(p.profit_pct)}">${p.profit_pct >= 0 ? "+" : ""}${p.profit_pct.toFixed(2)}%</b></div>
+      ${p.goal != null ? `<div><small>${esc(tr("to_goal"))}</small><b class="num">${usd2(p.to_goal)}</b></div>` : ""}</div></div>
+      ${p.goal != null ? `<div class="sub mt">${esc(tr("goal"))}: <b class="num" style="color:var(--text)">${usd2(p.goal)}</b> (+${p.target_pct}%)</div>` : `<div class="sub mt">${esc(tr("funded"))}</div>`}
+      ${p.passed ? `<div class="chip ok mt">🏆 ${esc(tr("passed"))} · ${esc(tr("passed_days", { days: p.days, min: p.min_days }))}</div>` : ""}
+      ${p.next_stage ? `<button class="btn mt" id="nextStage">🚀 ${esc(tr("next_stage", { stage: p.next_stage_name }))}</button>` : ""}</div>`;
+    h += `<div class="card"><h3>📏 ${esc(tr("day_limit"))} / ${esc(tr("total_limit"))}</h3>
+      ${p.day_stopped ? `<div class="chip bad" style="white-space:normal">⛔ ${esc(tr("day_stopped", { time: p.reset }))}</div>` : ""}
+      ${p.failed ? `<div class="chip bad mt" style="white-space:normal">⚠️ ${esc(tr("failed"))}</div>` : ""}
+      ${limitBar(tr("day_limit"), p.day_left, p.day_limit, `${esc(tr("floor"))} <span class="num">${usd2(p.day_floor)}</span>`)}
+      ${limitBar(tr("total_limit") + (p.trailing ? " · " + tr("trailing") : ""), p.total_left, p.total_limit, `${esc(tr("floor"))} <span class="num">${usd2(p.total_floor)}</span>`)}
+      <div class="kpis mt2" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><b class="num goldtxt">${+p.risk_pct.toFixed(2)}%</b><span>${esc(tr("risk_next"))} · ${usd2(p.risk_usd)}</span></div>
+        <div class="kpi"><b class="num">${p.days}${p.min_days ? " / " + p.min_days : ""}</b><span>${esc(tr("trade_days"))}</span></div></div>
+      ${p.low_risk ? `<div class="sub mt">↓ ${esc(tr("risk_low"))}</div>` : ""}</div>`;
+    h += `<div class="card"><button class="btn" id="setBal">💰 ${esc(tr("set_balance"))}</button>
+      <button class="toggle ${p.only_prop ? "on" : ""}" id="onlyT"><div style="flex:1"><b>${esc(tr("only_prop"))}</b><div class="sub">${esc(tr("only_prop_hint"))}</div></div><span class="sw"></span></button>
+      <div class="btns mt"><button class="btn ghost" id="editP">✏️ ${esc(tr("edit"))}</button><button class="btn red" id="offP">${esc(tr("turn_off"))}</button></div></div>`;
+  } else {
+    h += propForm();
+  }
+  h += accountsBlock() + `</div>`;
+  el.innerHTML = h; animate(el); wireProp();
+}
+function propForm() {
+  if (!form.plan) { const p = S.prop; form = p ? { plan: p.plan, stage: p.stage, size: p.size, only: p.only_prop } : { plan: null, stage: null, size: null, only: false }; }
+  const plan = S.plans.find(x => x.key === form.plan);
+  let h = `<div class="card gold"><h3>🛡 ${esc(tr("prop_title"))}</h3><div style="font-size:18px;font-weight:800">${esc(tr("prop_sub"))}</div><p class="sub">${esc(tr("prop_intro"))}</p></div>
+  <div class="card"><div class="lbl" style="margin-top:0">${esc(tr("plan"))}</div>
+  ${S.plans.map(p => `<button class="opt ${p.key === form.plan ? "on" : ""}" data-plan="${p.key}"><b>${esc(p.name)}</b><span>${p.daily ? `${esc(tr("day_limit"))} ${p.daily}% · ` : ""}${esc(tr("total_limit"))} ${p.total}%${p.trailing ? " (" + esc(tr("trailing")) + ")" : ""}${Object.keys(p.targets).length ? " · " + Object.values(p.targets).map(v => "+" + v + "%").join(" / ") : ""}</span></button>`).join("")}`;
+  if (plan) h += `<div class="lbl">${esc(tr("stage"))}</div><div class="chips" id="stChips">${plan.stages.map(s => `<button data-st="${s.key}" class="${s.key === form.stage ? "on" : ""}">${esc(s.name)}</button>`).join("")}</div>`;
+  if (plan && form.stage) {
+    const custom = form.size && !S.sizes.includes(form.size);
+    h += `<div class="lbl">${esc(tr("size"))}</div><div class="chips" id="szChips">${S.sizes.map(z => `<button data-sz="${z}" class="${z === form.size ? "on" : ""}">$${z / 1000}K</button>`).join("")}
+      <button data-sz="custom" class="${custom ? "on" : ""}">${custom ? money(form.size) : esc(tr("custom"))}</button></div>
+      <button class="toggle ${form.only ? "on" : ""}" id="formOnly"><div style="flex:1"><b>${esc(tr("only_prop"))}</b><div class="sub">${esc(tr("only_prop_hint"))}</div></div><span class="sw"></span></button>`;
+  }
+  h += `<button class="btn mt2" id="saveP" ${plan && form.stage && form.size ? "" : "disabled"}>${esc(S.prop ? tr("save") : tr("start_prop"))}</button>
+    ${propEdit ? `<button class="btn ghost mt" id="cancelP">${esc(tr("cancel"))}</button>` : ""}</div>`;
+  return h;
+}
+function accountsBlock() {
+  if (!S.auto.enabled) return "";
+  let h = `<div class="card"><h3>🤖 ${esc(tr("accounts"))}</h3><div class="sub">${esc(tr("accounts_sub"))}</div>`;
+  if (!S.accounts.length) h += `<p class="sub">${esc(tr("no_accounts"))}</p>`;
+  for (const a of S.accounts) {
+    const pp = a.prop, st = a.read_only ? tr("price_only") : a.enabled ? tr("running") : tr("paused");
+    h += `<div class="acc"><div class="between" style="align-items:flex-start"><div class="row" style="min-width:0;flex-wrap:wrap;gap:6px"><b class="num">${esc(a.login)}</b><span class="tag ${a.demo ? "" : "real"}">${esc(a.demo ? tr("demo") : tr("real"))}</span>${pp ? `<span class="tag prop">${esc(pp.plan_name)}</span>` : ""}</div>
+      <span class="chip ${a.enabled && !a.read_only ? "ok" : "warn"}">● ${esc(st)}</span></div>
+      <div class="sub" style="margin-top:4px">${esc(a.broker || a.server)} · ${esc(a.platform.toUpperCase())}</div>
+      <div class="kpis mt" style="grid-template-columns:1fr 1fr"><div class="kpi"><b class="num">${a.balance != null ? money(a.balance, 2) : "—"}</b><span>${esc(tr("balance"))}</span></div>
+      <div class="kpi"><b class="num">${a.equity != null ? money(a.equity, 2) : "—"}</b><span>${esc(tr("equity"))}</span></div></div>`;
+    if (pp) {
+      h += pp.progress != null ? `<div class="between mt sub"><span>${esc(pp.stage_name)} · ${esc(tr("goal"))} ${usd2(pp.goal)}</span><b class="goldtxt num">${Math.round(pp.progress * 100)}%</b></div><div class="bar"><i class="gold" data-w="${(pp.progress * 100).toFixed(1)}%"></i></div>` : "";
+      h += limitBar(tr("day_limit"), pp.day_left, pp.day_limit, `${esc(tr("trade_days"))} ${pp.days}${pp.min_days ? "/" + pp.min_days : ""}`);
+      if (pp.halt) h += `<div class="chip bad mt" style="white-space:normal">${esc(tr("halt_" + pp.halt))}</div>`;
+    }
+    h += `<div class="between mt"><span class="sub">${a.admin ? esc(tr("admin_free")) : a.paid_until ? esc(tr("paid_until", { date: fmtDate(a.paid_until, false) })) : ""}</span><div class="row">
+      ${a.read_only ? "" : `<button class="mini" data-acc="${a.id}" data-act="${a.enabled ? "pause" : "resume"}">${a.enabled ? "⏸ " + esc(tr("pause")) : "▶ " + esc(tr("resume"))}</button>`}
+      ${a.admin ? "" : `<button class="mini g" data-ext="${a.id}">${esc(tr("extend"))}</button>`}</div></div></div>`;
+  }
+  h += `<div class="btns mt"><button class="btn" data-do="connect">＋ ${esc(tr("connect"))}</button><button class="btn ghost" data-do="fundednext">🏆 ${esc(tr("connect_prop"))}</button></div>
+    ${S.accounts.length ? `<button class="btn ghost mt" data-do="autotrade">⚙️ ${esc(tr("manage_chat"))}</button>` : ""}
+    <p class="note" style="margin-top:10px">🔐 ${esc(tr("goes_chat"))}</p>
+    ${!S.user.admin ? `<p class="note" style="margin-top:4px">${esc(tr("auto_price", { usd: S.auto.usd }))}${S.auto.days < 30 ? " · " + esc(tr("auto_parts", { stars: S.auto.stars, days: S.auto.days })) : ""}</p>` : ""}</div>`;
+  return h;
+}
+function wireProp() {
+  const el = $("#p-prop"), on = (sel, fn) => { const x = $(sel, el); if (x) x.onclick = fn; };
+  el.querySelectorAll("[data-plan]").forEach(b => b.onclick = () => { form.plan = b.dataset.plan; form.stage = null; haptic("sel"); renderProp(); });
+  on("#stChips", e => { const b = e.target.closest("button"); if (!b) return; form.stage = b.dataset.st; haptic("sel"); renderProp(); });
+  on("#szChips", e => { const b = e.target.closest("button"); if (!b) return; haptic("sel");
+    if (b.dataset.sz === "custom") askNumber(tr("size"), "", form.size, v => { if (v < S.size_min || v > S.size_max) { toast(tr("bad_number"), "error"); return false; } form.size = v; renderProp(); });
+    else { form.size = +b.dataset.sz; renderProp(); } });
+  on("#formOnly", () => { form.only = !form.only; haptic("sel"); renderProp(); });
+  on("#saveP", async () => { const j = await call("prop", { action: "save", plan: form.plan, stage: form.stage, size: form.size, only: form.only }, tr("saved")); if (j) { propEdit = false; form = {}; renderProp(); } });
+  on("#cancelP", () => { propEdit = false; form = {}; renderProp(); });
+  on("#editP", () => { propEdit = true; form = {}; haptic(); renderProp(); });
+  on("#setBal", () => askNumber(tr("set_balance"), tr("balance_hint"), S.prop.balance, v => { call("prop", { action: "balance", balance: v }, tr("saved")); }));
+  on("#onlyT", () => call("prop", { action: "only", value: !S.prop.only_prop }, tr("saved")));
+  on("#nextStage", () => call("prop", { action: "next" }, tr("saved")));
+  on("#offP", () => confirmBox(tr("turn_off_q"), ok => ok && call("prop", { action: "off" }, tr("saved"))));
+  el.querySelectorAll("[data-acc]").forEach(b => b.onclick = () => call("account", { id: +b.dataset.acc, action: b.dataset.act }, tr("saved")));
+  el.querySelectorAll("[data-ext]").forEach(b => b.onclick = () => pay("auto", +b.dataset.ext));
+  el.querySelectorAll("[data-do]").forEach(b => b.onclick = () => toChat(b.dataset.do));
+}
+
+/* ── профиль ── */
+function subCard() {
+  const s = S.sub;
+  return `<div class="card gold"><h3>💎 ${esc(tr("subscription"))}<span class="sp"></span>${subChip()}</h3>
+    <div class="row" style="align-items:baseline;gap:8px"><b class="num goldtxt" style="font-size:34px">${s.stars} ⭐</b><span class="sub">${esc(tr("for_days", { days: s.days }))}</span></div>
+    <p class="sub">${esc(tr("sub_perks"))}</p>${s.kind !== "expired" ? `<div class="sub">${esc(subLine())}</div>` : ""}
+    <button class="btn mt" onclick="pay('sub')">${esc(tr("pay_stars", { stars: s.stars }))}</button></div>`;
+}
+function renderProfile() {
+  const u = S.user;
+  let h = `<div class="stagger"><div class="card"><div class="row">${u.photo ? `<img class="avatar" style="width:56px;height:56px" src="${esc(u.photo)}" alt="">` : `<div class="avatar" style="width:56px;height:56px;font-size:22px">${esc((u.name || "T").slice(0, 1).toUpperCase())}</div>`}
+    <div style="min-width:0"><b style="font-size:19px">${esc(u.name || tr("trader"))}</b><div class="sub">${esc(tr("your_id"))}: <span class="num">${u.id}</span></div></div></div></div>`;
+  h += subCard();
+  h += `<div class="card"><h3>💼 ${esc(tr("capital"))}</h3><div class="sub">${esc(tr("capital_hint"))}</div>
+    <div class="field"><span class="goldtxt" style="font-weight:800">$</span><input id="capIn" type="text" inputmode="decimal" value="${u.capital ? u.capital : ""}" placeholder="1000"><button class="mini g" id="capSave">${esc(tr("save"))}</button></div>
+    ${u.lot != null ? `<div class="kpis mt" style="grid-template-columns:1fr 2fr"><div class="kpi"><b class="num goldtxt">${u.lot.toFixed(2)}</b><span>${esc(tr("lot"))}</span></div>
+      <div class="kpi"><b class="num" style="font-size:14px;padding:4px 0">${esc(tr("risk_trade", { loss: Math.round(u.lot_loss), profit: Math.round(u.lot_profit) }))}</b><span>SL / TP</span></div></div>` : ""}</div>`;
+  h += `<div class="card"><h3>🌐 ${esc(tr("language"))}</h3><div class="seg" id="langSeg">${S.langs.map(l => `<button data-l="${l.code}" class="${l.code === S.lang ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div></div>`;
+  h += `<button class="btn ghost" onclick="tg && tg.close()">💬 ${esc(tr("open_chat"))}</button><p class="note">${esc(tr("app_note"))}</p></div>`;
+  const el = $("#p-profile"); el.innerHTML = h; animate(el);
+  $("#langSeg").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.l !== S.lang) call("settings", { lang: b.dataset.l }, null).then(j => j && toast(T.saved, "success")); };
+  $("#capSave").onclick = () => { const v = parseNum($("#capIn").value); if (v == null || v < 0) return toast(tr("bad_number"), "error"); call("settings", { capital: v }, tr("saved")); };
+}
+
+/* ── действия ── */
+function parseNum(s) { const v = parseFloat(String(s).replace(/[\s$,]/g, m => m === "," ? "." : "")); return isFinite(v) ? v : null; }
+function askNumber(title, hint, val, done) {
+  const sh = $("#sheet"), bg = $("#sheetBg");
+  sh.innerHTML = `<div class="grab"></div><h4>${esc(title)}</h4>${hint ? `<div class="sub">${esc(hint)}</div>` : ""}
+    <div class="field"><span class="goldtxt" style="font-weight:800">$</span><input id="shIn" type="text" inputmode="decimal" value="${val ?? ""}"></div>
+    <div class="btns mt2"><button class="btn ghost" id="shNo">${esc(tr("cancel"))}</button><button class="btn" id="shOk">${esc(tr("ok"))}</button></div>`;
+  const close = () => { sh.classList.remove("on"); bg.classList.remove("on"); document.activeElement && document.activeElement.blur(); };
+  sh.classList.add("on"); bg.classList.add("on"); setTimeout(() => $("#shIn").focus(), 300);
+  bg.onclick = close; $("#shNo").onclick = close;
+  $("#shOk").onclick = () => { const v = parseNum($("#shIn").value); if (v == null || v < 0) return toast(tr("bad_number"), "error"); if (done(v) !== false) close(); };
+}
+function confirmBox(text, cb) { try { if (tg && tg.isVersionAtLeast("6.2")) return tg.showConfirm(text, cb); } catch (e) {} cb(window.confirm(text)); }
+function openLink(u) { try { tg.openLink(u); } catch (e) { window.open(u, "_blank"); } }
+async function pay(kind, id) {
+  haptic("medium");
+  const j = await call("invoice", { kind, id }); if (!j || !j.link) return;
+  const after = st => { if (st === "paid") { toast(tr("paid_ok"), "success"); setTimeout(load, 2500); setTimeout(load, 7000); } else if (st === "cancelled") toast(tr("pay_cancel")); else if (st === "failed") toast(tr("error"), "error"); };
+  try { tg.openInvoice(j.link, after); } catch (e) { openLink(j.link); }
+}
+async function toChat(what) { haptic("medium"); const j = await call("action", { do: what }); if (j) { toast(tr("goes_chat"), "success"); setTimeout(() => tg && tg.close(), 1100); } }
+
+/* ── живая цена ── */
+async function tick() {
+  if (document.hidden || !S) return;
+  try {
+    const m = await api("market");
+    const prev = S.market.price; S.market = m;
+    const el = $("#price");
+    if (el && m.price != null) { el.textContent = m.price.toFixed(2); if (prev != null && m.price !== prev) { el.classList.remove("up", "down"); void el.offsetWidth; el.classList.add(m.price > prev ? "up" : "down"); setTimeout(() => el.classList.remove("up", "down"), 900); } }
+    const ol = $("#openList");
+    if (ol) ol.innerHTML = m.open.length ? m.open.map(s => sigCard(s, m.price)).join("") : `<div class="sub">${esc(tr("no_open"))}</div>`;
+  } catch (e) {}
+}
+
+async function load() {
+  try { apply(await api("state")); $("#splash").classList.add("off"); }
+  catch (e) { $("#splashText").textContent = e.message === "auth" ? (T.auth_error || "Откройте приложение из бота в Telegram · Open the app from the bot") : "⚠️ " + (T.error || "Error"); }
+}
+if (tg) {
+  tg.ready(); tg.expand();
+  try { tg.setHeaderColor("#070a12"); tg.setBackgroundColor("#070a12"); tg.setBottomBarColor && tg.setBottomBarColor("#070a12"); } catch (e) {}
+  try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+}
+$("#splashText").textContent = "…";
+load();
+marketTimer = setInterval(tick, 8000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S) tick(); });
+</script>
+</body>
+</html>

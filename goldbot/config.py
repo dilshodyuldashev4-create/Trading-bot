@@ -226,5 +226,14 @@ class Config:
     channel_id: str = os.getenv("CHANNEL_ID", "")
     channel_lang: str = os.getenv("CHANNEL_LANG", "ru")
 
+    # Mini App (приложение в Telegram): кнопка слева от поля ввода у всех подписчиков.
+    # WEBAPP_URL — постоянный https-адрес (свой домен / именованный туннель). Пусто — адрес быстрого туннеля,
+    # который бот сам берёт у контейнера cloudflared (WEBAPP_TUNNEL, в docker-compose уже задан).
+    webapp_on: bool = os.getenv("WEBAPP", "1") not in ("0", "false", "no", "")
+    webapp_url: str = os.getenv("WEBAPP_URL", "").rstrip("/")
+    webapp_tunnel: str = os.getenv("WEBAPP_TUNNEL", "")
+    webapp_port: int = int(os.getenv("WEBAPP_PORT", "8080"))
+    webapp_button: str = os.getenv("WEBAPP_BUTTON", "🟡 Gold App")
+
 
 config = Config()
