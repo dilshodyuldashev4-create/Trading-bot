@@ -89,3 +89,30 @@ def days_breakout(df, n: int = 5):
     s = pd.Series(sig, index=df.index)
     first = s.ne(0).groupby(day).cumsum().to_numpy()
     return np.where((sig != 0) & (first == 1), sig, 0).astype(np.int8)
+
+
+def kama(close: np.ndarray, n: int = 10, fast: int = 2, slow: int = 30) -> np.ndarray:
+    """Адаптивная скользящая средняя Кауфмана (KAMA): быстрая в тренде, медленная в боковике."""
+    c = np.asarray(close, dtype=float)
+    out = np.full(len(c), np.nan)
+    f, s = 2 / (fast + 1), 2 / (slow + 1)
+    for i in range(n, len(c)):
+        vol = np.abs(np.diff(c[i - n:i + 1])).sum()
+        er = abs(c[i] - c[i - n]) / vol if vol else 0.0
+        sc = (er * (f - s) + s) ** 2
+        out[i] = c[i] if np.isnan(out[i - 1]) else out[i - 1] + sc * (c[i] - out[i - 1])
+    return out
+
+
+def kama_h4(df, n: int = 10):
+    """Закрытие свечи H4 пересекло KAMA(n) H4: выше — BUY, ниже — SELL (только свеча пересечения).
+    Работает на M15: сигнал на свече M15, которой закрывается H4 (свечи H4 с 00:00 UTC).
+    Незакрытая H4 в конце df сигнала не даёт (reports/profit3_research.md, вторая волна)."""
+    h4 = df.resample("4h", label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    c = h4.close.to_numpy()
+    k = kama(c, n)
+    x = np.where(c > k, 1, np.where(c < k, -1, 0))
+    x = np.where(x != np.r_[0, x[:-1]], x, 0)
+    s = pd.Series(x, index=h4.index + pd.Timedelta(hours=3, minutes=45))
+    return s.reindex(df.index).fillna(0).to_numpy().astype(np.int8)
