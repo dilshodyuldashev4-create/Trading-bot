@@ -649,6 +649,46 @@ class NewsCloseTests(unittest.TestCase):
         run(go())
 
 
+class PropNewsCloseTests(unittest.TestCase):
+    def test_prop_part_closed_before_top_news_only(self):
+        """За 30 минут до NFP / CPI / ФРС закрывается только проп-часть (один раз), сигнал остаётся открытым;
+        другие важные новости (пособия) проп-сделки не закрывают; до конца паузы выхода — без проп-входов."""
+        import re as _re
+
+        async def go():
+            with tempfile.TemporaryDirectory() as d:
+                db = DB(os.path.join(d, "t.db"))
+                await db.connect()
+                t0 = pd.Timestamp("2026-11-06 13:30", tz="UTC")
+                ev = lambda k, title, ts: {"key": k, "ts": ts.isoformat(), "country": "USD", "title": title,  # noqa: E731
+                                           "impact": "High", "forecast": "", "previous": "", "actual": ""}
+                await db.upsert_events([ev("nfp", "Non-Farm Employment Change", t0),
+                                        ev("cl", "Unemployment Claims", t0 + pd.Timedelta(days=6))])
+                got = []
+
+                async def hook(s, price, e, mins):
+                    got.append((s["id"], e["title"], mins))
+                eng = SignalEngine(db, None, "combo", 100, 200, "UTC", None, None)
+                eng.on_prop_news_close = hook
+                sid = await db.add_signal("combo", 1, 4070.0, 4060.0, 4100.0)
+                m = lambda x: t0 + pd.Timedelta(minutes=x)  # noqa: E731
+                self.assertEqual(await eng.prop_news_close_check(m(-29), 4075.0), 0)   # выключено
+                eng.prop_news_min = 30
+                eng.prop_news_re = _re.compile(r"non-farm|\bcpi\b|federal funds rate|fomc statement", _re.I)
+                self.assertEqual(await eng.prop_news_close_check(m(-45), 4075.0), 0)   # рано
+                self.assertEqual(await eng.prop_news_close_check(m(-29), 4075.0), 1)
+                self.assertEqual(await eng.prop_news_close_check(m(-20), 4075.0), 0)   # уже закрыли
+                self.assertEqual(got, [(sid, "Non-Farm Employment Change", 29)])
+                self.assertEqual(len(await db.open_signals()), 1)                     # обычный сигнал открыт
+                self.assertIsNotNone(await eng.prop_news(m(-30)))
+                self.assertIsNotNone(await eng.prop_news(m(14)))                      # пауза выхода
+                self.assertIsNone(await eng.prop_news(m(15)))
+                self.assertIsNone(await eng.prop_news(m(-31)))
+                self.assertIsNone(await eng.prop_news(t0 + pd.Timedelta(days=6, minutes=-10)))  # пособия
+                await db.close()
+        run(go())
+
+
 class OppositeSignalTests(unittest.TestCase):
     def test_no_opposite_signal_while_trade_open(self):
         """Пока открыта сделка BUY, другая стратегия не даёт SELL (и наоборот); второй сигнал в ту же

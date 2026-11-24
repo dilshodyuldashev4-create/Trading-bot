@@ -232,7 +232,10 @@ class AutotradePartialTests(unittest.TestCase):
                 self.assertAlmostEqual(api.trades[-1][1]["takeProfit"], 2650.3 + 30)
                 self.assertEqual(await tr.partial_signal(6, 0.5), [])
                 self.assertEqual(await tr.close_signal(6, skip_prop=True), [])
-                self.assertEqual(len(await tr.close_signal(6)), 1)
+                self.assertEqual(len(await tr.close_signal(6, only_prop=True)), 1)   # перед NFP / CPI / ФРС
+                self.assertEqual(await tr.close_signal(6), [])
+                # скоро сильная новость: на проп-счёт сделка не открывается
+                self.assertEqual(await tr.open_signal(7, 1, 20, 60, skip_prop=True), [])
                 await db.close()
         run(go())
 

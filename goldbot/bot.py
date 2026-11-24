@@ -383,6 +383,9 @@ class App:
         self.engine.news_trade = self.news_trade_on  # торговля во время новостей (/newstrade)
         self.engine.news_event_bias = self.news.event_bias
         self.engine.news_hot_before, self.engine.news_hot_after = config.news_hot_before, config.news_hot_after
+        self.engine.prop_news_min = config.prop_news_close_min
+        self.engine.prop_news_re = re.compile(config.prop_news_titles, re.I) if config.prop_news_titles else None
+        self.engine.on_prop_news_close = self.prop_news_close
         self.autotrader: AutoTrader | None = None
         self.stars_cap = config.stars_invoice_max   # лимит ⭐ на один счёт; уменьшается, если Telegram отказал
         if config.metaapi_token:
@@ -628,6 +631,12 @@ class App:
         n = await self.broadcast([u for u in await self.db.all_user_ids() if u not in skip],
                                  lambda u: self.bot.send_message(u, text(norm(langs.get(u)))))
         log.info("news close #%s sent to %s users", s["id"], n)
+
+    async def prop_news_close(self, s: dict, price: float, ev: dict, mins: int) -> None:
+        """За PROP_NEWS_CLOSE_MIN минут до NFP / CPI / ФРС: проп-счета и проп-сигналы закрывают сделку по рынку,
+        обычные счета и сигнал остаются (reports/news_research.md)."""
+        self.spawn(self.autotrade_close(s["id"], only_prop=True))
+        await self.prop_signal_closed(s, "news", price)
 
     async def broadcast_close(self, s: dict, status: str, price: float) -> None:
         """Итог сигнала — всем участникам бота (подписчикам и тем, у кого доступ закончился)."""
@@ -1000,7 +1009,8 @@ class App:
             results = await self.autotrader.open_signal(s.id, s.direction, sl_d, tp_d,
                                                         strong=getattr(s, "strong", False),
                                                         prop_only=getattr(s, "prop_only", False),
-                                                        size=getattr(s, "size", 1.0))
+                                                        size=getattr(s, "size", 1.0),
+                                                        skip_prop=getattr(s, "prop_skip", False))
         except Exception:  # noqa: BLE001
             log.exception("autotrade open #%s", s.id)
             return
@@ -1034,11 +1044,12 @@ class App:
             counts[a["user_id"]] = counts.get(a["user_id"], 0) + 1
         return {u for u, n in counts.items() if n > 1}
 
-    async def autotrade_close(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False) -> None:
+    async def autotrade_close(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False,
+                              only_prop: bool = False) -> None:
         if not self.autotrader:
             return
         try:
-            results = await self.autotrader.close_signal(sid, uids, skip_prop=skip_prop)
+            results = await self.autotrader.close_signal(sid, uids, skip_prop=skip_prop, only_prop=only_prop)
         except Exception:  # noqa: BLE001
             log.exception("autotrade close #%s", sid)
             return
@@ -1345,6 +1356,9 @@ class App:
         После первого стопа проп-сигнала за день (по времени FundedNext) — до полуночи проп-сигналов нет."""
         subs = await self.ps_active_subs()
         if not subs:
+            return 0
+        if getattr(s, "prop_skip", False):
+            log.info("prop signal #%s skipped: strong US news soon", s.id)
             return 0
         if await self.ps_day_stopped():
             log.info("prop signal #%s skipped: prop day stopped after a stop loss", s.id)

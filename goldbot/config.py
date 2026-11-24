@@ -104,6 +104,10 @@ class Config:
     # и в этом режиме не входить за NEWS_HOT_BEFORE минут до выхода новости и NEWS_HOT_AFTER минут после
     news_hot_before: int = int(os.getenv("NEWS_HOT_BEFORE", "10"))
     news_hot_after: int = int(os.getenv("NEWS_HOT_AFTER", "15"))
+    # проп-счета: за столько минут до NFP, CPI и решения ФРС закрыть их сделки и не входить до конца паузы
+    # выхода новости (reports/news_research.md; 0 — выкл.). Какие новости — шаблон по названию в календаре
+    prop_news_close_min: int = int(os.getenv("PROP_NEWS_CLOSE_MIN", "30"))
+    prop_news_titles: str = os.getenv("PROP_NEWS_TITLES", r"non-farm|\bcpi\b|federal funds rate|fomc statement")
     # утренний разбор рынка в это местное время (пн–пт); пусто — выключен
     morning_review: str = os.getenv("MORNING_REVIEW", "08:00")
     # итоги недели всем в воскресенье в это местное время; пусто — выключено

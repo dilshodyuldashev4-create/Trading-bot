@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import re
 import logging
 import time
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class NewSignal:
     part: float = 0               # какая доля позиции закрывается на tp1
     prop_only: bool = False       # только для проп-счетов (пробой при сильном разгоне рынка, ADX)
     size: float = 1.0             # множитель лота на обычных счетах и в сигнале (согласие стратегий)
+    prop_skip: bool = False       # скоро NFP / CPI / ФРС: на проп-счета и в проп-сигналы не идёт
 
     @property
     def text(self) -> str:
@@ -189,6 +191,12 @@ class SignalEngine:
         # и после неё рынок дёргает в обе стороны и выбивает стопы (0 и 0 — входить и в момент выхода)
         self.news_hot_before = 10
         self.news_hot_after = 15
+        # проп-счета: за prop_news_min минут до самых сильных новостей (NFP, CPI, ФРС) закрыть их сделки
+        # и не открывать новые до конца паузы выхода новости (reports/news_research.md; 0 — выкл.)
+        self.prop_news_min = 0
+        self.prop_news_re: Optional[re.Pattern] = None
+        self.on_prop_news_close: Optional[Callable[[dict, float, dict, int], Awaitable[None]]] = None
+        self._prop_news_done: set[tuple[int, str]] = set()
         # стоп/тейк по волатильности: множители ATR(14) таймфрейма стратегии (0 — фиксированные пипсы)
         self.sl_atr = self.tp_atr = 0.0
         self.sl_min_pips = 50.0
@@ -386,6 +394,56 @@ class SignalEngine:
                 return e
         return None
 
+    async def prop_news(self, now: pd.Timestamp) -> dict | None:
+        """Самая сильная новость США (NFP, CPI, ФРС) выйдет в ближайшие prop_news_min минут
+        или вышла меньше news_hot_after минут назад — время, когда проп-счёт не держит сделок."""
+        if self.prop_news_min <= 0 or self.prop_news_re is None:
+            return None
+        try:
+            events = await self.db.events_between(
+                (now - pd.Timedelta(minutes=self.news_hot_after)).to_pydatetime(),
+                (now + pd.Timedelta(minutes=self.prop_news_min)).to_pydatetime())
+        except Exception:  # noqa: BLE001
+            log.exception("prop news check")
+            return None
+        for e in events:
+            if e.get("country") != "USD" or e.get("impact") not in self.news_pause_impact:
+                continue
+            if not self.prop_news_re.search(e.get("title") or ""):
+                continue
+            ts = pd.Timestamp(e["ts"])
+            ts = ts if ts.tzinfo else ts.tz_localize("UTC")
+            if now - pd.Timedelta(minutes=self.news_hot_after) < ts:
+                return e
+        return None
+
+    async def prop_news_close_check(self, now: pd.Timestamp, price: float) -> int:
+        """За prop_news_min минут до NFP / CPI / ФРС закрывает проп-часть открытых сделок (один раз на сделку).
+        Обычные счета и сигнал подписчикам не трогаем: им закрытие перед новостью на истории не помогло."""
+        if self.on_prop_news_close is None:
+            return 0
+        ev = await self.prop_news(now)
+        if ev is None:
+            return 0
+        ts = pd.Timestamp(ev["ts"])
+        ts = ts if ts.tzinfo else ts.tz_localize("UTC")
+        if ts < now:
+            return 0  # новость уже вышла — закрывать поздно
+        mins = max(1, int((ts - now).total_seconds() // 60))
+        n = 0
+        for s in await self.db.open_signals():
+            key = (s["id"], str(ev.get("key") or ev.get("ts")))
+            if key in self._prop_news_done:
+                continue
+            self._prop_news_done.add(key)
+            log.info("prop part of #%s closed before news %s at %.2f", s["id"], ev.get("title"), price)
+            try:
+                await self.on_prop_news_close(s, price, ev, mins)
+            except Exception:  # noqa: BLE001
+                log.exception("prop news close #%s", s["id"])
+            n += 1
+        return n
+
     async def news_close_check(self, now: pd.Timestamp, price: float) -> int:
         """За news_close_min минут до важной новости США закрывает открытые сделки по рынку и сообщает всем."""
         if self.news_close_min <= 0 or self.on_news_close is None:
@@ -502,6 +560,7 @@ class SignalEngine:
             except Exception:  # noqa: BLE001
                 log.exception("on_price")
         await self.news_close_check(now, price)
+        await self.prop_news_close_check(now, price)
 
         opened = await self.db.open_signals()
         open_keys = {s["strategy"] for s in opened}
@@ -596,6 +655,10 @@ class SignalEngine:
         d = raw
         if d == 0:
             return None
+        prop_skip = await self.prop_news(now) is not None
+        if prop_only and prop_skip:
+            log.info("signal skipped (%s): prop only, strong US news soon", st.key)
+            return None
         if prop_only and not (self.has_prop and await self.has_prop()):
             log.info("signal skipped (%s): ADX %.0f ≥ %g, no prop accounts", st.key, self.last_adx, self.adx_max)
             return None
@@ -654,7 +717,7 @@ class SignalEngine:
                        lambda **kw: render_signal(df, d, entry, sl, kw.pop("tp", tp), title, tz=self.tz,
                                                   **{"tp1": tp1, **kw}), sl_p, tp_p,
                        strong=side == d and strength == "strong", tp1=tp1, tp1_pips=tp1_p, part=part,
-                       prop_only=prop_only, size=size)
+                       prop_only=prop_only, size=size, prop_skip=prop_skip)
         await self.on_signal(ns)
         return ns
 

@@ -567,16 +567,18 @@ class AutoTrader:
 
     async def open_signal(self, sid: int, direction: int, sl_dist: float, tp_dist: float,
                           uids: set[int] | None = None, strong: bool = False, prop_only: bool = False,
-                          size: float = 1.0) -> list[OpenResult]:
+                          size: float = 1.0, skip_prop: bool = False) -> list[OpenResult]:
         """Открывает сделку по сигналу на всех включённых счетах (uids — только у этих подписчиков).
         strong — сильный сигнал: на проп-счетах риск prop_strong_risk_pct вместо prop_risk_pct.
-        prop_only — только на проп-счетах; size — множитель риска на обычных счетах (согласие стратегий)."""
+        prop_only — только на проп-счетах; size — множитель риска на обычных счетах (согласие стратегий);
+        skip_prop — кроме проп-счетов (скоро NFP / CPI / ФРС)."""
         if await self.db.get_kv("autotrade_off") == "1":
             return []
         accounts = [a for a in await self.db.trade_accounts(enabled_only=True, exempt=self.exempt)
                     if (uids is None or a["user_id"] in uids)
                     and not self.price_only(a)
                     and (a.get("prop_plan") or not prop_only)
+                    and not (a.get("prop_plan") and skip_prop)
                     and not (a.get("prop_plan") and a.get("prop_halt"))]  # проп-счёт у лимита — не торгуем
         sem = asyncio.Semaphore(self.concurrency)
 
@@ -1107,12 +1109,15 @@ class AutoTrader:
     async def _prop_ids(self) -> set[int]:
         return {a["id"] for a in await self.db.trade_accounts() if a.get("prop_plan")}
 
-    async def close_signal(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False) -> list[CloseResult]:
+    async def close_signal(self, sid: int, uids: set[int] | None = None, skip_prop: bool = False,
+                           only_prop: bool = False) -> list[CloseResult]:
         """Закрывает по рынку всё, что ещё открыто по сигналу (uids — только у этих подписчиков;
-        skip_prop — кроме проп-счетов: безубыток и разворот их не касаются, у них свои SL/TP у брокера)."""
-        prop = await self._prop_ids() if skip_prop and not self.prop_partial else set()
+        skip_prop — кроме проп-счетов: безубыток и разворот их не касаются, у них свои SL/TP у брокера;
+        only_prop — только проп-счета: перед NFP / CPI / ФРС)."""
+        prop = await self._prop_ids() if (skip_prop and not self.prop_partial) or only_prop else set()
         trades = [tr for tr in await self.db.auto_trades(sid, status="open")
-                  if (uids is None or tr["user_id"] in uids) and tr["account_id"] not in prop]
+                  if (uids is None or tr["user_id"] in uids)
+                  and ((tr["account_id"] in prop) if only_prop else (tr["account_id"] not in prop))]
         sem = asyncio.Semaphore(self.concurrency)
 
         async def one(tr: dict) -> CloseResult:
