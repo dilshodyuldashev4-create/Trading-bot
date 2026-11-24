@@ -233,3 +233,21 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MenuButtonTests(unittest.TestCase):
+    def test_app_button_first_in_menu_all_langs(self):
+        for lang in ("ru", "en", "uz"):
+            kb = botmod.menu(lang)
+            first = kb.keyboard[0][0].text
+            self.assertEqual(first, botmod.t(lang, "btn_app_menu"))
+            self.assertIn(first, botmod.MENU_TEXTS)   # нажатие не попадёт во ввод капитала/баланса
+
+    def test_inline_button_uses_current_url(self):
+        app = botmod.App.__new__(botmod.App)
+        app.webapp = None
+        self.assertIsNone(app.app_button("ru"))
+        app.webapp = wa.WebApp.__new__(wa.WebApp)
+        app.webapp.url = "https://abc.trycloudflare.com"
+        btn = app.app_button("uz")
+        self.assertEqual(btn.web_app.url, "https://abc.trycloudflare.com")
