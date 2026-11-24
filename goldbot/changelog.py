@@ -24,6 +24,21 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-24.1",
+        "ru": [
+            "📊 Новая стратегия: пересечение адаптивной средней KAMA на H4 по дневному тренду. "
+            "На истории 2023–2026 прибыль бота выросла с +583 % до +613 %",
+        ],
+        "en": [
+            "📊 New strategy: KAMA adaptive moving average cross on H4 with the daily trend. "
+            "On 2023–2026 history the bot's profit grew from +583% to +613%",
+        ],
+        "uz": [
+            "📊 Yangi strategiya: kunlik trend boʻyicha H4 da KAMA moslashuvchan oʻrtachasi kesishishi. "
+            "2023–2026 tarixida bot foydasi +583 % dan +613 % gacha oshdi",
+        ],
+    },
+    {
         "version": "2026-11-18.2",
         "ru": [
             "📊 Новая стратегия: пробой максимума или минимума последних 5 дней по дневному тренду. "

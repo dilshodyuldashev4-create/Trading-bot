@@ -155,3 +155,22 @@ class NewStrategiesTests(unittest.TestCase):
         self.assertEqual(sig[6 * 96 + 40], 1)
         self.assertIn("days5", PORTFOLIO)
         self.assertTrue(STRATEGIES["days5"].daily_trend)
+
+    def test_kama_h4_signal_on_h4_close_only(self):
+        from goldbot.live_strategy import PORTFOLIO, STRATEGIES
+        from goldbot.strategies.popular import kama_h4
+        # 10 дней боковика, затем рост: BUY на свече M15, которой закрывается H4 (xx:45 при H4 с 00:00 UTC)
+        prices = [100.0 + 0.3 * ((i // 4) % 2) for i in range(10 * 96)] + [100.0 + 0.05 * i for i in range(96)]
+        df = make_df(prices, start="2025-01-06 00:00")
+        sig = kama_h4(df)
+        hits = np.flatnonzero(sig == 1)
+        self.assertTrue(len(hits) >= 1)
+        last = hits[-1]
+        self.assertEqual(df.index[last].hour % 4, 3)
+        self.assertEqual(df.index[last].minute, 45)
+        # пока H4 не закрылась, сигнала нет
+        for k in range(1, 4):
+            self.assertEqual(kama_h4(df.iloc[:last + 1 - k])[-1], 0)
+        self.assertEqual(kama_h4(df.iloc[:last + 1])[-1], 1)
+        self.assertIn("kama_h4", PORTFOLIO)
+        self.assertTrue(STRATEGIES["kama_h4"].daily_trend)
