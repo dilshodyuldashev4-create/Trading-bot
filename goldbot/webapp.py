@@ -185,8 +185,8 @@ class WebApp:
         uid = tg["id"]
         db = self.app.db
         u = await db.get_user(uid)
-        if not u:   # открыл приложение раньше, чем бота: заводим как по /start (пробный период)
-            await db.add_user(uid, tg.get("username"), tg.get("first_name"), config.trial_days)
+        if not u:   # открыл приложение раньше, чем бота: заводим как по /start
+            await db.add_user(uid, tg.get("username"), tg.get("first_name"))
             code = (tg.get("language_code") or "").split("-")[0]
             await db.set_lang(uid, code if code in LANGS else "en" if code else "ru")
             u = await db.get_user(uid)
@@ -207,12 +207,6 @@ class WebApp:
         a, db = self.app, self.app.db
         lang = norm(u.get("lang"))
         admin = a.is_admin(uid)
-        if db.is_paid(u):
-            sub = {"kind": "paid", "until": u["paid_until"]}
-        elif db.has_access(u):
-            sub = {"kind": "trial", "until": u["trial_until"]}
-        else:
-            sub = {"kind": "expired", "until": None}
         cap = u.get("capital")
         from .bot import lot_plan  # noqa: PLC0415 — bot импортирует этот модуль
         lot = lot_plan(cap) if cap else None
@@ -242,7 +236,7 @@ class WebApp:
                      "photo": u["tg"].get("photo_url"), "admin": admin, "capital": cap,
                      "lot": lot["lot"] if lot else None, "lot_loss": lot["loss"] if lot else None,
                      "lot_profit": lot["profit"] if lot else None},
-            "sub": {**sub, "stars": config.sub_price_stars, "days": config.sub_days},
+            "sub": {"kind": "free"},   # сигналы бесплатные; платная только автоторговля
             "auto": {"enabled": bool(a.autotrader), "usd": config.autotrade_month_usd, "days": days, "stars": stars,
                      "month_stars": month_stars, "credits": await db.credits(uid) if a.autotrader else 0},
             "market": self.market(open_sig),
@@ -348,12 +342,6 @@ class WebApp:
         a = self.app
         lang = norm(u.get("lang"))
         kind = body.get("kind")
-        if kind == "sub":
-            link = await a.bot.create_invoice_link(
-                title=t(lang, "inv_title", days=config.sub_days), description=t(lang, "inv_desc"), payload="sub",
-                currency="XTR", prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days),
-                                                     amount=config.sub_price_stars)])
-            return web.json_response({"link": link})
         if kind == "auto" and a.autotrader and not a.is_admin(uid):
             aid = body.get("id")
             acc = await a.db.get_account(aid) if isinstance(aid, int) else None

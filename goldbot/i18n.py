@@ -49,15 +49,11 @@ TEXTS: dict[str, dict[str, str]] = {
                   "• 📰 <b>Фундаментальные новости</b> — коротко, как новости влияют на золото и доллар\n"
                   "• 🗓 <b>Календарь новостей</b> — CPI, NFP, FOMC: время и влияние\n\n"),
         "trader": "трейдер",
-        "trial_new": "🎁 Вам открыт <b>бесплатный доступ на {days} дн.</b>: сигналы будут приходить автоматически.",
+        "free_new": "✅ <b>Сигналы бесплатные</b> и будут приходить автоматически.",
+        "st_free": "✅ Сигналы бесплатные и приходят автоматически",
+        "sub_free": "✅ <b>Сигналы теперь бесплатные</b> для всех — подписка не нужна, они приходят автоматически.\nПлатная только 🤖 Автоторговля.",
         "st_start": "Нажмите /start",
-        "st_paid": "💎 Подписка активна до {until}",
-        "st_trial": "🎁 Бесплатный период до {until}",
-        "st_expired": "⛔️ Бесплатный период закончился. Оформите подписку, чтобы получать сигналы.",
-        "inv_title": "Подписка на сигналы XAUUSD — {days} дней",
-        "inv_desc": "Автоматические сигналы по золоту с графиком, входом, SL и TP.",
         "inv_label": "{days} дней",
-        "sig_expired": "⛔️ Бесплатный период закончился. Сигналы доступны по подписке.",
         "analyzing": "🔎 Анализирую рынок…",
         "quotes_fail": "Не удалось получить котировки, попробуйте через минуту.",
         "price_now": "\n\n💰 Цена сейчас: <b>{price}</b>",
@@ -65,7 +61,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "analysis_head": "📊 <b>Анализ XAUUSD</b>",
         "news_wait": "⏳ Собираю свежие новости…",
         "news_fail": "Не удалось загрузить новости, попробуйте позже.",
-        "sub_price": "Подписка: <b>{price} ⭐</b> за {days} дней.",
         "profile": "🆔 {id}\n{status}\n🌐 Язык: {language}",
         "ask_capital": ("💰 <b>Какой у вас капитал (депозит) для торговли?</b>\n\n"
                         "Выберите кнопку или напишите сумму в долларах, например <code>150</code>. "
@@ -94,11 +89,10 @@ TEXTS: dict[str, dict[str, str]] = {
                  "Кто уже в сделке, держите по плану: стоп и тейк те же."),
         "close_balance": ("\n\n💼 Ваш лот {lot}: <b>{pnl}</b>\n💰 Ваш баланс теперь: <b>${bal}</b>\n"
                           "<i>Если вы не открывали эту сделку, обновите капитал: /capital</i>"),
-        "paid_ok": "✅ Спасибо! Подписка активна до {until}.",
         "cancelled": "Отменено",
         'at_price': '💳 Стоимость автоторговли: <b>${usd} в месяц</b> (≈ {month_stars} ⭐).',
         'at_price_part': '\nОплата в Telegram Stars частями: <b>{stars} ⭐</b> (≈ ${usd}) за {days} дней.',
-        'at_pay': '🤖 <b>Автоторговля платная</b>, отдельно от подписки на сигналы.\nПосле оплаты бот сразу предложит подключить ваш счёт.',
+        'at_pay': '🤖 <b>Автоторговля платная</b> (сигналы при этом бесплатные).\nПосле оплаты бот сразу предложит подключить ваш счёт.',
         'inv_auto_title': 'Автоторговля XAUUSD — {days} дней',
         'inv_auto_desc': 'Бот сам открывает и закрывает сделки по сигналам на вашем счёте MetaTrader, со SL и TP.',
         'at_paid_ok': '✅ Автоторговля оплачена до <b>{until}</b>.',
@@ -145,7 +139,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_err_timeout': '❌ Терминал MetaApi не вошёл к брокеру за 10 минут (состояние: <code>{detail}</code>). Проверьте в MT5, что вход с этим логином, паролем и сервером проходит, и попробуйте ещё раз.',
         'at_err_other': '❌ Не удалось подключить счёт ({error}). Попробуйте позже.',
         'at_unavailable': '🤖 Автоторговля пока недоступна.',
-        'at_no_access': '⛔️ Автоторговля работает только при активной подписке.',
         'at_busy': '⏳ Счёт ещё подключается, подождите пару минут.',
         'at_none': '🤖 <b>Автоторговля</b>\n\nБот может сам открывать и закрывать сделки по сигналам на вашем счёте MetaTrader 4/5, со Stop Loss и Take Profit. Нужно только выбрать брокера и отправить логин и пароль.',
         'at_status': '🤖 <b>Автоторговля</b>\n\n🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Баланс: {balance}\n⚙️ Статус: {state}\n📦 Риск на сделку: {risk}%, максимум {max_lot} лота',
@@ -169,9 +162,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_e_money': 'недостаточно средств',
         'at_e_market': 'рынок у брокера закрыт',
         'at_e_conn': 'нет связи со счётом, проверьте пароль',
-        "granted": "🎁 Вам выдана подписка до {until}",
-        "trial_reminder": ("⏳ Бесплатный период заканчивается через час. "
-                           "Чтобы и дальше получать сигналы, оформите подписку: 💎 Подписка"),
         "close_tp": "✅ <b>Сигнал #{id} {side} закрыт по Take Profit</b>\n💰 Результат: <b>+{pips} пипсов</b>",
         "close_sl": "❌ <b>Сигнал #{id} {side} закрыт по Stop Loss</b>\n📉 Результат: −{pips} пипсов",
         "close_body": ("📍 Вход: {entry}\n🏁 Выход: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
@@ -204,7 +194,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_mfe_none": "📈 В плюс сделка не выходила",
         "close_mae": "📉 Максимальная просадка была: <b>−{pips} пипсов</b> (до {price})",
         "close_mae_none": "📉 Просадки почти не было",
-        "close_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Вход: <b>{entry}</b>\n"
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} пипсов)\n"
@@ -346,15 +335,11 @@ TEXTS: dict[str, dict[str, str]] = {
                   "• 📰 <b>Fundamental news</b> — in short, how the news affects gold and the dollar\n"
                   "• 🗓 <b>News calendar</b> — CPI, NFP, FOMC: time and impact\n\n"),
         "trader": "trader",
-        "trial_new": "🎁 You've got <b>free access for {days} days</b>: signals will arrive automatically.",
+        "free_new": "✅ <b>Signals are free</b> and will arrive automatically.",
+        "st_free": "✅ Signals are free and arrive automatically",
+        "sub_free": "✅ <b>Signals are now free</b> for everyone — no subscription needed, they arrive automatically.\nOnly 🤖 Auto trading is paid.",
         "st_start": "Press /start",
-        "st_paid": "💎 Subscription active until {until}",
-        "st_trial": "🎁 Free trial until {until}",
-        "st_expired": "⛔️ Your free trial has ended. Subscribe to keep receiving signals.",
-        "inv_title": "XAUUSD signals subscription — {days} days",
-        "inv_desc": "Automatic gold signals with a chart, entry, SL and TP.",
         "inv_label": "{days} days",
-        "sig_expired": "⛔️ Your free trial has ended. Signals are available with a subscription.",
         "analyzing": "🔎 Analyzing the market…",
         "quotes_fail": "Couldn't get quotes, please try again in a minute.",
         "price_now": "\n\n💰 Current price: <b>{price}</b>",
@@ -362,7 +347,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "analysis_head": "📊 <b>XAUUSD analysis</b>",
         "news_wait": "⏳ Gathering the latest news…",
         "news_fail": "Couldn't load the news, please try later.",
-        "sub_price": "Subscription: <b>{price} ⭐</b> for {days} days.",
         "profile": "🆔 {id}\n{status}\n🌐 Language: {language}",
         "ask_capital": ("💰 <b>What is your trading capital (deposit)?</b>\n\n"
                         "Tap a button or type the amount in dollars, e.g. <code>150</code>. "
@@ -391,11 +375,10 @@ TEXTS: dict[str, dict[str, str]] = {
                  "If you're already in, keep to the plan: same stop and take profit."),
         "close_balance": ("\n\n💼 Your lot {lot}: <b>{pnl}</b>\n💰 Your balance now: <b>${bal}</b>\n"
                           "<i>If you didn't open this trade, update your capital: /capital</i>"),
-        "paid_ok": "✅ Thank you! Subscription active until {until}.",
         "cancelled": "Cancelled",
         'at_price': '💳 Auto trading price: <b>${usd} per month</b> (≈ {month_stars} ⭐).',
         'at_price_part': '\nPaid in Telegram Stars in parts: <b>{stars} ⭐</b> (≈ ${usd}) for {days} days.',
-        'at_pay': '🤖 <b>Auto trading is paid</b> separately from the signals subscription.\nRight after payment the bot will offer to connect your account.',
+        'at_pay': '🤖 <b>Auto trading is paid</b> (signals stay free).\nRight after payment the bot will offer to connect your account.',
         'inv_auto_title': 'XAUUSD auto trading — {days} days',
         'inv_auto_desc': 'The bot opens and closes trades on its signals in your MetaTrader account, with SL and TP.',
         'at_paid_ok': '✅ Auto trading is paid until <b>{until}</b>.',
@@ -442,7 +425,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_err_timeout': '❌ The MetaApi terminal did not log in to the broker within 10 minutes (state: <code>{detail}</code>). Check in MT5 that this login, password and server work, then try again.',
         'at_err_other': '❌ Could not connect the account ({error}). Please try later.',
         'at_unavailable': '🤖 Auto trading is not available yet.',
-        'at_no_access': '⛔️ Auto trading works only with an active subscription.',
         'at_busy': '⏳ The account is still connecting, please wait a couple of minutes.',
         'at_none': '🤖 <b>Auto trading</b>\n\nThe bot can open and close trades on its signals in your MetaTrader 4/5 account, with Stop Loss and Take Profit. You only need to choose your broker and send your login and password.',
         'at_status': '🤖 <b>Auto trading</b>\n\n🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Balance: {balance}\n⚙️ Status: {state}\n📦 Risk per trade: {risk}%, max {max_lot} lot',
@@ -466,9 +448,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_e_money': 'not enough money',
         'at_e_market': 'the market is closed at your broker',
         'at_e_conn': 'no connection to the account, check the password',
-        "granted": "🎁 You've been given a subscription until {until}",
-        "trial_reminder": ("⏳ Your free trial ends in one hour. "
-                           "To keep receiving signals, subscribe: 💎 Subscription"),
         "close_tp": "✅ <b>Signal #{id} {side} closed at Take Profit</b>\n💰 Result: <b>+{pips} pips</b>",
         "close_sl": "❌ <b>Signal #{id} {side} closed at Stop Loss</b>\n📉 Result: −{pips} pips",
         "close_body": ("📍 Entry: {entry}\n🏁 Exit: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
@@ -501,7 +480,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_mfe_none": "📈 The trade never went into profit",
         "close_mae": "📉 Max drawdown during the trade: <b>−{pips} pips</b> (down to {price})",
         "close_mae_none": "📉 Almost no drawdown",
-        "close_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Entry: <b>{entry}</b>\n"
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
@@ -644,15 +622,11 @@ TEXTS: dict[str, dict[str, str]] = {
                   "• 📰 <b>Fundamental yangiliklar</b> — yangiliklar oltin va dollarga qanday taʼsir qilishi, qisqacha\n"
                   "• 🗓 <b>Yangiliklar taqvimi</b> — CPI, NFP, FOMC: vaqti va taʼsiri\n\n"),
         "trader": "treyder",
-        "trial_new": "🎁 Sizga <b>{days} kunlik bepul kirish</b> ochildi: signallar avtomatik keladi.",
+        "free_new": "✅ <b>Signallar bepul</b> va avtomatik keladi.",
+        "st_free": "✅ Signallar bepul va avtomatik keladi",
+        "sub_free": "✅ <b>Signallar endi hamma uchun bepul</b> — obuna kerak emas, ular avtomatik keladi.\nFaqat 🤖 Avtosavdo pullik.",
         "st_start": "/start ni bosing",
-        "st_paid": "💎 Obuna {until} gacha faol",
-        "st_trial": "🎁 Bepul davr {until} gacha",
-        "st_expired": "⛔️ Bepul davr tugadi. Signallarni olish uchun obuna boʻling.",
-        "inv_title": "XAUUSD signallariga obuna — {days} kun",
-        "inv_desc": "Oltin boʻyicha avtomatik signallar: grafik, kirish, SL va TP bilan.",
         "inv_label": "{days} kun",
-        "sig_expired": "⛔️ Bepul davr tugadi. Signallar faqat obuna orqali.",
         "analyzing": "🔎 Bozorni tahlil qilyapman…",
         "quotes_fail": "Narxlarni olib boʻlmadi, bir daqiqadan soʻng qayta urinib koʻring.",
         "price_now": "\n\n💰 Hozirgi narx: <b>{price}</b>",
@@ -660,7 +634,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "analysis_head": "📊 <b>XAUUSD tahlili</b>",
         "news_wait": "⏳ Soʻnggi yangiliklarni yigʻyapman…",
         "news_fail": "Yangiliklarni yuklab boʻlmadi, keyinroq urinib koʻring.",
-        "sub_price": "Obuna: {days} kun uchun <b>{price} ⭐</b>.",
         "profile": "🆔 {id}\n{status}\n🌐 Til: {language}",
         "ask_capital": ("💰 <b>Savdo uchun kapitalingiz (depozit) qancha?</b>\n\n"
                         "Tugmani tanlang yoki summani dollarda yozing, masalan <code>150</code>. "
@@ -689,11 +662,10 @@ TEXTS: dict[str, dict[str, str]] = {
                  "Savdoda boʻlsangiz, reja boʻyicha ushlab turing: stop va teyk oʻsha."),
         "close_balance": ("\n\n💼 Lotingiz {lot}: <b>{pnl}</b>\n💰 Balansingiz endi: <b>${bal}</b>\n"
                           "<i>Agar bu savdoni ochmagan boʻlsangiz, kapitalni yangilang: /capital</i>"),
-        "paid_ok": "✅ Rahmat! Obuna {until} gacha faol.",
         "cancelled": "Bekor qilindi",
         'at_price': '💳 Avtosavdo narxi: <b>oyiga ${usd}</b> (≈ {month_stars} ⭐).',
         'at_price_part': '\nTelegram Stars bilan qismlarga boʻlib toʻlanadi: <b>{stars} ⭐</b> (≈ ${usd}) — {days} kunga.',
-        'at_pay': '🤖 <b>Avtosavdo pullik</b>, signallar obunasidan alohida.\nToʻlovdan soʻng bot darhol hisobingizni ulashni taklif qiladi.',
+        'at_pay': '🤖 <b>Avtosavdo pullik</b> (signallar esa bepul).\nToʻlovdan soʻng bot darhol hisobingizni ulashni taklif qiladi.',
         'inv_auto_title': 'XAUUSD avtosavdo — {days} kun',
         'inv_auto_desc': 'Bot MetaTrader hisobingizda signallar boʻyicha SL va TP bilan oʻzi savdo ochadi va yopadi.',
         'at_paid_ok': '✅ Avtosavdo <b>{until}</b> gacha toʻlangan.',
@@ -740,7 +712,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_err_timeout': '❌ MetaApi terminali 10 daqiqada brokerga kira olmadi (holat: <code>{detail}</code>). MT5 da shu login, parol va server bilan kirish ishlashini tekshiring va qayta urinib koʻring.',
         'at_err_other': '❌ Hisobni ulab boʻlmadi ({error}). Keyinroq urinib koʻring.',
         'at_unavailable': '🤖 Avtosavdo hozircha mavjud emas.',
-        'at_no_access': '⛔️ Avtosavdo faqat faol obuna bilan ishlaydi.',
         'at_busy': '⏳ Hisob hali ulanmoqda, bir-ikki daqiqa kuting.',
         'at_none': '🤖 <b>Avtosavdo</b>\n\nBot signallar boʻyicha MetaTrader 4/5 hisobingizda Stop Loss va Take Profit bilan oʻzi savdo ochib-yopishi mumkin. Faqat brokerni tanlab, login va parolni yuborasiz.',
         'at_status': '🤖 <b>Avtosavdo</b>\n\n🏦 {broker}\n🔢 {login} · {server} {kind}\n💰 Balans: {balance}\n⚙️ Holat: {state}\n📦 Bitta savdoga xavf: {risk}%, maksimum {max_lot} lot',
@@ -764,9 +735,6 @@ TEXTS: dict[str, dict[str, str]] = {
         'at_e_money': 'mablagʻ yetarli emas',
         'at_e_market': 'brokerda bozor yopiq',
         'at_e_conn': 'hisob bilan aloqa yoʻq, parolni tekshiring',
-        "granted": "🎁 Sizga {until} gacha obuna berildi",
-        "trial_reminder": ("⏳ Bepul davr bir soatdan keyin tugaydi. "
-                           "Signallarni olishda davom etish uchun obuna boʻling: 💎 Obuna"),
         "close_tp": "✅ <b>Signal #{id} {side} Take Profit boʻyicha yopildi</b>\n💰 Natija: <b>+{pips} pips</b>",
         "close_sl": "❌ <b>Signal #{id} {side} Stop Loss boʻyicha yopildi</b>\n📉 Natija: −{pips} pips",
         "close_body": ("📍 Kirish: {entry}\n🏁 Chiqish: {exit}\n🛑 SL {sl} · 🎯 TP {tp}\n\n"
@@ -799,7 +767,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "close_mfe_none": "📈 Savdo foydaga chiqmadi",
         "close_mae": "📉 Eng katta pasayish: <b>−{pips} pips</b> ({price} gacha)",
         "close_mae_none": "📉 Deyarli pasayish boʻlmadi",
-        "close_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
         "signal": ("<b>{side} XAUUSD</b>\n\n"
                    "📍 Kirish: <b>{entry}</b>\n"
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
@@ -1155,7 +1122,6 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "weekly_best": "\n🏆 Лучшая сделка: #{id} {side}, <b>+{pips} пипсов</b>",
         "weekly_lot": "\n\n💼 Ваш результат по лотам из сигналов: <b>{pnl}</b>",
         "weekly_none": "📅 <b>Итоги недели {start} – {end}</b>\n\nНа этой неделе сигналов не было.",
-        "weekly_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
     },
     "en": {
         "sig_partial": ("💰 Take {pct}%: <b>{tp1}</b> ({tp1_pips} pips). Close {pct}% of the lot there "
@@ -1191,7 +1157,6 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "weekly_best": "\n🏆 Best trade: #{id} {side}, <b>+{pips} pips</b>",
         "weekly_lot": "\n\n💼 Your result with the lots from the signals: <b>{pnl}</b>",
         "weekly_none": "📅 <b>Weekly results {start} – {end}</b>\n\nThere were no signals this week.",
-        "weekly_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
     },
     "uz": {
         "sig_partial": ("💰 {pct}% foydani olish: <b>{tp1}</b> ({tp1_pips} pips). U yerda lotning {pct}% ini yoping "
@@ -1227,7 +1192,6 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "weekly_best": "\n🏆 Eng yaxshi bitim: #{id} {side}, <b>+{pips} pips</b>",
         "weekly_lot": "\n\n💼 Signallardagi lotlar boʻyicha natijangiz: <b>{pnl}</b>",
         "weekly_none": "📅 <b>Hafta natijalari {start} – {end}</b>\n\nBu hafta signallar boʻlmadi.",
-        "weekly_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
     },
 }
 for _lang, _texts in MANAGE_TEXTS.items():
@@ -1256,7 +1220,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "осталось {left}.\n\nНичего не трогайте руками: бот сам доведёт этап и соблюдёт лимиты."),
         "myfxbook_text": "✅ Независимая статистика реального счёта бота (Myfxbook): её нельзя подправить вручную.",
         "btn_myfxbook": "✅ Проверенная статистика",
-        "chan_cta": "\n\n🤖 Сигналы с лотом под ваш депозит и автоторговля: @{bot}",
+        "chan_cta": "\n\n🤖 Бесплатные сигналы с лотом под ваш депозит и автоторговля: @{bot}",
     },
     "en": {
         "sig_strong": "\n💪 <b>Strong signal</b>: two strategies agree, the lot is {x} times the usual",
@@ -1278,7 +1242,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "{left} to go.\n\nDon't trade by hand: the bot will finish the phase and keep the limits."),
         "myfxbook_text": "✅ Independent statistics of the bot's real account (Myfxbook): they can't be edited by hand.",
         "btn_myfxbook": "✅ Verified statistics",
-        "chan_cta": "\n\n🤖 Signals with a lot sized to your deposit, and auto-trading: @{bot}",
+        "chan_cta": "\n\n🤖 Free signals with a lot sized to your deposit, and auto-trading: @{bot}",
     },
     "uz": {
         "sig_strong": "\n💪 <b>Kuchli signal</b>: ikki strategiya bir xil, lot odatdagidan {x} baravar katta",
@@ -1300,7 +1264,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
                            "qoldi {left}.\n\nQoʻlda savdo qilmang: bot bosqichni oʻzi yakunlaydi va limitlarga rioya qiladi."),
         "myfxbook_text": "✅ Bot real hisobining mustaqil statistikasi (Myfxbook): uni qoʻlda oʻzgartirib boʻlmaydi.",
         "btn_myfxbook": "✅ Tasdiqlangan statistika",
-        "chan_cta": "\n\n🤖 Depozitingizga mos lotli signallar va avtosavdo: @{bot}",
+        "chan_cta": "\n\n🤖 Depozitingizga mos lotli bepul signallar va avtosavdo: @{bot}",
     },
 }
 for _lang, _texts in EXTRA_TEXTS.items():
@@ -1326,7 +1290,6 @@ DAILY_TEXTS: dict[str, dict[str, str]] = {
         "daily_more": "\n… и ещё {n} на картинке",
         "daily_none": "📊 <b>Итоги торгового дня {date}</b>\n\nСегодня рынок не дал сетапа: сделок не было, депозит в сохранности.",
         "daily_lot": "\n\n💼 Ваш результат за день по лотам из сигналов: <b>{pnl}</b>",
-        "daily_cta": "\n\n💎 Чтобы получать сигналы, оформите подписку: /subscribe",
     },
     "en": {
         "daily_head": ("📊 <b>Trading day results {date}</b>\n\n"
@@ -1346,7 +1309,6 @@ DAILY_TEXTS: dict[str, dict[str, str]] = {
         "daily_more": "\n… and {n} more on the picture",
         "daily_none": "📊 <b>Trading day results {date}</b>\n\nNo setup today: no trades, your deposit is safe.",
         "daily_lot": "\n\n💼 Your result today with the lots from the signals: <b>{pnl}</b>",
-        "daily_cta": "\n\n💎 To receive signals, subscribe: /subscribe",
     },
     "uz": {
         "daily_head": ("📊 <b>Savdo kuni natijalari {date}</b>\n\n"
@@ -1366,7 +1328,6 @@ DAILY_TEXTS: dict[str, dict[str, str]] = {
         "daily_more": "\n… yana {n} tasi rasmda",
         "daily_none": "📊 <b>Savdo kuni natijalari {date}</b>\n\nBugun setap boʻlmadi: bitim yoʻq, depozitingiz butun.",
         "daily_lot": "\n\n💼 Signallardagi lotlar boʻyicha bugungi natijangiz: <b>{pnl}</b>",
-        "daily_cta": "\n\n💎 Signallarni olish uchun obuna boʻling: /subscribe",
     },
 }
 for _lang, _texts in DAILY_TEXTS.items():
@@ -1398,7 +1359,6 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "ps_saved": "✅ <b>Анкета сохранена.</b> Проп-сигналы будут приходить сами.\n{mode}\n\n",
         "ps_mode_only": "🔕 Обычные сигналы отключены: приходят только проп-сигналы.",
         "ps_mode_both": "🔔 Приходят и обычные сигналы, и проп-сигналы.",
-        "ps_noaccess": "\n\n⛔️ Сигналы приходят при активной подписке: /subscribe",
         "btn_ps_balance": "✏️ Обновить баланс",
         "btn_ps_edit": "📝 Изменить счёт или этап",
         "btn_ps_only_on": "🔕 Только проп-сигналы",
@@ -1468,7 +1428,6 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "ps_saved": "✅ <b>Form saved.</b> Prop signals will arrive automatically.\n{mode}\n\n",
         "ps_mode_only": "🔕 Regular signals are off: you get only prop signals.",
         "ps_mode_both": "🔔 You get both regular and prop signals.",
-        "ps_noaccess": "\n\n⛔️ Signals arrive with an active subscription: /subscribe",
         "btn_ps_balance": "✏️ Update balance",
         "btn_ps_edit": "📝 Change account or stage",
         "btn_ps_only_on": "🔕 Prop signals only",
@@ -1538,7 +1497,6 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "ps_saved": "✅ <b>Anketa saqlandi.</b> Prop-signallar oʻzi keladi.\n{mode}\n\n",
         "ps_mode_only": "🔕 Oddiy signallar oʻchirildi: faqat prop-signallar keladi.",
         "ps_mode_both": "🔔 Oddiy signallar ham, prop-signallar ham keladi.",
-        "ps_noaccess": "\n\n⛔️ Signallar faol obunada keladi: /subscribe",
         "btn_ps_balance": "✏️ Balansni yangilash",
         "btn_ps_edit": "📝 Hisob yoki bosqichni oʻzgartirish",
         "btn_ps_only_on": "🔕 Faqat prop-signallar",

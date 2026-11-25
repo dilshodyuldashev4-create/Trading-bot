@@ -84,9 +84,7 @@ class Config:
     lot_risk_pct: float = float(os.getenv("LOT_RISK_PCT", "1"))
 
     # подписка
-    trial_days: int = int(os.getenv("TRIAL_DAYS", "3"))
-    sub_days: int = int(os.getenv("SUB_DAYS", "30"))
-    sub_price_stars: int = int(os.getenv("SUB_PRICE_STARS", "500"))
+    # сигналы бесплатные для всех; TRIAL_DAYS / SUB_DAYS / SUB_PRICE_STARS больше не действуют
 
     # пауза сигналов вокруг важных новостей США (минуты до и после; 0 — выключено)
     news_pause_min: int = int(os.getenv("NEWS_PAUSE_MIN", "30"))

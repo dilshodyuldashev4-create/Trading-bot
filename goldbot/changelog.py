@@ -24,6 +24,24 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-25.4",
+        "ru": [
+            "🎉 Сигналы теперь бесплатные для всех и навсегда: никакого пробного периода и подписки. Сигналы, "
+            "проп-сигналы, итоги сделок, отчёты и новости приходят автоматически",
+            "🤖 Платной осталась только автоторговля",
+        ],
+        "en": [
+            "🎉 Signals are now free for everyone, for good: no trial and no subscription. Signals, prop signals, "
+            "trade results, reports and news arrive automatically",
+            "🤖 Only auto trading remains paid",
+        ],
+        "uz": [
+            "🎉 Signallar endi hamma uchun butunlay bepul: sinov davri ham, obuna ham yoʻq. Signallar, prop-signallar, "
+            "bitim natijalari, hisobotlar va yangiliklar avtomatik keladi",
+            "🤖 Faqat avtosavdo pullik boʻlib qoldi",
+        ],
+    },
+    {
         "version": "2026-11-25.3",
         "ru": [
             "📰 Проп-счета перед самыми сильными новостями США (зарплаты NFP, инфляция CPI, ставка ФРС): за 30 минут "
