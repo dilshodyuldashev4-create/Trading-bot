@@ -69,7 +69,7 @@ class FlowTests(unittest.TestCase):
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
                 for uid in (1, 2, 3):
-                    await db.add_user(uid, "u", "U", 3)
+                    await db.add_user(uid, "u", "U")
                     await db.set_lang(uid, "ru")
                 await db.save_prop_sub(1, "2step", "phase1", 10_000)
                 await db.update_prop_sub(1, only_prop=1)          # только проп-сигналы
@@ -127,7 +127,7 @@ class FlowTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, "u", "U", 3)
+                await db.add_user(1, "u", "U")
                 await db.set_lang(1, "en")
                 await db.save_prop_sub(1, "lite", "phase1", 10_000)
                 await db.update_prop_sub(1, balance=10_790.0, days=5)
@@ -148,7 +148,7 @@ class FlowTests(unittest.TestCase):
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
                 for uid in (1, 2):
-                    await db.add_user(uid, "u", "U", 3)
+                    await db.add_user(uid, "u", "U")
                 await db.save_prop_sub(1, "2step", "phase1", 10_000)
                 await db.update_prop_sub(1, only_prop=1)
                 app = make_app(db)

@@ -1,4 +1,4 @@
-"""Telegram-бот: меню, подписка (Telegram Stars), пробный период, админ-панель, рассылка сигналов."""
+"""Telegram-бот: меню, бесплатные сигналы, платная автоторговля (Telegram Stars), админ-панель, рассылка."""
 from __future__ import annotations
 
 import asyncio
@@ -55,7 +55,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats"), b("btn_propsig")],
-        [b("btn_sub"), b("btn_profile")],
+        [b("btn_profile")],
         *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
 
@@ -75,7 +75,7 @@ ADMIN_KB = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="👥 Подписчики (CSV)", callback_data="adm:export"),
      InlineKeyboardButton(text="🧾 Последние сигналы", callback_data="adm:signals")],
     [InlineKeyboardButton(text="📢 Telegram-канал", callback_data="adm:channel")],
-    [InlineKeyboardButton(text="🎁 Выдать / забрать подписку", callback_data="adm:granthelp")],
+    [InlineKeyboardButton(text="🧰 Команды админа", callback_data="adm:granthelp")],
     [InlineKeyboardButton(text="🆕 Обновление: отправить всем", callback_data="adm:release")],
 ])
 
@@ -679,7 +679,6 @@ class App:
                                       tp1=s.get("tp1"))
             except Exception:  # noqa: BLE001
                 log.exception("close chart")
-        active = set(await self.db.active_user_ids())
         langs = await self.db.user_langs()
 
         # у кого был лот в этом сигнале — пересчитываем баланс и пишем результат в $
@@ -705,8 +704,6 @@ class App:
         def make(u: int):
             lang = norm(langs.get(u))
             body = text(lang) + balance_text(lang, u)
-            if u not in active:
-                body += t(lang, "close_cta")
             reply = reply_to(cards.get(u))   # итог — ответом на карточку сигнала
             if image:
                 return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body,
@@ -872,21 +869,8 @@ class App:
         return uid in config.admin_ids
 
     async def sub_status(self, uid: int, lang: str) -> str:
-        u = await self.db.get_user(uid)
-        if not u:
-            return t(lang, "st_start")
-        if self.db.is_paid(u):
-            return t(lang, "st_paid", until=self.fmt_dt(u["paid_until"]))
-        if self.db.has_access(u):
-            return t(lang, "st_trial", until=self.fmt_dt(u["trial_until"]))
-        return t(lang, "st_expired")
-
-    async def send_invoice(self, chat_id: int, lang: str) -> None:
-        await self.bot.send_invoice(
-            chat_id, title=t(lang, "inv_title", days=config.sub_days),
-            description=t(lang, "inv_desc"),
-            payload="sub", currency="XTR", provider_token="",
-            prices=[LabeledPrice(label=t(lang, "inv_label", days=config.sub_days), amount=config.sub_price_stars)])
+        """Сигналы бесплатные для всех — подписки и пробного периода нет."""
+        return t(lang, "st_free") if await self.db.get_user(uid) else t(lang, "st_start")
 
     def at_plan(self) -> tuple[int, int, int]:
         """(дней за одну оплату, ⭐ за них, ⭐ за 30 дней) — по цене AUTOTRADE_MONTH_USD в месяц."""
@@ -951,7 +935,7 @@ class App:
     async def send_hello(self, chat_id: int, uid: int, first_name: str | None, lang: str, new: bool) -> None:
         hello = t(lang, "hello", name=html.escape(first_name or t(lang, "trader")))
         if new:
-            hello += t(lang, "trial_new", days=config.trial_days)
+            hello += t(lang, "free_new")
         else:
             hello += await self.sub_status(uid, lang)
         await self.bot.send_message(chat_id, hello, reply_markup=menu(lang))
@@ -1285,7 +1269,7 @@ class App:
                 "max_trade": config.prop_max_trade_pct, "dd_pct": config.prop_dd_pct, "dd_mult": config.prop_dd_mult}
 
     async def ps_active_subs(self) -> list[dict]:
-        """Подписчики проп-сигналов с включённым потоком и активной подпиской."""
+        """Подписчики проп-сигналов с включённым потоком (кто не заблокировал бота)."""
         subs = await self.db.prop_subs()
         if not subs:
             return []
@@ -1345,10 +1329,8 @@ class App:
                 inline_keyboard=[[_btn(t(lang, "btn_ps_start"), "ps:start")]]))
             return
         sub = await self.ps_roll(sub)
-        u = await self.db.get_user(uid) or {}
         text = (head + await self.ps_status(sub, lang) + "\n\n"
-                + t(lang, "ps_mode_only" if sub.get("only_prop") else "ps_mode_both")
-                + ("" if u and self.db.has_access(u) else t(lang, "ps_noaccess")))
+                + t(lang, "ps_mode_only" if sub.get("only_prop") else "ps_mode_both"))
         await self.bot.send_message(chat_id, text, reply_markup=self.ps_menu_kb(lang, sub))
 
     async def broadcast_prop_signal(self, s: NewSignal) -> int:
@@ -1693,8 +1675,7 @@ class App:
 
         @r.message(CommandStart())
         async def start(m: Message, state: FSMContext):
-            new = await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name,
-                                         config.trial_days)
+            new = await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name)
             u = await self.db.get_user(m.from_user.id)
             if not u.get("lang"):  # сначала просим выбрать язык
                 await state.update_data(new_user=new)
@@ -1719,7 +1700,7 @@ class App:
                 return
             lang = norm(code)
             uid = c.from_user.id
-            new = await self.db.add_user(uid, c.from_user.username, c.from_user.first_name, config.trial_days)
+            new = await self.db.add_user(uid, c.from_user.username, c.from_user.first_name)
             first = new or not (await self.db.get_user(uid)).get("lang")
             await self.db.set_lang(uid, lang)
             await c.answer(t(lang, "lang_set"))
@@ -1764,14 +1745,9 @@ class App:
         async def signal(m: Message):
             u = await self.db.get_user(m.from_user.id)
             if not u:
-                await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name,
-                                       config.trial_days)
+                await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name)
                 u = await self.db.get_user(m.from_user.id)
             lang = norm(u.get("lang"))
-            if not self.db.has_access(u):
-                await m.answer(t(lang, "sig_expired"))
-                await self.send_invoice(m.chat.id, lang)
-                return
             await m.answer(t(lang, "analyzing"))
             try:
                 text = await self.engine.expected(lang)
@@ -1849,10 +1825,10 @@ class App:
         @r.message(F.text.in_(variants("btn_sub")))
         @r.message(Command("subscribe"))
         async def subscribe(m: Message):
+            """Кнопка «Подписка» осталась у кого-то на старой клавиатуре: сигналы теперь бесплатные,
+            отвечаем об этом и присылаем новое меню без этой кнопки."""
             lang = await self.lang_of(m.from_user.id)
-            await m.answer(f"{await self.sub_status(m.from_user.id, lang)}\n\n"
-                           + t(lang, "sub_price", price=config.sub_price_stars, days=config.sub_days))
-            await self.send_invoice(m.chat.id, lang)
+            await m.answer(t(lang, "sub_free"), reply_markup=menu(lang))
 
         @r.message(F.text.in_(variants("btn_app_menu")))
         @r.message(Command("app"))
@@ -1883,6 +1859,9 @@ class App:
 
         @r.pre_checkout_query()
         async def pre_checkout(q: PreCheckoutQuery):
+            if q.invoice_payload == "sub":   # старый счёт за подписку на сигналы — сигналы теперь бесплатные
+                await q.answer(ok=False, error_message=re.sub(r"<[^>]+>", "", t(await self.lang_of(q.from_user.id), "sub_free"))[:255])
+                return
             await q.answer(ok=True)
 
         @r.message(F.successful_payment)
@@ -1919,9 +1898,7 @@ class App:
                     else:
                         await self.show_risks(m.chat.id, lang)
                 return
-            until = await self.db.extend_paid(m.from_user.id, config.sub_days)
-            lang = await self.lang_of(m.from_user.id)
-            await m.answer(t(lang, "paid_ok", until=self.fmt_dt(until)), reply_markup=menu(lang))
+            log.warning("payment with unknown payload %r from %s", p.invoice_payload, m.from_user.id)
 
         # ── админ-панель ─────────────────────────────────────────────────────
         @r.message(Command("admin"))
@@ -1948,7 +1925,6 @@ class App:
                          + " (/newstrade)")
                 await c.message.answer(
                     f"👥 Всего: {s['total']} (заблокировали: {s['blocked']})\n"
-                    f"💎 Платных: {s['paid']}\n🎁 На пробном: {s['trial']}\n"
                     f"⭐ Выручка: {s['revenue']}\n\n"
                     f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, безубыток/разворот в плюсе: {s['be']}, "
                     f"SL: {s['sl']}, в плюсе: {wr}\n"
@@ -1979,9 +1955,7 @@ class App:
                 text, kb = await self.channel_panel()
                 await c.message.answer(text, reply_markup=kb)
             elif action == "granthelp":
-                await c.message.answer("/grant &lt;user_id&gt; &lt;дней&gt; — выдать подписку\n"
-                                       "/revoke &lt;user_id&gt; — забрать доступ\n"
-                                       "/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
+                await c.message.answer("/close &lt;номер&gt; tp|sl — закрыть сигнал вручную и сообщить всем\n"
                                        "/autotrade off|on — остановить / включить автоторговлю у всех\n"
                                        "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
                                        "/autotrade test — тестовая сделка мин. лотом на своём счёте (откроет и закроет)\n"
@@ -2097,23 +2071,6 @@ class App:
             posted = await self.to_channel(lambda cid, lang: m.copy_to(cid))
             await m.answer(f"📣 Отправлено: {n} из {len(uids)}" + (" и в канал" if posted else ""))
 
-        @r.message(Command("grant"))
-        async def grant(m: Message, command: CommandObject):
-            if not self.is_admin(m.from_user.id):
-                return
-            try:
-                uid, days = (int(x) for x in (command.args or "").split())
-            except ValueError:
-                await m.answer("Формат: /grant &lt;user_id&gt; &lt;дней&gt;")
-                return
-            if not await self.db.get_user(uid):
-                await m.answer("Пользователь не найден (он должен нажать /start)")
-                return
-            until = await self.db.extend_paid(uid, days)
-            await m.answer(f"✅ {uid}: подписка до {self.fmt_dt(until)}")
-            ulang = await self.lang_of(uid)
-            await self._send(uid, lambda: self.bot.send_message(
-                uid, t(ulang, "granted", until=self.fmt_dt(until))))
 
         @r.message(Command("close"))
         async def close_signal(m: Message, command: CommandObject):
@@ -2270,17 +2227,6 @@ class App:
             ulang = await self.lang_of(uid)
             await self._send(uid, lambda: self.bot.send_message(uid, t(ulang, "at_paid_ok", until=self.fmt_dt(until))))
 
-        @r.message(Command("revoke"))
-        async def revoke(m: Message, command: CommandObject):
-            if not self.is_admin(m.from_user.id):
-                return
-            try:
-                uid = int((command.args or "").strip())
-            except ValueError:
-                await m.answer("Формат: /revoke &lt;user_id&gt;")
-                return
-            await self.db.revoke(uid)
-            await m.answer(f"⛔️ Доступ {uid} закрыт")
 
         # кнопки «Сигналы для проп-фирм», «Автоторговля», «FundedNext» — раньше обработчиков «ждём ввод»:
         # нажатие кнопки меню во время анкеты или подключения счёта открывает раздел, а не считается ответом
@@ -2808,7 +2754,6 @@ class App:
                                                            config.display_tz, PIP, 10, t(lang, "weekly_title"))
                 except Exception:  # noqa: BLE001
                     log.warning("weekly chart", exc_info=True)
-        active = set(await self.db.active_user_ids())
         langs = await self.db.user_langs()
 
         def make(u: int):
@@ -2817,8 +2762,6 @@ class App:
             if u in pnl:
                 v = pnl[u]
                 body += t(lang, "weekly_lot", pnl=f"{'+' if v >= 0 else '−'}${fmt_usd(abs(v))}")
-            if u not in active:
-                body += t(lang, "weekly_cta")
             if lang in images:
                 return self.bot.send_photo(u, BufferedInputFile(images[lang], "week.png"), caption=body)
             return self.bot.send_message(u, body)
@@ -2877,7 +2820,6 @@ class App:
                 log.warning("daily report chart", exc_info=True)
         local = now.tz_convert(config.display_tz)
         silent = local.hour < 8 or local.hour >= 23
-        active = set(await self.db.active_user_ids())
         langs = await self.db.user_langs()
 
         def send(chat, lang: str, body: str):
@@ -2892,8 +2834,6 @@ class App:
             if u in pnl:
                 v = pnl[u]
                 tail += t(lang, "daily_lot", pnl=f"{'+' if v >= 0 else '−'}${fmt_usd(abs(v))}")
-            if u not in active:
-                tail += t(lang, "daily_cta")
             return send(u, lang, dr.caption(lang, day, date, tail))
 
         async def chan_day(cid, lang):
@@ -3039,19 +2979,6 @@ class App:
                 log.exception("autotrade billing")
             await asyncio.sleep(600)
 
-    async def trial_reminder_loop(self) -> None:
-        while True:
-            try:
-                for uid in await self.db.expiring_trials(timedelta(hours=1)):
-                    key = f"trial_reminded:{uid}"
-                    if await self.db.get_kv(key):
-                        continue
-                    await self.db.set_kv(key, "1")
-                    lang = await self.lang_of(uid)
-                    await self._send(uid, lambda u=uid, lg=lang: self.bot.send_message(u, t(lg, "trial_reminder")))
-            except Exception:  # noqa: BLE001
-                log.exception("trial reminder")
-            await asyncio.sleep(600)
 
     async def offer_release(self, admin_id: int, rel: dict) -> None:
         """Админу — готовое сообщение об обновлении (как его увидят подписчики) и кнопки."""
@@ -3124,7 +3051,6 @@ class App:
             asyncio.create_task(self.daily_report_loop()),
             asyncio.create_task(self.engine.run_forever(config.check_interval)),
             asyncio.create_task(self.calendar_loop()),
-            asyncio.create_task(self.trial_reminder_loop()),
             asyncio.create_task(self.news_alert_loop()),
             asyncio.create_task(self.market_status_loop()),
             asyncio.create_task(self.morning_review_loop()),

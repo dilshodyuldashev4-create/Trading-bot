@@ -71,7 +71,7 @@ class FlowTests(unittest.TestCase):
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
                 for uid in (1, 2, 3):
-                    await db.add_user(uid, None, None, 3)
+                    await db.add_user(uid, None, None)
                 await db.set_capital(1, 2000)   # риск 1 %: 0.02 лота
                 await db.set_capital(2, 500)
                 await db.set_lang(2, "en")  # у 3 капитала нет
@@ -162,8 +162,8 @@ class FlowTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
-                await db.add_user(2, None, None, 3)
+                await db.add_user(1, None, None)
+                await db.add_user(2, None, None)
                 await db.set_capital(1, 980)
                 app = botmod.App.__new__(botmod.App)
                 app.db, app.bot = db, FakeBot()
@@ -183,7 +183,7 @@ class FlowTests(unittest.TestCase):
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
                 for uid in (1, 2):
-                    await db.add_user(uid, None, None, 3)
+                    await db.add_user(uid, None, None)
                     await db.set_capital(uid, 1000)
                 sid = await db.add_signal("combo", 1, 2900, 2890, 2920)
                 await db.add_signal_lot(sid, 1, 0.02)
@@ -229,7 +229,7 @@ class FlowTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
+                await db.add_user(1, None, None)
                 app = botmod.App.__new__(botmod.App)
                 app.db, app.bot = db, FakeBot()
                 await app.market_status(ts("2026-11-06 21:00"))   # первый запуск — молчим

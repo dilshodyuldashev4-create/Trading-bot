@@ -77,7 +77,7 @@ class ChannelTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
+                await db.add_user(1, None, None)
                 await db.set_capital(1, 1000)
                 await db.set_kv("channel_id", str(CHAN))
                 await db.set_kv("channel_lang", "en")
@@ -121,7 +121,7 @@ class ChannelTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
+                await db.add_user(1, None, None)
                 await db.set_kv("channel_id", "@goldchan")
                 app = make_app(db)
                 await app.broadcast_day_closed(2)
@@ -140,7 +140,7 @@ class ChannelTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
+                await db.add_user(1, None, None)
                 app = make_app(db)
                 await app.broadcast_day_closed(2)
                 self.assertEqual([x[0] for x in app.bot.sent], [1])
@@ -152,7 +152,7 @@ class ChannelTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(1, None, None, 3)
+                await db.add_user(1, None, None)
                 await db.set_kv("channel_id", str(CHAN))
                 app = make_app(db)
                 orig = app.bot.send_message

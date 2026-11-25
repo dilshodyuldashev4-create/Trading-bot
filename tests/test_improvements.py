@@ -279,7 +279,7 @@ class BroadcastCardTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                await db.add_user(7, None, None, 3)
+                await db.add_user(7, None, None)
                 app = App.__new__(App)
                 app.db, app.bot, app.autotrader = db, FakeBot(), None
                 app.spawn = lambda coro: coro.close()

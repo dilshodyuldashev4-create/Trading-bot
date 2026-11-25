@@ -226,9 +226,9 @@ class DB:
             await self.conn.close()
 
     # ── пользователи ────────────────────────────────────────────────────────
-    async def add_user(self, uid: int, username: str | None, first_name: str | None,
-                       trial_days: int) -> bool:
-        """Создаёт пользователя с пробным периодом. True — если новый."""
+    async def add_user(self, uid: int, username: str | None, first_name: str | None) -> bool:
+        """Создаёт пользователя (сигналы бесплатные, пробного периода нет). True — если новый.
+        Колонки trial_until / paid_until остались от старой платной подписки и больше не используются."""
         cur = await self.conn.execute("SELECT id FROM users WHERE id=?", (uid,))
         if await cur.fetchone():
             await self.conn.execute("UPDATE users SET username=?, first_name=?, blocked=0 WHERE id=?",
@@ -238,7 +238,7 @@ class DB:
         t = now()
         await self.conn.execute(
             "INSERT INTO users (id, username, first_name, joined_at, trial_until) VALUES (?,?,?,?,?)",
-            (uid, username, first_name, _iso(t), _iso(t + timedelta(days=trial_days))))
+            (uid, username, first_name, _iso(t), _iso(t)))
         await self.conn.commit()
         return True
 
@@ -246,33 +246,6 @@ class DB:
         cur = await self.conn.execute("SELECT * FROM users WHERE id=?", (uid,))
         row = await cur.fetchone()
         return dict(row) if row else None
-
-    @staticmethod
-    def access_until(user: dict) -> datetime:
-        t = _parse(user["trial_until"])
-        p = _parse(user.get("paid_until"))
-        return max(t, p) if p else t
-
-    @staticmethod
-    def is_paid(user: dict) -> bool:
-        p = _parse(user.get("paid_until"))
-        return bool(p and p > now())
-
-    def has_access(self, user: dict | None) -> bool:
-        return bool(user) and self.access_until(user) > now()
-
-    async def extend_paid(self, uid: int, days: int) -> datetime:
-        user = await self.get_user(uid)
-        base = max(now(), _parse(user.get("paid_until")) or now()) if user else now()
-        until = base + timedelta(days=days)
-        await self.conn.execute("UPDATE users SET paid_until=? WHERE id=?", (_iso(until), uid))
-        await self.conn.commit()
-        return until
-
-    async def revoke(self, uid: int) -> None:
-        await self.conn.execute("UPDATE users SET paid_until=NULL, trial_until=? WHERE id=?",
-                                (_iso(now()), uid))
-        await self.conn.commit()
 
     async def set_lang(self, uid: int, lang: str) -> None:
         await self.conn.execute("UPDATE users SET lang=? WHERE id=?", (lang, uid))
@@ -310,11 +283,8 @@ class DB:
         await self.conn.commit()
 
     async def active_user_ids(self) -> list[int]:
-        """Кому слать сигналы: пробный период или оплаченная подписка."""
-        t = _iso(now())
-        cur = await self.conn.execute(
-            "SELECT id FROM users WHERE blocked=0 AND (trial_until>? OR paid_until>?)", (t, t))
-        return [r[0] for r in await cur.fetchall()]
+        """Кому слать сигналы: всем, кто не заблокировал бота (сигналы бесплатные)."""
+        return await self.all_user_ids()
 
     async def all_user_ids(self) -> list[int]:
         cur = await self.conn.execute("SELECT id FROM users WHERE blocked=0")
@@ -325,12 +295,9 @@ class DB:
         return [dict(r) for r in await cur.fetchall()]
 
     async def stats(self) -> dict:
-        t = _iso(now())
         q = {
             "total": "SELECT COUNT(*) FROM users",
             "blocked": "SELECT COUNT(*) FROM users WHERE blocked=1",
-            "paid": f"SELECT COUNT(*) FROM users WHERE paid_until>'{t}'",
-            "trial": f"SELECT COUNT(*) FROM users WHERE trial_until>'{t}' AND (paid_until IS NULL OR paid_until<='{t}')",
             "signals": "SELECT COUNT(*) FROM signals WHERE prop_only=0",
             "tp": "SELECT COUNT(*) FROM signals WHERE status='tp' AND prop_only=0",
             "sl": "SELECT COUNT(*) FROM signals WHERE status='sl' AND prop_only=0",
@@ -343,14 +310,6 @@ class DB:
             cur = await self.conn.execute(sql)
             out[k] = (await cur.fetchone())[0]
         return out
-
-    async def expiring_trials(self, within: timedelta) -> list[int]:
-        """Пользователи без оплаты, у которых пробный период кончается в ближайшее время."""
-        a, b = _iso(now()), _iso(now() + within)
-        cur = await self.conn.execute(
-            "SELECT id FROM users WHERE blocked=0 AND trial_until>? AND trial_until<=? "
-            "AND (paid_until IS NULL OR paid_until<=?)", (a, b, a))
-        return [r[0] for r in await cur.fetchall()]
 
     # ── платежи ─────────────────────────────────────────────────────────────
     async def add_payment(self, uid: int, amount: int, currency: str, charge_id: str) -> None:
@@ -479,11 +438,10 @@ class DB:
         await self.conn.commit()
 
     async def not_asked_autotrade(self) -> list[int]:
-        """Активные подписчики, которых бот ещё не спрашивал про автоторговлю и у кого нет счёта."""
-        t = _iso(now())
+        """Подписчики, которых бот ещё не спрашивал про автоторговлю и у кого нет счёта."""
         cur = await self.conn.execute(
-            "SELECT id FROM users WHERE blocked=0 AND autotrade_asked=0 AND (trial_until>? OR paid_until>?) "
-            "AND id NOT IN (SELECT user_id FROM trade_accounts)", (t, t))
+            "SELECT id FROM users WHERE blocked=0 AND autotrade_asked=0 "
+            "AND id NOT IN (SELECT user_id FROM trade_accounts)")
         return [r[0] for r in await cur.fetchall()]
 
     # ── счета автоторговли (у подписчика может быть несколько, у каждого своя оплата) ───────────

@@ -85,7 +85,7 @@ async def make_db(d):
     db = DB(os.path.join(d, "t.db"))
     await db.connect()
     for uid in (1, 2):
-        await db.add_user(uid, None, None, 3)
+        await db.add_user(uid, None, None)
         await db.extend_autotrade(uid, 30)   # автоторговля оплачена
     return db
 

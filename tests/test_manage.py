@@ -318,7 +318,7 @@ class WeeklyReportTests(unittest.TestCase):
                 app = botmod.App.__new__(botmod.App)
                 app.db = await make_db(d)
                 app.bot = FakeBot()
-                await app.db.add_user(1, "u", "U", 3)
+                await app.db.add_user(1, "u", "U")
                 sid = await app.db.add_signal("combo", 1, 4000.0, 3990.0, 4030.0, 4010.0, 0.5)
                 await app.db.add_signal_lot(sid, 1, 0.1)
                 await app.db.set_partial(sid)

@@ -73,8 +73,8 @@ class DailyReportTests(unittest.TestCase):
                 await db.connect()
                 app = botmod.App.__new__(botmod.App)
                 app.db, app.bot, app._bot_name = db, FakeBot(), None
-                await db.add_user(1, "u", "U", 3)
-                await db.add_user(2, "v", "V", 3)
+                await db.add_user(1, "u", "U")
+                await db.add_user(2, "v", "V")
                 await db.set_lang(2, "en")
                 await db.set_kv("channel_id", "@goldchan")
                 be = await put(db, 1, ts("2026-11-18T10:00"), ts("2026-11-18T12:00"), "be", partial=True)   # +50
@@ -116,7 +116,7 @@ class DailyReportTests(unittest.TestCase):
                 await db.connect()
                 app = botmod.App.__new__(botmod.App)
                 app.db, app.bot, app._bot_name = db, FakeBot(), None
-                await db.add_user(1, "u", "U", 3)
+                await db.add_user(1, "u", "U")
                 self.assertTrue(await app.daily_report(pd.Timestamp("2026-11-18 22:10", tz="UTC")))
                 (uid, kind, text, _), = app.bot.sent
                 self.assertEqual(kind, "photo")

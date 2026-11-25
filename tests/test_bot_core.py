@@ -27,22 +27,22 @@ def m5_frame(days=6, start="2025-03-10 00:00"):
 
 
 class DBTests(unittest.TestCase):
-    def test_trial_and_paid(self):
+    def test_signals_free_for_everyone(self):
         async def go():
             with tempfile.TemporaryDirectory() as d:
                 db = DB(os.path.join(d, "t.db"))
                 await db.connect()
-                self.assertTrue(await db.add_user(1, "a", "A", 3))
-                self.assertFalse(await db.add_user(1, "a", "A", 3))
-                u = await db.get_user(1)
-                self.assertTrue(db.has_access(u))
-                self.assertEqual(await db.active_user_ids(), [1])
-                await db.revoke(1)
-                self.assertEqual(await db.active_user_ids(), [])
-                await db.extend_paid(1, 30)
-                u = await db.get_user(1)
-                self.assertTrue(db.is_paid(u))
-                self.assertGreater(db.access_until(u), now() + timedelta(days=29))
+                self.assertTrue(await db.add_user(1, "a", "A"))
+                self.assertFalse(await db.add_user(1, "a", "A"))
+                self.assertTrue(await db.add_user(2, "b", "B"))
+                # старый подписчик с давно закончившимся пробным периодом тоже получает сигналы
+                await db.conn.execute("UPDATE users SET trial_until=?, paid_until=NULL WHERE id=2",
+                                      ((now() - timedelta(days=30)).isoformat(),))
+                await db.conn.commit()
+                self.assertEqual(sorted(await db.active_user_ids()), [1, 2])
+                self.assertEqual(sorted(await db.not_asked_autotrade()), [1, 2])
+                await db.set_blocked(1)
+                self.assertEqual(await db.active_user_ids(), [2])
                 await db.close()
         run(go())
 

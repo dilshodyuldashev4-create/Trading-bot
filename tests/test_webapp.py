@@ -159,12 +159,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         r = await self.client.get("/static/../webapp.py")
         self.assertNotEqual(r.status, 200)
 
-    async def test_state_new_user_gets_trial_and_lang(self):
+    async def test_state_new_user_gets_free_signals_and_lang(self):
         st, j = await self.post("state")
         self.assertEqual(st, 200)
         self.assertEqual(j["lang"], "uz")
         self.assertEqual(j["t"]["tab_home"], TEXTS["uz"]["tab_home"])
-        self.assertEqual(j["sub"]["kind"], "trial")
+        self.assertEqual(j["sub"]["kind"], "free")
         self.assertEqual(j["user"]["name"], "Dilshod")
         self.assertEqual(j["market"]["price"], 2650.55)
         self.assertEqual(len(j["market"]["open"]), 1)
@@ -231,16 +231,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(p["passed"])
         self.assertTrue(p["trailing"])
 
-    async def test_invoice_sub(self):
-        st, j = await self.post("invoice", {"kind": "sub"})
-        self.assertEqual(st, 200)
-        self.assertTrue(j["link"].startswith("https://t.me/"))
-        inv = self.app.bot.invoices[0]
-        self.assertEqual(inv["payload"], "sub")
-        self.assertEqual(inv["currency"], "XTR")
-        self.assertEqual(inv["prices"][0].amount, config.sub_price_stars)
+    async def test_no_signal_subscription_invoice(self):
+        st, _ = await self.post("invoice", {"kind": "sub"})   # сигналы бесплатные — счёта за них нет
+        self.assertEqual(st, 400)
         st, _ = await self.post("invoice", {"kind": "auto"})   # автоторговли нет — счёт не выдаём
         self.assertEqual(st, 400)
+        self.assertEqual(self.app.bot.invoices, [])
 
     async def test_account_ownership(self):
         aid = await self.db.save_trade_account(99, "m1", "london", "mt5", "Srv", "111", "XAUUSD", "B", "USD", True)
@@ -267,14 +263,13 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(j["price"], 2650.55)
         self.assertEqual(len(j["open"]), 1)
 
-    async def test_expired_sub(self):
+    async def test_old_expired_trial_still_free(self):
         await self.post("state")
         await self.db.conn.execute("UPDATE users SET trial_until=? WHERE id=7",
                                    ((now() - timedelta(days=1)).isoformat(),))
         await self.db.conn.commit()
         _, j = await self.post("state")
-        self.assertEqual(j["sub"]["kind"], "expired")
-
+        self.assertEqual(j["sub"]["kind"], "free")
 
 if __name__ == "__main__":
     unittest.main()

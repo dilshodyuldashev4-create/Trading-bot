@@ -344,7 +344,6 @@ function money(x, d = 0) { if (x == null || isNaN(x)) return "—"; const s = Ma
 function usd2(x) { if (x == null) return "—"; const r = Math.round(x * 100) / 100; return money(r, Number.isInteger(r) ? 0 : 2); }
 function pips(x) { if (x == null) return "—"; const r = Math.round(x); return (r > 0 ? "+" : r < 0 ? "−" : "") + Math.abs(r).toLocaleString("en-US").replace(/,/g, " "); }
 const cls = x => x > 0 ? "pos" : x < 0 ? "neg" : "";
-const daysLeft = iso => Math.max(0, Math.ceil((new Date(iso) - Date.now()) / 864e5));
 
 async function api(path, body) {
   const r = await fetch("api/" + path, { method: "POST", headers: { "Content-Type": "application/json", "X-Init-Data": tg?.initData || "" }, body: JSON.stringify(body || {}) });
@@ -381,12 +380,9 @@ function renderAll() {
   render(page);
 }
 function render(p) { ({ home: renderHome, stats: renderStats, learn: renderLearn, prop: renderProp, profile: renderProfile })[p](); syncBack(); }
-function subLine() { const s = S.sub; return s.kind === "paid" ? tr("sub_paid", { date: fmtDate(s.until, false) }) : s.kind === "trial" ? tr("sub_trial", { date: fmtDate(s.until, false) }) : tr("sub_expired"); }
-function subChip() {
-  const s = S.sub;
-  if (s.kind === "expired") return `<span class="chip bad">● ${esc(tr("sub_expired"))}</span>`;
-  return `<span class="chip ${s.kind === "paid" ? "ok" : "warn"}">● ${esc(tr("days_left", { n: daysLeft(s.until) }))}</span>`;
-}
+// сигналы бесплатные для всех — подписки и пробного периода нет
+function subLine() { return tr("sub_free"); }
+function subChip() { return `<span class="chip ok">● ${esc(tr("sub_free"))}</span>`; }
 
 /* ── расчёты статистики ── */
 function periodTrades(days) { const from = days ? Date.now() - days * 864e5 : 0; return S.stats.trades.filter(x => new Date(x.ts).getTime() >= from); }
@@ -488,7 +484,6 @@ function renderHome() {
     ${chart(c30.pts, 120, "homeChart")}<button class="btn ghost mt" onclick="go('stats')">${esc(tr("tab_stats"))} →</button></div>`;
   h += learnMini();
   if (S.prop) h += propMini();
-  if (S.sub.kind !== "paid") h += subCard();
   h += `<p class="note">${esc(tr("app_note"))}</p></div>`;
   const el = $("#p-home"); el.innerHTML = h; wireChart("homeChart", c30.pts); animate(el);
 }
@@ -799,11 +794,8 @@ function wireLesson(el) {
 
 /* ── профиль ── */
 function subCard() {
-  const s = S.sub;
-  return `<div class="card gold"><h3>💎 ${esc(tr("subscription"))}<span class="sp"></span>${subChip()}</h3>
-    <div class="row" style="align-items:baseline;gap:8px"><b class="num goldtxt" style="font-size:34px">${s.stars} ⭐</b><span class="sub">${esc(tr("for_days", { days: s.days }))}</span></div>
-    <p class="sub">${esc(tr("sub_perks"))}</p>${s.kind !== "expired" ? `<div class="sub">${esc(subLine())}</div>` : ""}
-    <button class="btn mt" onclick="pay('sub')">${esc(tr("pay_stars", { stars: s.stars }))}</button></div>`;
+  return `<div class="card gold"><h3>📡 ${esc(tr("subscription"))}<span class="sp"></span><span class="chip ok">● ${esc(tr("free_chip"))}</span></h3>
+    <p class="sub">${esc(tr("free_note"))}</p><div class="sub">${esc(tr("sub_perks"))}</div></div>`;
 }
 function renderProfile() {
   const u = S.user;
