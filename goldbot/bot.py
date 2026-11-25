@@ -926,8 +926,9 @@ class App:
                       usd=fmt_money(config.autotrade_month_usd * days / 30))
         return text
 
-    async def show_risks(self, chat_id: int, lang: str) -> None:
-        demo = (t(lang, "at_demo_note") if config.autotrade_demo_only else
+    async def show_risks(self, chat_id: int, lang: str, uid: int = 0) -> None:
+        # админу можно подключить любой счёт (и демо) — ограничение по типу счёта ему не показываем
+        demo = ("" if self.is_admin(uid) else t(lang, "at_demo_note") if config.autotrade_demo_only else
                 t(lang, "at_real_note") if config.autotrade_real_only else "")
         await self.bot.send_message(
             chat_id, t(lang, "at_risks", risk=f"{config.autotrade_risk_pct:g}",
@@ -1609,7 +1610,7 @@ class App:
         await self.bot.send_message(chat_id, t(lang, "at_searching", q=html.escape(query)))
         try:
             servers = demo_servers(await self.autotrader.api.search_servers(version, query),
-                                   config.autotrade_demo_only)[:24]
+                                   config.autotrade_demo_only, limit=24)
         except Exception as e:  # noqa: BLE001
             log.warning("server search %r: %s", query, e)
             servers = []
@@ -1899,7 +1900,7 @@ class App:
                         await self.bot.send_message(m.chat.id, label, reply_markup=InlineKeyboardMarkup(
                             inline_keyboard=[[_btn(label, "at:pnext")]]))
                     else:
-                        await self.show_risks(m.chat.id, lang)
+                        await self.show_risks(m.chat.id, lang, uid)
                 return
             log.warning("payment with unknown payload %r from %s", p.invoice_payload, m.from_user.id)
 
@@ -2340,7 +2341,7 @@ class App:
                 if uid in self._connecting:
                     await c.message.answer(t(lang, "at_busy"))
                     return
-                await self.show_risks(chat, lang)
+                await self.show_risks(chat, lang, uid)
             elif action == "pay":   # продлить конкретный счёт
                 acc = await self.db.get_account(int(arg)) if arg.isdigit() else None
                 if acc and acc["user_id"] == uid:

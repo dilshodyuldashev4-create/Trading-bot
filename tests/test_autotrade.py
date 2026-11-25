@@ -126,6 +126,12 @@ class HelpersTests(unittest.TestCase):
         self.assertEqual(at.demo_servers(found, True), ["Exness-MT5Trial7", "Exness-MT5Trial8", "X-Demo"])
         self.assertEqual(at.demo_servers({"B": ["B-Live"]}, True), ["B-Live"])  # демо не нашли — показываем все
         self.assertEqual(at.demo_servers(found, False)[0], "Exness-MT5Real7")
+        # у брокера много реальных серверов — демо всё равно попадают в кнопки (админ подключает демо-счёт)
+        many = {"Exness": [f"Exness-MT5Real{i}" for i in range(40)] + ["Exness-MT5Trial15", "Exness-MT5Trial7"]}
+        got = at.demo_servers(many, False, limit=24)
+        self.assertEqual(len(got), 24)
+        self.assertIn("Exness-MT5Trial15", got)
+        self.assertEqual(got[0], "Exness-MT5Real0")
 
     def test_calc_volume(self):
         # $1000, стоп $20 (200 пипсов), риск 2% = $20 → 0.01 лота

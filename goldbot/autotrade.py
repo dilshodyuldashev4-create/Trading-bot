@@ -259,8 +259,9 @@ def pick_symbol(symbols: list[str], override: str = "") -> str | None:
     return gold[0]
 
 
-def demo_servers(servers: dict[str, list[str]], demo_only: bool) -> list[str]:
-    """Плоский список серверов; при demo_only — сначала (или только) демо-серверы."""
+def demo_servers(servers: dict[str, list[str]], demo_only: bool, limit: int = 0) -> list[str]:
+    """Плоский список серверов; при demo_only — сначала (или только) демо-серверы. limit — сколько кнопок
+    помещается: тогда демо-серверы не обрезаются, хоть реальных у брокера и много (до половины мест — демо)."""
     flat: list[str] = []
     for lst in servers.values():
         for s in lst:
@@ -269,8 +270,13 @@ def demo_servers(servers: dict[str, list[str]], demo_only: bool) -> list[str]:
     is_demo = lambda s: bool(re.search(r"demo|trial|contest", s, re.I))  # noqa: E731
     if demo_only:
         demo = [s for s in flat if is_demo(s)]
-        return demo or flat
-    return sorted(flat, key=is_demo)
+        return (demo or flat)[:limit or None]
+    real = [s for s in flat if not is_demo(s)]
+    demo = [s for s in flat if is_demo(s)]
+    if limit and len(real) + len(demo) > limit:
+        keep_demo = min(len(demo), max(limit // 2, limit - len(real)))
+        return real[:limit - keep_demo] + demo[:keep_demo]
+    return real + demo
 
 
 def calc_volume(equity: float, currency: str, sl_dist: float, risk_pct: float, max_lot: float,
@@ -618,9 +624,11 @@ class AutoTrader:
 
     async def test_trade(self, uid: int, hold: float = 5) -> tuple[OpenResult, CloseResult | None]:
         """Проверка для админа: та же заявка, что по сигналу, но минимальным лотом; через hold секунд закрываем."""
-        acc = await self.db.get_trade_account(uid)   # первый счёт админа
-        if not acc:
+        accs = await self.db.user_accounts(uid)
+        if not accs:
             return OpenResult(uid, False, error="NO_ACCOUNT"), None
+        # первый счёт админа, по которому можно торговать (счёт только для цен пропускаем — например, демо после него)
+        acc = next((a for a in accs if not self.price_only(a)), accs[0])
         if self.price_only(acc):
             return OpenResult(uid, False, error="REAL_NOT_ALLOWED", aid=acc["id"], login=acc["login"]), None
         sid = -int(asyncio.get_running_loop().time())  # отрицательный id — не путается с сигналами
