@@ -44,19 +44,19 @@ RELEASES: list[dict] = [
     {
         "version": "2026-11-25.2",
         "ru": [
-            "📱 У бота появилось приложение прямо в Telegram — нажмите кнопку «🟡 Приложение» вверху меню "
+            "📱 У бота появилось приложение прямо в Telegram — нажмите кнопку «Mini app 📱» вверху меню "
             "(или «🟡 Gold App» слева от поля ввода). В нём живая цена и открытые сигналы, статистика с графиком "
             "доходности и историей сделок, проп-панель с прогрессом к цели и лимитами, настройки и оплата подписки",
             "💬 Обычные кнопки работают как раньше: пользуйтесь тем, что удобнее. Сигналы по-прежнему приходят сообщениями",
         ],
         "en": [
-            "📱 The bot now has an app right inside Telegram — tap «🟡 App» at the top of the menu "
+            "📱 The bot now has an app right inside Telegram — tap «Mini app 📱» at the top of the menu "
             "(or «🟡 Gold App» left of the message field). It shows the live price and open signals, stats with an "
             "equity curve and trade history, the prop dashboard with target progress and limits, settings and payment",
             "💬 Regular buttons work as before: use whichever you like. Signals still arrive as messages",
         ],
         "uz": [
-            "📱 Botning Telegram ichidagi ilovasi paydo boʻldi — menyu tepasidagi «🟡 Ilova» tugmasini bosing "
+            "📱 Botning Telegram ichidagi ilovasi paydo boʻldi — menyu tepasidagi «Mini app 📱» tugmasini bosing "
             "(yoki xabar maydoni chapidagi «🟡 Gold App»). Unda jonli narx va ochiq signallar, daromad grafigi va "
             "bitimlar tarixi bilan statistika, maqsad va limitlar koʻrsatilgan prop-panel, sozlamalar va toʻlov bor",
             "💬 Oddiy tugmalar avvalgidek ishlaydi: qaysi biri qulay boʻlsa, shundan foydalaning. Signallar avvalgidek xabar boʻlib keladi",
