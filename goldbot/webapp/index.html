@@ -91,6 +91,7 @@ input{font:inherit;color:inherit}
 .sig.buy::before{background:var(--green)}.sig.sell::before{background:var(--red)}
 .side{font-weight:800;font-size:13px;padding:4px 9px;border-radius:8px;letter-spacing:.05em}
 .ptag{font-size:11px;font-weight:800;padding:3px 8px;border-radius:8px;color:var(--gold2);background:#f7d46b1a;border:1px solid #f7d46b40}
+.ptag.reg{color:#8fb8ff;background:#5b8cff1a;border-color:#5b8cff40}
 .sig.prop{border-color:#f7d46b40}
 .chip[hidden]{display:none}
 .side.buy{background:#3ee09a1f;color:var(--green)}.side.sell{background:#ff5d731f;color:var(--red)}
@@ -471,11 +472,11 @@ function sigCard(s, price) {
   const lo = Math.min(s.sl, s.tp), hi = Math.max(s.sl, s.tp), pos = price != null ? Math.max(0, Math.min(1, (price - lo) / (hi - lo))) : null;
   const toTp = buy ? pos : pos != null ? 1 - pos : null; // слева стоп, справа тейк
   return `<div class="sig ${buy ? "buy" : "sell"}${s.prop ? " prop" : ""}"><div class="between"><div class="row"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
-    ${s.prop ? `<span class="ptag">🏆 ${esc(tr("prop_tag"))}</span>` : ""}<b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
+    ${s.prop ? `<span class="ptag">🏆 ${esc(tr("prop_tag"))}</span>` : `<span class="ptag reg">📡 ${esc(tr("reg_tag"))}</span>`}<b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
     ${now != null ? `<b class="num ${cls(now)}" data-live="${s.id}">${pips(now)}</b>` : ""}</div>
     <div class="lv"><div>${esc(tr("entry"))}<b class="num">${s.entry.toFixed(2)}</b></div><div>SL<b class="num neg">${s.sl.toFixed(2)}</b></div><div>TP<b class="num pos">${s.tp.toFixed(2)}</b></div></div>
     ${toTp != null ? `<div class="track"><i style="left:${(toTp * 100).toFixed(1)}%"></i></div>` : ""}
-    ${s.prop_lot != null ? `<div class="sub mt">🏆 ${esc(tr("prop_lot", { lot: s.prop_lot.toFixed(2) }))}</div>` : ""}
+    ${s.prop_lot != null ? `<div class="sub mt">${s.prop ? "🏆" : "💼"} ${esc(tr(s.prop ? "prop_lot" : "reg_prop_lot", { lot: s.prop_lot.toFixed(2) }))}</div>` : ""}
     ${s.part ? `<div class="sub mt">✓ ${esc(tr("part_done"))}</div>` : ""}</div>`;
 }
 function renderHome() {
@@ -568,6 +569,7 @@ function renderProp() {
       ${p.goal != null ? `<div class="sub mt">${esc(tr("goal"))}: <b class="num" style="color:var(--text)">${usd2(p.goal)}</b> (+${p.target_pct}%)</div>` : `<div class="sub mt">${esc(tr("funded"))}</div>`}
       ${p.passed ? `<div class="chip ok mt">🏆 ${esc(tr("passed"))} · ${esc(tr("passed_days", { days: p.days, min: p.min_days }))}</div>` : ""}
       ${p.next_stage ? `<button class="btn mt" id="nextStage">🚀 ${esc(tr("next_stage", { stage: p.next_stage_name }))}</button>` : ""}</div>`;
+    h += propOpenCard();
     h += `<div class="card"><h3>📏 ${esc(tr("day_limit"))} / ${esc(tr("total_limit"))}</h3>
       ${p.day_stopped ? `<div class="chip bad" style="white-space:normal">⛔ ${esc(tr("day_stopped", { time: p.reset }))}</div>` : ""}
       ${p.failed ? `<div class="chip bad mt" style="white-space:normal">⚠️ ${esc(tr("failed"))}</div>` : ""}
@@ -585,6 +587,14 @@ function renderProp() {
   }
   h += accountsBlock() + `</div>`;
   el.innerHTML = h; animate(el); wireProp();
+}
+function propOpenList(m) {
+  const mine = m.open.filter(s => s.prop_lot != null);
+  return mine.length ? mine.map(s => sigCard({ ...s, tp: s.prop_tp, part: false }, m.price)).join("") : `<div class="sub">${esc(tr("no_prop_open"))}</div>`;
+}
+function propOpenCard() {
+  const n = S.market.open.filter(s => s.prop_lot != null).length;
+  return `<div class="card"><h3>🏆 ${esc(tr("prop_open"))}<span class="sp"></span><span class="chip warn num" id="propCnt"${n ? "" : " hidden"}>${n}</span></h3><div id="propOpen">${propOpenList(S.market)}</div></div>`;
 }
 function propForm() {
   if (!form.plan) { const p = S.prop; form = p ? { plan: p.plan, stage: p.stage, size: p.size, only: p.only_prop } : { plan: null, stage: null, size: null, only: false }; }
@@ -928,6 +938,9 @@ async function tick() {
     if (el && m.price != null) { el.textContent = m.price.toFixed(2); if (prev != null && m.price !== prev) { el.classList.remove("up", "down"); void el.offsetWidth; el.classList.add(m.price > prev ? "up" : "down"); setTimeout(() => el.classList.remove("up", "down"), 900); } }
     const ol = $("#openList");
     if (ol) ol.innerHTML = m.open.length ? m.open.map(s => sigCard(s, m.price)).join("") : `<div class="sub">${esc(tr("no_open"))}</div>`;
+    const po = $("#propOpen"), pc = $("#propCnt");
+    if (po) po.innerHTML = propOpenList(m);
+    if (pc) { const n = m.open.filter(s => s.prop_lot != null).length; pc.textContent = n; pc.hidden = !n; }
     const oc = $("#openCnt");
     if (oc) { oc.textContent = m.open.length; oc.hidden = !m.open.length; }
   } catch (e) {}

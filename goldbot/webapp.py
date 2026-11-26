@@ -277,7 +277,8 @@ class WebApp:
                 "open": [{"id": s["id"], "dir": s["direction"], "entry": s["entry"], "sl": s["sl"], "tp": s["tp"],
                           "ts": s["created_at"], "tp1": s.get("tp1"), "part": bool(s.get("part_at")),
                           "prop": bool(s.get("prop_only")),
-                          "prop_lot": s["_prop"]["lot"] if s.get("_prop") else None}
+                          "prop_lot": s["_prop"]["lot"] if s.get("_prop") else None,
+                          "prop_tp": s["_prop"]["tp"] if s.get("_prop") else None}
                          for s in open_sig]}
 
     # ── обработчики ─────────────────────────────────────────────────────────
