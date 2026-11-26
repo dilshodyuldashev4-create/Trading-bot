@@ -141,7 +141,12 @@ def connect_error_text(lang: str, e: Exception, server: str) -> str:
         key = "at_err_timeout"
     if key == "at_err_timeout":   # на чём застряло — состояние счёта в MetaApi из текста ошибки
         m = re.search(r"\((.*)\)", str(e))
-        return t(lang, key, detail=html.escape(m.group(1) if m else "—")[:200])
+        detail = m.group(1) if m else "—"
+        # DISCONNECTED (не DISCONNECTED_FROM_BROKER) — терминал MetaApi так и не запустился: дело не в пароле,
+        # а в MetaApi (оплата, сбой у них)
+        if re.search(r"DISCONNECTED(?!_FROM_BROKER)", detail):
+            key = "at_err_noterm"
+        return t(lang, key, detail=html.escape(detail)[:200])
     if key:
         return (t(lang, key, server=html.escape(server)) if key in ("at_err_server", "at_err_setup")
                 else t(lang, key))
