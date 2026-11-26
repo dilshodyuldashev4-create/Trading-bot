@@ -53,11 +53,10 @@ log = logging.getLogger(__name__)
 def menu(lang: str) -> ReplyKeyboardMarkup:
     b = lambda key: KeyboardButton(text=t(lang, key))  # noqa: E731
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        [*([b("btn_app_menu")] if config.webapp_on else []), b("btn_lessons")],   # Mini App и видеокурс
-        [b("btn_signal")],
+        [*([b("btn_app_menu")] if config.webapp_on else []), b("btn_lessons"), b("btn_invite")],   # Mini App, видеокурс, друзья
+        [b("btn_signal"), b("btn_stats")],                                         # главное: сигнал и результаты
         [b("btn_fund"), b("btn_cal")],
-        [b("btn_stats"), b("btn_propsig")],
-        [b("btn_profile"), b("btn_invite")],
+        [b("btn_propsig"), b("btn_profile")],
         *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
 

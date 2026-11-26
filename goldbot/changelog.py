@@ -24,23 +24,41 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
-        "version": "2026-11-27.1",
+        "version": "2026-11-27.2",
         "ru": [
-            "🎁 Новая кнопка «Пригласить друга»: личная ссылка для друзей. За каждые 5 друзей — 7 дней "
+            "🎁 Новая кнопка «🎁 Пригласить»: личная ссылка для друзей. За каждые 5 друзей — 7 дней "
             "автоторговли бесплатно, а если друг подключит автоторговлю — ещё 15 дней",
             "📤 Под сделкой, закрытой в плюсе, появилась кнопка «Поделиться результатом»: отправьте его друзьям "
             "вместе с вашей ссылкой",
         ],
         "en": [
-            "🎁 New «Invite a friend» button: your personal link for friends. Every 5 friends give you 7 days of "
+            "🎁 New «🎁 Invite» button: your personal link for friends. Every 5 friends give you 7 days of "
             "free auto trading, and if a friend connects auto trading — 15 more days",
             "📤 A trade closed in profit now has a «Share the result» button: send it to friends together with your link",
         ],
         "uz": [
-            "🎁 Yangi «Doʻstni taklif qilish» tugmasi: doʻstlar uchun shaxsiy havola. Har 5 ta doʻst uchun 7 kun "
+            "🎁 Yangi «🎁 Taklif qilish» tugmasi: doʻstlar uchun shaxsiy havola. Har 5 ta doʻst uchun 7 kun "
             "bepul avtosavdo, doʻstingiz avtosavdoni ulasa — yana 15 kun",
             "📤 Foyda bilan yopilgan bitim ostida «Natijani ulashish» tugmasi paydo boʻldi: uni havolangiz bilan "
             "doʻstlaringizga yuboring",
+        ],
+    },
+    {
+        "version": "2026-11-27.1",
+        "ru": [
+            "✨ Меню стало короче: «📰 Новости», «🗓 Календарь», «🏆 Проп-сигналы», а «Сигнал» и «Статистика» рядом",
+            "📩 Сигналы стали короче и понятнее: главное (вход, стоп, тейк, ваш лот) видно сразу",
+            "📱 В приложении карточки сигналов аккуратнее, а в профиле видно, сколько вы теряете по стопу и получаете по тейку",
+        ],
+        "en": [
+            "✨ A shorter menu: «📰 News», «🗓 Calendar», «🏆 Prop signals», with «Signal» and «Statistics» side by side",
+            "📩 Signals are shorter and clearer: the key info (entry, stop, take, your lot) is visible at once",
+            "📱 In the app, signal cards are neater, and your profile shows what you lose at the stop and gain at the take",
+        ],
+        "uz": [
+            "✨ Menyu qisqardi: «📰 Yangiliklar», «🗓 Taqvim», «🏆 Prop-signallar», «Signal» va «Statistika» yonma-yon",
+            "📩 Signallar qisqaroq va tushunarliroq: asosiysi (kirish, stop, teyk, lotingiz) darhol koʻrinadi",
+            "📱 Ilovada signal kartalari tartibli, profilda esa stopda qancha yoʻqotishingiz va teykda qancha olishingiz koʻrinadi",
         ],
     },
     {

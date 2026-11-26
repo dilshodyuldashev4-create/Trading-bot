@@ -12,8 +12,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_name": "🇷🇺 Русский",
         "lang_set": "✅ Язык: Русский",
         "btn_signal": "📊 Сигнал",
-        "btn_fund": "📰 Фундаментальные новости",
-        "btn_cal": "🗓 Календарь новостей",
+        "btn_fund": "📰 Новости",
+        "btn_cal": "🗓 Календарь",
         "btn_sub": "💎 Подписка",
         "btn_profile": "👤 Профиль",
         "btn_app": "📱 Открыть приложение",
@@ -47,8 +47,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "hello": ("👋 Привет, {name}!\n\n"
                   "Я бот сигналов по <b>золоту (XAUUSD)</b>.\n"
                   "• 📊 <b>Сигнал</b> — анализ рынка и ожидаемый сетап; подтверждённые сигналы приходят сами\n"
-                  "• 📰 <b>Фундаментальные новости</b> — коротко, как новости влияют на золото и доллар\n"
-                  "• 🗓 <b>Календарь новостей</b> — CPI, NFP, FOMC: время и влияние\n\n"),
+                  "• 📰 <b>Новости</b> — коротко, как новости влияют на золото и доллар\n"
+                  "• 🗓 <b>Календарь</b> — CPI, NFP, FOMC: время и влияние\n\n"),
         "trader": "трейдер",
         "free_new": "✅ <b>Сигналы бесплатные</b> и будут приходить автоматически.",
         "st_free": "✅ Сигналы бесплатные и приходят автоматически",
@@ -82,8 +82,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "day_closed": ("🛑 <b>Торговый день закрыт</b>\n\n"
                        "Мы взяли {n} стопа подряд. Сегодня больше не торгуем, чтобы сберечь депозит. Продолжим завтра 💪"),
         "day_closed_cap": "\n\n💰 Ваш капитал сейчас: <b>${cap}</b>",
-        "late_hint_buy": "\n⏱ Входить, только пока цена не выше <b>{limit}</b>. Выше: вы опоздали, сделку не открывайте.",
-        "late_hint_sell": "\n⏱ Входить, только пока цена не ниже <b>{limit}</b>. Ниже: вы опоздали, сделку не открывайте.",
+        "late_hint_buy": "\n⏱ Цена уже выше <b>{limit}</b>? Вы опоздали, не входите.",
+        "late_hint_sell": "\n⏱ Цена уже ниже <b>{limit}</b>? Вы опоздали, не входите.",
         "late": ("⚠️ <b>Сигнал #{id} {side}: вход уже неактуален</b>\n\n"
                  "Цена ушла от входа {entry} на {pips} пипсов и сейчас {price}.\n"
                  "Если вы ещё не открыли сделку, <b>не входите</b>: вы опоздали, риск стал больше, а прибыль меньше.\n"
@@ -201,11 +201,9 @@ TEXTS: dict[str, dict[str, str]] = {
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} пипсов)\n"
                    "🎯 Take Profit: <b>{tp}</b> ({tp_pips} пипсов)\n"
                    "⚖️ Риск/прибыль 1:{rr}\n"
-                   "💡 Цена у брокеров немного отличается: ставьте SL {sl_pips} и TP {tp_pips} пипсов от <b>своей</b> цены входа.\n\n"
-                   "📊 Стратегия: {strategy}\n"
-                   "🕒 {when}\n\n"
-                   "<i>{note}. Прошлые результаты не гарантируют будущих. "
-                   "Рискуйте не больше 1–2% депозита на сделку.</i>"),
+                   "💡 У брокера цена чуть другая: SL и TP отсчитайте от <b>своей</b> цены входа.\n\n"
+                   "📊 {strategy} · 🕒 {when}\n\n"
+                   "<i>{note}. Прошлые результаты не гарантируют будущих.</i>"),
         "strat_combo": "ICT Silver Bullet + пробой азиатского диапазона",
         "strat_fvg": "OB + FVG + BOS по тренду EMA200",
         "exp_daily_trend": "📈 Дневной тренд (EMA50): {trend}.",
@@ -300,8 +298,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_name": "🇬🇧 English",
         "lang_set": "✅ Language: English",
         "btn_signal": "📊 Signal",
-        "btn_fund": "📰 Fundamental news",
-        "btn_cal": "🗓 News calendar",
+        "btn_fund": "📰 News",
+        "btn_cal": "🗓 Calendar",
         "btn_sub": "💎 Subscription",
         "btn_profile": "👤 Profile",
         "btn_app": "📱 Open the app",
@@ -335,8 +333,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "hello": ("👋 Hi, {name}!\n\n"
                   "I'm a <b>gold (XAUUSD)</b> signals bot.\n"
                   "• 📊 <b>Signal</b> — market analysis and the expected setup; confirmed signals arrive automatically\n"
-                  "• 📰 <b>Fundamental news</b> — in short, how the news affects gold and the dollar\n"
-                  "• 🗓 <b>News calendar</b> — CPI, NFP, FOMC: time and impact\n\n"),
+                  "• 📰 <b>News</b> — in short, how the news affects gold and the dollar\n"
+                  "• 🗓 <b>Calendar</b> — CPI, NFP, FOMC: time and impact\n\n"),
         "trader": "trader",
         "free_new": "✅ <b>Signals are free</b> and will arrive automatically.",
         "st_free": "✅ Signals are free and arrive automatically",
@@ -370,8 +368,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "day_closed": ("🛑 <b>Trading day closed</b>\n\n"
                        "We took {n} stops in a row. No more trading today, to protect the deposit. We'll continue tomorrow 💪"),
         "day_closed_cap": "\n\n💰 Your capital now: <b>${cap}</b>",
-        "late_hint_buy": "\n⏱ Enter only while the price is not above <b>{limit}</b>. Above it you're late, don't open the trade.",
-        "late_hint_sell": "\n⏱ Enter only while the price is not below <b>{limit}</b>. Below it you're late, don't open the trade.",
+        "late_hint_buy": "\n⏱ Price already above <b>{limit}</b>? You're late, don't enter.",
+        "late_hint_sell": "\n⏱ Price already below <b>{limit}</b>? You're late, don't enter.",
         "late": ("⚠️ <b>Signal #{id} {side}: entry is no longer valid</b>\n\n"
                  "Price has moved {pips} pips from the entry {entry} and is now {price}.\n"
                  "If you haven't opened the trade yet, <b>don't enter</b>: you're late, the risk is bigger and the profit smaller.\n"
@@ -489,11 +487,9 @@ TEXTS: dict[str, dict[str, str]] = {
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
                    "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n"
                    "⚖️ Risk/reward 1:{rr}\n"
-                   "💡 Broker prices differ slightly: set SL {sl_pips} and TP {tp_pips} pips from <b>your own</b> entry price.\n\n"
-                   "📊 Strategy: {strategy}\n"
-                   "🕒 {when}\n\n"
-                   "<i>{note}. Past results do not guarantee future ones. "
-                   "Risk no more than 1–2% of your deposit per trade.</i>"),
+                   "💡 Your broker's price differs a little: count SL and TP from <b>your own</b> entry price.\n\n"
+                   "📊 {strategy} · 🕒 {when}\n\n"
+                   "<i>{note}. Past results do not guarantee future ones.</i>"),
         "strat_combo": "ICT Silver Bullet + Asian range breakout",
         "strat_fvg": "OB + FVG + BOS with the EMA200 trend",
         "exp_daily_trend": "📈 Daily trend (EMA50): {trend}.",
@@ -589,8 +585,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_name": "🇺🇿 Oʻzbekcha",
         "lang_set": "✅ Til: Oʻzbekcha",
         "btn_signal": "📊 Signal",
-        "btn_fund": "📰 Fundamental yangiliklar",
-        "btn_cal": "🗓 Yangiliklar taqvimi",
+        "btn_fund": "📰 Yangiliklar",
+        "btn_cal": "🗓 Taqvim",
         "btn_sub": "💎 Obuna",
         "btn_profile": "👤 Profil",
         "btn_app": "📱 Ilovani ochish",
@@ -624,8 +620,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "hello": ("👋 Salom, {name}!\n\n"
                   "Men <b>oltin (XAUUSD)</b> boʻyicha signallar botiman.\n"
                   "• 📊 <b>Signal</b> — bozor tahlili va kutilayotgan setap; tasdiqlangan signallar oʻzi keladi\n"
-                  "• 📰 <b>Fundamental yangiliklar</b> — yangiliklar oltin va dollarga qanday taʼsir qilishi, qisqacha\n"
-                  "• 🗓 <b>Yangiliklar taqvimi</b> — CPI, NFP, FOMC: vaqti va taʼsiri\n\n"),
+                  "• 📰 <b>Yangiliklar</b> — yangiliklar oltin va dollarga qanday taʼsir qilishi, qisqacha\n"
+                  "• 🗓 <b>Taqvim</b> — CPI, NFP, FOMC: vaqti va taʼsiri\n\n"),
         "trader": "treyder",
         "free_new": "✅ <b>Signallar bepul</b> va avtomatik keladi.",
         "st_free": "✅ Signallar bepul va avtomatik keladi",
@@ -659,8 +655,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "day_closed": ("🛑 <b>Savdo kuni yopildi</b>\n\n"
                        "Ketma-ket {n} ta stop oldik. Depozitni asrash uchun bugun boshqa savdo qilmaymiz. Ertaga davom etamiz 💪"),
         "day_closed_cap": "\n\n💰 Hozirgi kapitalingiz: <b>${cap}</b>",
-        "late_hint_buy": "\n⏱ Narx <b>{limit}</b> dan yuqori boʻlmaguncha kiring. Yuqori boʻlsa, kech qoldingiz, savdoni ochmang.",
-        "late_hint_sell": "\n⏱ Narx <b>{limit}</b> dan past boʻlmaguncha kiring. Past boʻlsa, kech qoldingiz, savdoni ochmang.",
+        "late_hint_buy": "\n⏱ Narx <b>{limit}</b> dan yuqorimi? Kech qoldingiz, kirmang.",
+        "late_hint_sell": "\n⏱ Narx <b>{limit}</b> dan pastmi? Kech qoldingiz, kirmang.",
         "late": ("⚠️ <b>Signal #{id} {side}: kirish endi dolzarb emas</b>\n\n"
                  "Narx kirish {entry} dan {pips} pips uzoqlashdi va hozir {price}.\n"
                  "Agar savdoni hali ochmagan boʻlsangiz, <b>kirmang</b>: kech qoldingiz, risk kattaroq, foyda kamroq.\n"
@@ -778,11 +774,9 @@ TEXTS: dict[str, dict[str, str]] = {
                    "🛑 Stop Loss: <b>{sl}</b> ({sl_pips} pips)\n"
                    "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n"
                    "⚖️ Risk/foyda 1:{rr}\n"
-                   "💡 Brokerlarda narx biroz farq qiladi: SL {sl_pips} va TP {tp_pips} pipsni <b>oʻzingizning</b> kirish narxingizdan qoʻying.\n\n"
-                   "📊 Strategiya: {strategy}\n"
-                   "🕒 {when}\n\n"
-                   "<i>{note}. Oʻtgan natijalar kelajakdagi natijalarni kafolatlamaydi. "
-                   "Bitta savdoda depozitning 1–2% idan koʻp tavakkal qilmang.</i>"),
+                   "💡 Brokerda narx biroz boshqacha: SL va TP ni <b>oʻzingizning</b> kirish narxingizdan hisoblang.\n\n"
+                   "📊 {strategy} · 🕒 {when}\n\n"
+                   "<i>{note}. Oʻtgan natijalar kelajakdagi natijalarni kafolatlamaydi.</i>"),
         "strat_combo": "ICT Silver Bullet + Osiyo diapazonini yorib oʻtish",
         "strat_fvg": "EMA200 trendi boʻyicha OB + FVG + BOS",
         "exp_daily_trend": "📈 Kunlik trend (EMA50): {trend}.",
@@ -1082,9 +1076,17 @@ def t(lang: str | None, key: str, **kw) -> str:
     return s.format(**kw) if kw else s
 
 
+# прежние подписи кнопок меню: у подписчиков может остаться старая клавиатура, нажатие должно работать
+OLD_BUTTONS: dict[str, set[str]] = {
+    "btn_fund": {"📰 Фундаментальные новости", "📰 Fundamental news", "📰 Fundamental yangiliklar"},
+    "btn_cal": {"🗓 Календарь новостей", "🗓 News calendar", "🗓 Yangiliklar taqvimi"},
+    "btn_propsig": {"🏆 Сигналы для проп-фирм", "🏆 Prop firm signals", "🏆 Prop-firma signallari"},
+}
+
+
 def variants(key: str) -> set[str]:
-    """Все переводы ключа — чтобы ловить нажатия кнопок меню на любом языке."""
-    return {TEXTS[lang][key] for lang in TEXTS}
+    """Все переводы ключа (и прежние подписи кнопки) — чтобы ловить нажатия кнопок меню на любом языке."""
+    return {TEXTS[lang][key] for lang in TEXTS} | OLD_BUTTONS.get(key, set())
 
 
 def per_lang(make) -> dict[str, str]:
@@ -1095,8 +1097,7 @@ def per_lang(make) -> dict[str, str]:
 # фиксация части прибыли, безубыток, закрытие при развороте, итоги недели
 MANAGE_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
-        "sig_partial": ("💰 Фиксация {pct}%: <b>{tp1}</b> ({tp1_pips} пипсов). Там закройте {pct}% лота "
-                        "и перенесите стоп в безубыток (на цену входа), остаток держите до Take Profit\n"),
+        "sig_partial": "💰 Фиксация {pct}%: <b>{tp1}</b> ({tp1_pips} пипсов), затем стоп в безубыток\n",
         "partial": ("💰 <b>Сигнал #{id} {side}: фиксируем {pct}% прибыли</b>\n\n"
                     "Цена дошла до {tp1} (+{pips} пипсов), сейчас {price}.\n"
                     "1️⃣ Закройте <b>{pct}%</b> лота.\n"
@@ -1130,8 +1131,7 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "weekly_none": "📅 <b>Итоги недели {start} – {end}</b>\n\nНа этой неделе сигналов не было.",
     },
     "en": {
-        "sig_partial": ("💰 Take {pct}%: <b>{tp1}</b> ({tp1_pips} pips). Close {pct}% of the lot there "
-                        "and move the stop to breakeven (entry price), keep the rest until Take Profit\n"),
+        "sig_partial": "💰 Take {pct}%: <b>{tp1}</b> ({tp1_pips} pips), then stop to breakeven\n",
         "partial": ("💰 <b>Signal #{id} {side}: take {pct}% profit</b>\n\n"
                     "Price reached {tp1} (+{pips} pips), now {price}.\n"
                     "1️⃣ Close <b>{pct}%</b> of the lot.\n"
@@ -1165,8 +1165,7 @@ MANAGE_TEXTS: dict[str, dict[str, str]] = {
         "weekly_none": "📅 <b>Weekly results {start} – {end}</b>\n\nThere were no signals this week.",
     },
     "uz": {
-        "sig_partial": ("💰 {pct}% foydani olish: <b>{tp1}</b> ({tp1_pips} pips). U yerda lotning {pct}% ini yoping "
-                        "va stopni zararsizlikka (kirish narxiga) oʻtkazing, qolganini Take Profitgacha ushlang\n"),
+        "sig_partial": "💰 {pct}% ini olish: <b>{tp1}</b> ({tp1_pips} pips), keyin stop zararsizlikka\n",
         "partial": ("💰 <b>Signal #{id} {side}: foydaning {pct}% ini olamiz</b>\n\n"
                     "Narx {tp1} ga yetdi (+{pips} pips), hozir {price}.\n"
                     "1️⃣ Lotning <b>{pct}%</b> ini yoping.\n"
@@ -1342,7 +1341,7 @@ for _lang, _texts in DAILY_TEXTS.items():
 # ── сигналы для проп-фирм: анкета, отдельный поток, напоминания (goldbot/prop_signals.py) ─────────────
 PROPSIG_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
-        "btn_propsig": "🏆 Сигналы для проп-фирм",
+        "btn_propsig": "🏆 Проп-сигналы",
         "ps_intro": ("🏆 <b>Сигналы для проп-фирм (FundedNext и др.)</b>\n\n"
                      "Отдельный поток сигналов для тех, кто проходит челлендж или торгует на финансируемом счёте:\n"
                      "• лот и риск в $ посчитаны по вашему счёту: обычно 0.5% на сделку, никогда больше 1%;\n"
@@ -1372,7 +1371,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "btn_ps_off": "⛔️ Выключить проп-сигналы",
         "ps_balance_ask": "Напишите текущий баланс вашего проп-счёта (закрытые сделки), например <code>10250</code>.",
         "ps_balance_set": "✅ Баланс обновлён.\n\n",
-        "ps_off": "⛔️ Проп-сигналы выключены, обычные сигналы снова приходят. Включить: 🏆 Сигналы для проп-фирм.",
+        "ps_off": "⛔️ Проп-сигналы выключены, обычные сигналы снова приходят. Включить: 🏆 Проп-сигналы.",
         "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
                    "💰 Баланс: <b>{balance}</b> ({profit}%)\n{goal}"
                    "📉 До дневного лимита: <b>{day_left}</b> (на сегодня не ниже {day_floor})\n"
@@ -1389,8 +1388,8 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
                       "🎯 Take Profit: <b>{tp}</b> ({tp_pips} пипсов)\n\n"
                       "💼 Ваш лот: <b>{lot}</b> (счёт ${size})\n"
                       "🛑 Риск: <b>−{risk_usd}</b> ({risk_pct}% счёта) · 🎯 Прибыль: <b>+{profit_usd}</b>{note}\n\n"
-                      "📌 Без фиксации части и безубытка: держите до SL или TP. "
-                      "Сделка закроется по стопу — до {reset} проп-сигналов больше не будет."),
+                      "📌 Без фиксации и безубытка: держите до SL или TP.\n"
+                      "Если сделка закроется по стопу, новых проп-сигналов до {reset} не будет."),
         "ps_note_goal": "\n🎯 Цель этапа уже есть — минимальный лот, только чтобы набрать торговые дни.",
         "ps_note_low": "\n🛡 Баланс ниже начального на 2%+: риск снижен.",
         "ps_accepted": "✅ Проп-сигнал #{id} принят. Результат и новый баланс пришлю, когда сделка закроется.",
@@ -1411,7 +1410,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "ps_skipped_limit": "⚠️ Проп-сигнал #{id} пропущен: по вашему счёту риск не помещается в лимиты (открытые сделки или дневной лимит).",
     },
     "en": {
-        "btn_propsig": "🏆 Prop firm signals",
+        "btn_propsig": "🏆 Prop signals",
         "ps_intro": ("🏆 <b>Prop firm signals (FundedNext and others)</b>\n\n"
                      "A separate signal stream for traders on a challenge or a funded account:\n"
                      "• lot and risk in $ are sized to your account: usually 0.5% per trade, never more than 1%;\n"
@@ -1441,7 +1440,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "btn_ps_off": "⛔️ Turn off prop signals",
         "ps_balance_ask": "Type the current balance of your prop account (closed trades), e.g. <code>10250</code>.",
         "ps_balance_set": "✅ Balance updated.\n\n",
-        "ps_off": "⛔️ Prop signals are off, regular signals are back. Turn on: 🏆 Prop firm signals.",
+        "ps_off": "⛔️ Prop signals are off, regular signals are back. Turn on: 🏆 Prop signals.",
         "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
                    "💰 Balance: <b>{balance}</b> ({profit}%)\n{goal}"
                    "📉 To the daily limit: <b>{day_left}</b> (today not below {day_floor})\n"
@@ -1458,7 +1457,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
                       "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n\n"
                       "💼 Your lot: <b>{lot}</b> (account ${size})\n"
                       "🛑 Risk: <b>−{risk_usd}</b> ({risk_pct}% of the account) · 🎯 Profit: <b>+{profit_usd}</b>{note}\n\n"
-                      "📌 No partial close or breakeven: hold until SL or TP. "
+                      "📌 No partial close or breakeven: hold until SL or TP.\n"
                       "If the trade hits the stop, there will be no more prop signals until {reset}."),
         "ps_note_goal": "\n🎯 The stage target is already reached — minimum lot, only to collect trading days.",
         "ps_note_low": "\n🛡 Balance is 2%+ below the start: risk is reduced.",
@@ -1480,7 +1479,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "ps_skipped_limit": "⚠️ Prop signal #{id} skipped: for your account the risk doesn't fit the limits (open trades or the daily limit).",
     },
     "uz": {
-        "btn_propsig": "🏆 Prop-firma signallari",
+        "btn_propsig": "🏆 Prop-signallar",
         "ps_intro": ("🏆 <b>Prop-firma signallari (FundedNext va boshqalar)</b>\n\n"
                      "Challenge oʻtayotgan yoki moliyalashtirilgan hisobda savdo qilayotganlar uchun alohida signallar:\n"
                      "• lot va $ dagi risk hisobingizga qarab hisoblanadi: odatda bitimga 0.5%, hech qachon 1% dan koʻp emas;\n"
@@ -1510,7 +1509,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
         "btn_ps_off": "⛔️ Prop-signallarni oʻchirish",
         "ps_balance_ask": "Prop-hisobingizning hozirgi balansini yozing (yopilgan bitimlar), masalan <code>10250</code>.",
         "ps_balance_set": "✅ Balans yangilandi.\n\n",
-        "ps_off": "⛔️ Prop-signallar oʻchirildi, oddiy signallar yana keladi. Yoqish: 🏆 Prop-firma signallari.",
+        "ps_off": "⛔️ Prop-signallar oʻchirildi, oddiy signallar yana keladi. Yoqish: 🏆 Prop-signallar.",
         "ps_rem": ("🏆 <b>{plan} · {stage} · ${size}</b>\n"
                    "💰 Balans: <b>{balance}</b> ({profit}%)\n{goal}"
                    "📉 Kunlik limitgacha: <b>{day_left}</b> (bugun {day_floor} dan past emas)\n"
@@ -1527,7 +1526,7 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
                       "🎯 Take Profit: <b>{tp}</b> ({tp_pips} pips)\n\n"
                       "💼 Sizning lotingiz: <b>{lot}</b> (hisob ${size})\n"
                       "🛑 Risk: <b>−{risk_usd}</b> (hisobning {risk_pct}%) · 🎯 Foyda: <b>+{profit_usd}</b>{note}\n\n"
-                      "📌 Qisman yopish va zararsizlik yoʻq: SL yoki TP gacha ushlang. "
+                      "📌 Qisman yopish va zararsizlik yoʻq: SL yoki TP gacha ushlang.\n"
                       "Bitim stop bilan yopilsa, {reset} gacha boshqa prop-signal boʻlmaydi."),
         "ps_note_goal": "\n🎯 Bosqich maqsadi bajarilgan — faqat savdo kunlarini yigʻish uchun minimal lot.",
         "ps_note_low": "\n🛡 Balans boshlangʻichdan 2%+ past: risk kamaytirildi.",
@@ -1555,7 +1554,7 @@ for _lang, _texts in PROPSIG_TEXTS.items():
 # ── приглашение друзей и «Поделиться результатом» ───────────────────────────
 REF_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
-        "btn_invite": "🎁 Пригласить друга",
+        "btn_invite": "🎁 Пригласить",
         "btn_invite_share": "📤 Отправить приглашение",
         "btn_share": "📤 Поделиться результатом",
         "ref_unavailable": "🎁 Приглашения сейчас недоступны, попробуйте позже.",
@@ -1578,7 +1577,7 @@ REF_TEXTS: dict[str, dict[str, str]] = {
         "share_win": "✅ Сигнал по золоту XAUUSD #{id} {side} закрыт в плюсе: +{pips} пипсов. Сигналы бесплатные:",
     },
     "en": {
-        "btn_invite": "🎁 Invite a friend",
+        "btn_invite": "🎁 Invite",
         "btn_invite_share": "📤 Send invitation",
         "btn_share": "📤 Share the result",
         "ref_unavailable": "🎁 Invitations are not available right now, please try later.",
@@ -1600,7 +1599,7 @@ REF_TEXTS: dict[str, dict[str, str]] = {
         "share_win": "✅ Gold XAUUSD signal #{id} {side} closed in profit: +{pips} pips. Signals are free:",
     },
     "uz": {
-        "btn_invite": "🎁 Doʻstni taklif qilish",
+        "btn_invite": "🎁 Taklif qilish",
         "btn_invite_share": "📤 Taklif yuborish",
         "btn_share": "📤 Natijani ulashish",
         "ref_unavailable": "🎁 Takliflar hozircha mavjud emas, keyinroq urinib koʻring.",
