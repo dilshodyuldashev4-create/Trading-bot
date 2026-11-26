@@ -24,6 +24,28 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-26.1",
+        "ru": [
+            "🎓 Новая кнопка «Уроки»: видеокурс трейдинга с нуля до профи — 22 видео лучших трейдеров по порядку: "
+            "основы, график и риск, стратегии и уровень профи. Выбирайте урок по номеру и переходите к следующему",
+            "🇺🇿 Видео можно смотреть с узбекскими субтитрами: ⚙️ → Субтитры → Автоперевод → O'zbek",
+            "✅ Стратегии, проверенные ботом на истории золота, отмечены галочкой. Курс есть и в приложении во вкладке «Уроки»",
+        ],
+        "en": [
+            "🎓 New «Lessons» button: a trading video course from zero to pro — 22 videos by top traders in order: "
+            "basics, charts and risk, strategies and pro level. Pick a lesson by number and move on to the next one",
+            "🇺🇿 Videos can be watched with Uzbek subtitles: ⚙️ → Subtitles → Auto-translate → Uzbek",
+            "✅ Strategies the bot tested on gold history are marked with a tick. The course is also in the app, «Learn» tab",
+        ],
+        "uz": [
+            "🎓 Yangi «Darslar» tugmasi: noldan professionalgacha treyding videokursi — eng yaxshi treyderlarning 22 ta "
+            "videosi tartib bilan: asoslar, grafik va risk, strategiyalar va professional daraja. Darsni raqami bo'yicha "
+            "tanlang va keyingisiga o'ting",
+            "🇺🇿 Videolarni o'zbekcha subtitr bilan ko'rish mumkin: ⚙️ → Subtitrlar → Avtotarjima → O'zbek",
+            "✅ Bot oltin tarixida tekshirgan strategiyalar belgi bilan ko'rsatilgan. Kurs ilovada ham bor, «Darslar» bo'limida",
+        ],
+    },
+    {
         "version": "2026-11-25.4",
         "ru": [
             "🎉 Сигналы теперь бесплатные для всех и навсегда: никакого пробного периода и подписки. Сигналы, "

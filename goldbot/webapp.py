@@ -32,6 +32,7 @@ from .db import now
 from .i18n import LANGS, norm, t
 from .results import WIN, signal_pips
 from .webapp_lessons import lessons, lessons_vars
+from .video_course import course
 from .webapp_texts import texts
 
 if TYPE_CHECKING:
@@ -246,6 +247,7 @@ class WebApp:
             "accounts": accounts, "myfxbook": config.myfxbook_url or None,
             "fundednext": config.fundednext_url or None, "pip": PIP,
             "learn": {"lessons": lessons(lang), "vars": lessons_vars()},
+            "video": course(lang),
         }
 
     def market(self, open_sig: list[dict]) -> dict:

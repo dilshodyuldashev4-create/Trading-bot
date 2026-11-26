@@ -29,6 +29,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, 
 import json
 
 from . import changelog, econ_calendar, news_alerts
+from . import video_course as vc
 from . import daily_report as dr
 from . import prop as pr
 from . import prop_signals as ps
@@ -51,7 +52,7 @@ log = logging.getLogger(__name__)
 def menu(lang: str) -> ReplyKeyboardMarkup:
     b = lambda key: KeyboardButton(text=t(lang, key))  # noqa: E731
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        *([[b("btn_app_menu")]] if config.webapp_on else []),   # приложение в Telegram (Mini App)
+        [*([b("btn_app_menu")] if config.webapp_on else []), b("btn_lessons")],   # Mini App и видеокурс
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats"), b("btn_propsig")],
@@ -66,7 +67,7 @@ APP_OLD_TEXTS = frozenset({"🟡 Приложение", "🟡 App", "🟡 Ilova"
 # все подписи кнопок главного меню на всех языках
 MENU_TEXTS = APP_OLD_TEXTS | frozenset().union(*(variants(k) for k in (
     "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
-    "btn_fundednext", "btn_app_menu")))
+    "btn_fundednext", "btn_app_menu", "btn_lessons")))
 
 
 LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -1849,6 +1850,40 @@ class App:
                 return
             await m.answer(t(lang, "app_text"), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[btn]]))
 
+        # ── видеокурс: кнопка «🎓 Уроки» → список по номерам → урок → следующий ──
+        def vc_list_kb(lang: str) -> InlineKeyboardMarkup:
+            rows = [[_btn(a, d) for a, d in row] for row in vc.list_buttons(lang)]
+            app_btn = self.app_button(lang)
+            return InlineKeyboardMarkup(inline_keyboard=rows + ([[app_btn]] if app_btn else []))
+
+        def vc_lesson_kb(lang: str, n: int) -> InlineKeyboardMarkup:
+            rows = [[_btn(a, d) for a, d in row] for row in vc.lesson_buttons(lang, n)]
+            rows.append([InlineKeyboardButton(text=vc.TEXTS[lang]["btn_watch"], url=vc.watch_url(vc.active()[n - 1]["yt"]))])
+            return InlineKeyboardMarkup(inline_keyboard=rows)
+
+        @r.message(F.text.in_(variants("btn_lessons")))
+        @r.message(Command("lessons"))
+        async def lessons_cmd(m: Message):
+            lang = await self.lang_of(m.from_user.id)
+            await m.answer(vc.list_text(lang), reply_markup=vc_list_kb(lang), disable_web_page_preview=True)
+
+        @r.callback_query(F.data.startswith("vc:"))
+        async def lessons_cb(q: CallbackQuery):
+            lang = await self.lang_of(q.from_user.id)
+            arg = q.data.split(":", 1)[1]
+            await q.answer()
+            if arg == "list":
+                text, kb, preview = vc.list_text(lang), vc_list_kb(lang), False
+            elif arg.isdigit() and 1 <= int(arg) <= len(vc.active()):
+                n = int(arg)
+                text, kb, preview = vc.lesson_text(lang, n), vc_lesson_kb(lang, n), True
+            else:
+                return
+            try:   # листаем в том же сообщении, чтобы чат не засорялся
+                await q.message.edit_text(text, reply_markup=kb, disable_web_page_preview=not preview)
+            except Exception:  # noqa: BLE001 — сообщение старое или не изменилось: шлём новое
+                await q.message.answer(text, reply_markup=kb, disable_web_page_preview=not preview)
+
         @r.message(F.text.in_(variants("btn_profile")))
         @r.message(Command("profile"))
         async def profile(m: Message):
@@ -2708,6 +2743,19 @@ class App:
                             f"botdata/{Path(config.db_path).name} и перезапустить бота."))
         return True
 
+    async def video_check_loop(self) -> None:
+        """Раз в сутки проверяет видеокурс через YouTube oEmbed и прячет удалённые видео."""
+        import aiohttp
+        while True:
+            try:
+                async with aiohttp.ClientSession() as s:
+                    gone = await vc.check_videos(s)
+                if gone:
+                    log.warning("video course: hidden missing videos %s", sorted(gone))
+            except Exception:  # noqa: BLE001
+                log.exception("video course check failed")
+            await asyncio.sleep(86400)
+
     async def backup_loop(self) -> None:
         while True:
             try:
@@ -3068,6 +3116,7 @@ class App:
             asyncio.create_task(self.live_card_loop()),
             asyncio.create_task(self.reconcile_loop()),
             asyncio.create_task(self.release_offer_on_start()),
+            asyncio.create_task(self.video_check_loop()),
         ]
         if self.webapp:
             tasks.append(asyncio.create_task(self.webapp.loop()))
