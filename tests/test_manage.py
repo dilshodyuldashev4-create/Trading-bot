@@ -35,6 +35,15 @@ class TargetsTests(unittest.TestCase):
         eng.final_r = 0      # тейк из настроек, фиксация ближе тейка
         self.assertEqual(eng.targets(pd.DataFrame()), (100, 150, 100))
 
+    def test_trend_take(self):
+        eng = SignalEngine(None, None, "combo", 100, 150, "UTC", None, None)
+        eng.partial_r, eng.final_r = 1.0, 3.0
+        eng.trend_r, eng.trend_keys = 4.0, ("squeeze", "days5")
+        self.assertEqual(eng.targets(pd.DataFrame(), "squeeze"), (100, 400, 100))   # трендовая — 4R
+        self.assertEqual(eng.targets(pd.DataFrame(), "liq_m15"), (100, 300, 100))   # остальные — 3R
+        eng.trend_r = 0      # выключено — у всех 3R
+        self.assertEqual(eng.targets(pd.DataFrame(), "squeeze"), (100, 300, 100))
+
     def test_signal_text_line(self):
         txt = with_partial("A\n⚖️ Риск/прибыль 1:3", 4010.0, 100, 0.5, "ru")
         self.assertIn("Фиксация 50%: <b>4010.00</b>", txt)

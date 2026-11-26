@@ -251,7 +251,7 @@ def lot_plan(capital: float, sl_pips: float = 0, tp_pips: float = 0, tp1_pips: f
 def lot_text(lang: str, capital: float | None, sl_pips: float = 0, tp_pips: float = 0,
              tp1_pips: float = 0, part: float = 0, size: float = 1.0) -> str:
     """Блок «Ваш лот» для подписи сигнала."""
-    strong = t(lang, "sig_strong", x=f"{size:g}") if size > 1 + 1e-9 else ""
+    strong = t(lang, "sig_strong", x=f"{round(size, 2):g}") if size > 1 + 1e-9 else ""
     if not capital:
         return strong + t(lang, "sig_nocap")
     p = lot_plan(capital, sl_pips, tp_pips, tp1_pips, part, size)
@@ -372,6 +372,7 @@ class App:
         self.engine.sl_atr, self.engine.tp_atr = config.sl_atr, config.tp_atr
         self.engine.sl_min_pips = config.sl_min_pips
         self.engine.partial_r, self.engine.final_r = config.partial_r, config.final_tp_r
+        self.engine.trend_r, self.engine.trend_keys = config.trend_tp_r, config.trend_tp_keys
         self.engine.partial_pct = max(0.0, min(config.partial_pct, 90.0)) / 100
         self.engine.on_partial = self.broadcast_partial
         self.engine.reversal_close = config.reversal_close
@@ -383,6 +384,9 @@ class App:
         self.engine.confluence_min = config.confluence_min
         self.engine.confluence_single = config.confluence_single
         self.engine.confluence_strong = config.confluence_strong
+        self.engine.volume_bars = config.volume_bars
+        self.engine.volume_low, self.engine.volume_high = config.volume_low, config.volume_high
+        self.engine.volume_cut, self.engine.volume_boost = config.volume_cut, config.volume_boost
         self.engine.news_pause_min = config.news_pause_min
         self.engine.news_pause_impact = config.news_pause_impact
         self.engine.news_bias = self.news.bias       # строка о фоне новостей в сигнале
@@ -601,7 +605,7 @@ class App:
 
     async def chan_post_signal(self, s: NewSignal) -> None:
         async def send(cid, lang):
-            strong = t(lang, "sig_strong", x=f"{s.size:g}") if s.size > 1 + 1e-9 else ""
+            strong = t(lang, "sig_strong", x=f"{round(s.size, 2):g}") if s.size > 1 + 1e-9 else ""
             rules = t(lang, "sig_rules", n=config.max_sl_streak) if config.max_sl_streak > 0 else ""
             caption = (with_lot(s.texts[lang], strong + late_hint(lang, s.direction, s.entry)) + rules
                        + await self.chan_cta(lang))

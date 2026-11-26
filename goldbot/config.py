@@ -56,6 +56,11 @@ class Config:
     partial_r: float = float(os.getenv("PARTIAL_R", "1"))
     partial_pct: float = float(os.getenv("PARTIAL_PCT", "50"))
     final_tp_r: float = float(os.getenv("FINAL_TP_R", "3"))
+    # трендовые стратегии (reports/edge_research.md): тейк остатка — TREND_TP_R стопов вместо FINAL_TP_R
+    # (тренд у них часто идёт дальше 3R). Проп-счета не меняются: там свой тейк PROP_TP_R. 0 — как у всех
+    trend_tp_r: float = float(os.getenv("TREND_TP_R", "4"))
+    trend_tp_keys: tuple[str, ...] = tuple(x.strip() for x in os.getenv(
+        "TREND_TP_KEYS", "squeeze,donchian_h1,days5,kama_h4,klinger_h4").split(",") if x.strip())
     # 1 — закрывать сделку в прибыли, когда стратегия бота даёт сигнал в обратную сторону (разворот)
     reversal_close: bool = os.getenv("REVERSAL_CLOSE", "1") not in ("0", "false", "no", "")
     reversal_min_pips: float = float(os.getenv("REVERSAL_MIN_PIPS", "10"))
@@ -74,6 +79,14 @@ class Config:
     confluence_min: int = int(os.getenv("CONFLUENCE_MIN", "60"))
     confluence_single: float = float(os.getenv("CONFLUENCE_SINGLE", "0.75"))
     confluence_strong: float = float(os.getenv("CONFLUENCE_STRONG", "1.5"))
+    # тиковый объём сигнальной свечи (reports/edge_research.md): объём ниже VOLUME_LOW от среднего за
+    # VOLUME_BARS прошлых свечей — лот × VOLUME_CUT, выше VOLUME_HIGH — × VOLUME_BOOST (в среднем риск тот же).
+    # Обычные счета и лот в сигнале; проп-счета — как раньше. Нет объёма в свечах — × 1. VOLUME_BARS=0 — выключено
+    volume_bars: int = int(os.getenv("VOLUME_BARS", "20"))
+    volume_low: float = float(os.getenv("VOLUME_LOW", "1.0"))
+    volume_high: float = float(os.getenv("VOLUME_HIGH", "1.5"))
+    volume_cut: float = float(os.getenv("VOLUME_CUT", "0.75"))
+    volume_boost: float = float(os.getenv("VOLUME_BOOST", "1.25"))
     # лот по капиталу подписчика (по умолчанию risk 1%): table — таблица ($50→0.01, $100→0.02, $200→0.03, +0.01 за $100),
     # risk — стоп забирает не больше LOT_RISK_PCT % капитала
     # «вы опоздали»: если цена ушла от входа в сторону тейка на столько пипсов — предупреждаем не входить
