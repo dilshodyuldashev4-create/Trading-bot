@@ -29,7 +29,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, 
 import json
 from urllib.parse import urlencode
 
-from . import changelog, econ_calendar, news_alerts
+from . import changelog, chart_vision, econ_calendar, news_alerts
 from . import video_course as vc
 from . import daily_report as dr
 from . import prop as pr
@@ -55,7 +55,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
         [*([b("btn_app_menu")] if config.webapp_on else []), b("btn_lessons"), b("btn_invite")],   # Mini App, видеокурс, друзья
         [b("btn_signal"), b("btn_stats")],                                         # главное: сигнал и результаты
-        [b("btn_fund"), b("btn_cal")],
+        [b("btn_fund"), b("btn_cal"), *([b("btn_chart")] if config.chart_ai_daily else [])],   # + разбор скриншота
         [b("btn_propsig"), b("btn_profile")],
         *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
@@ -67,7 +67,7 @@ APP_OLD_TEXTS = frozenset({"🟡 Приложение", "🟡 App", "🟡 Ilova"
 # все подписи кнопок главного меню на всех языках
 MENU_TEXTS = APP_OLD_TEXTS | frozenset().union(*(variants(k) for k in (
     "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
-    "btn_fundednext", "btn_app_menu", "btn_lessons", "btn_invite")))
+    "btn_fundednext", "btn_app_menu", "btn_lessons", "btn_invite", "btn_chart")))
 
 
 LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -363,6 +363,7 @@ class App:
         self.dp = Dispatcher()
         self.db = DB(config.db_path)
         self._release_lock = asyncio.Lock()  # одна рассылка об обновлении за раз
+        self._chart_busy: set[int] = set()     # у кого сейчас готовится разбор скриншота
         self.news = NewsService(config.news_feeds, config.anthropic_model)
         self.provider = make_provider(config)
         self.engine = SignalEngine(self.db, self.provider, config.strategy, config.sl_pips, config.tp_pips,
@@ -955,6 +956,90 @@ class App:
         wa = getattr(self, "webapp", None)
         url = wa.url if wa else None
         return InlineKeyboardButton(text=t(lang, "btn_app"), web_app=WebAppInfo(url=url)) if url else None
+
+    # ── разбор графика по скриншоту ────────────────────────────────────────────
+    def _chart_key(self, uid: int) -> str:
+        return f"chart:{uid}:{datetime.now(ZoneInfo(config.display_tz)).date().isoformat()}"
+
+    async def chart_left(self, uid: int) -> int | None:
+        """Сколько разборов осталось сегодня; None — без лимита (админ)."""
+        if self.is_admin(uid):
+            return None
+        used = int(await self.db.get_kv(self._chart_key(uid), "0") or 0)
+        return max(0, config.chart_ai_daily - used)
+
+    async def chart_context(self, uid: int) -> str:
+        """Живые данные бота для разбора: цена, дневной тренд, открытый сигнал, фон новостей."""
+        lines = []
+        try:
+            price = await self.engine.fresh_price()
+            if price:
+                lines.append(f"Current XAUUSD price: {price:.2f}")
+            trend = await self.engine.daily_trend(pd.Timestamp.now(tz="UTC"))
+            lines.append("Bot's daily trend (D1 close vs EMA50): " + ("up" if trend > 0 else "down" if trend < 0 else "flat"))
+        except Exception:  # noqa: BLE001 — без данных бота разбираем только картинку
+            log.warning("chart context: no market data", exc_info=True)
+        try:
+            opened = [x for x in await self.db.open_signals() if not x.get("prop_only")]
+            if opened:
+                s = opened[-1]
+                lines.append(f"Bot's open signal #{s['id']}: {'BUY' if s['direction'] == 1 else 'SELL'} "
+                             f"entry {s['entry']:.2f}, SL {s['sl']:.2f}, TP {s['tp']:.2f}")
+            else:
+                lines.append("Bot has no open signal now.")
+        except Exception:  # noqa: BLE001
+            log.warning("chart context: open signals", exc_info=True)
+        cached = getattr(self.news, "_bias", None)   # оценка новостей из кэша, без нового запроса
+        if cached and cached[1]:
+            b = cached[1]
+            lines.append(f"News background for gold: {b.get('bias')} ({b.get('strength')})")
+        return "\n".join(lines)
+
+    async def chart_review(self, m: Message) -> None:
+        uid = m.from_user.id
+        if not await self.db.get_user(uid):
+            await self.db.add_user(uid, m.from_user.username, m.from_user.first_name)
+        lang = await self.lang_of(uid)
+        if not config.chart_ai_daily or not chart_vision.available():
+            await m.answer(t(lang, "chart_off"))
+            return
+        if uid in self._chart_busy:
+            await m.answer(t(lang, "chart_busy"))
+            return
+        left = await self.chart_left(uid)
+        if left == 0:
+            await m.answer(t(lang, "chart_limit", limit=config.chart_ai_daily))
+            return
+        file_id = m.photo[-1].file_id if m.photo else m.document.file_id
+        if m.document and (m.document.file_size or 0) > 10 * 1024 * 1024:
+            await m.answer(t(lang, "chart_fail"))
+            return
+        self._chart_busy.add(uid)
+        try:
+            wait = await m.answer(t(lang, "chart_wait"))
+            buf = await self.bot.download(file_id)
+            text = await chart_vision.analyze(buf.read(), t(lang, "news_lang"), await self.chart_context(uid),
+                                              config.anthropic_model, m.caption or "")
+            try:
+                await wait.delete()
+            except Exception:  # noqa: BLE001
+                pass
+            if not text:
+                await m.answer(t(lang, "chart_fail"))
+                return
+            if left is not None:   # списываем только удачный разбор
+                key = self._chart_key(uid)
+                used = int(await self.db.get_kv(key, "0") or 0) + 1
+                await self.db.set_kv(key, str(used))
+                left -= 1
+            tail = "" if left is None else "\n\n" + t(lang, "chart_left", left=left, limit=config.chart_ai_daily)
+            await self.send_long(m.chat.id, f"{t(lang, 'chart_head')}\n\n{text}\n\n{t(lang, 'chart_disclaimer')}{tail}",
+                                 reply_parameters=ReplyParameters(message_id=m.message_id))
+        except Exception:  # noqa: BLE001
+            log.exception("chart review")
+            await m.answer(t(lang, "chart_fail"))
+        finally:
+            self._chart_busy.discard(uid)
 
     async def lang_of(self, uid: int) -> str:
         u = await self.db.get_user(uid)
@@ -2403,6 +2488,21 @@ class App:
             ulang = await self.lang_of(uid)
             await self._send(uid, lambda: self.bot.send_message(uid, t(ulang, "at_paid_ok", until=self.fmt_dt(until))))
 
+
+        @r.message(F.text.in_(variants("btn_chart")))
+        @r.message(Command("chart"))
+        async def chart_hint(m: Message):
+            lang = await self.lang_of(m.from_user.id)
+            if not config.chart_ai_daily or not chart_vision.available():
+                await m.answer(t(lang, "chart_off"))
+                return
+            extra = t(lang, "chart_hint_admin") if self.is_admin(m.from_user.id) else ""
+            await m.answer(t(lang, "chart_hint", limit=config.chart_ai_daily) + extra)
+
+        # скриншот графика: фото или картинка файлом (без сжатия)
+        @r.message(F.chat.type == "private", F.photo | (F.document & F.document.mime_type.startswith("image/")))
+        async def chart_photo(m: Message):
+            await self.chart_review(m)
 
         # кнопки «Сигналы для проп-фирм», «Автоторговля», «FundedNext» — раньше обработчиков «ждём ввод»:
         # нажатие кнопки меню во время анкеты или подключения счёта открывает раздел, а не считается ответом

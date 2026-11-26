@@ -155,6 +155,9 @@ class Config:
 
     # новости
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
+    # разбор графика по скриншоту (Claude): сколько разборов в день бесплатно у подписчика (админам без лимита);
+    # 0 — выключить
+    chart_ai_daily: int = int(os.getenv("CHART_AI_DAILY", "3"))
     news_feeds: tuple[str, ...] = tuple(
         u.strip() for u in os.getenv(
             "NEWS_FEEDS",

@@ -1624,3 +1624,60 @@ REF_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _texts in REF_TEXTS.items():
     TEXTS[_lang].update(_texts)
+
+# ── разбор графика по скриншоту (goldbot/chart_vision.py) ────────────────────
+CHART_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "btn_chart": "📷 Разбор графика",
+        "chart_hint": ("📷 <b>Разбор графика по скриншоту</b>\n\nПришлите скриншот своего графика (MT4/MT5, TradingView). "
+                       "Бот посмотрит его вместе со своими данными и ответит: тренд, уровни, где вход и стоп "
+                       "и стоит ли входить сейчас.\n\nМожно добавить подпись с вопросом, например: "
+                       "«хочу купить, где стоп?».\n\n🎁 Бесплатно разборов в день: {limit}."),
+        "chart_hint_admin": "\n\n👑 У вас без лимита.",
+        "chart_wait": "🔎 Смотрю ваш график…",
+        "chart_head": "📷 <b>Разбор вашего графика</b>",
+        "chart_left": "🎁 Осталось разборов сегодня: {left} из {limit}.",
+        "chart_limit": ("⏳ Лимит на сегодня исчерпан (разборов в день: {limit}). Новые разборы будут доступны завтра. "
+                        "А пока посмотрите сигнал бота: «📊 Сигнал»."),
+        "chart_off": "📷 Разбор графика сейчас недоступен, попробуйте позже.",
+        "chart_fail": "⚠️ Не получилось разобрать картинку. Попробуйте ещё раз или пришлите скриншот почётче.",
+        "chart_busy": "⏳ Предыдущий разбор ещё готовится, подождите немного.",
+        "chart_disclaimer": "<i>Это не финансовый совет. Решение о сделке принимаете вы.</i>",
+    },
+    "en": {
+        "btn_chart": "📷 Chart check",
+        "chart_hint": ("📷 <b>Chart check by screenshot</b>\n\nSend a screenshot of your chart (MT4/MT5, TradingView). "
+                       "The bot will look at it together with its own data and tell you the trend, the levels, "
+                       "where to enter and put the stop, and whether to enter now.\n\nYou can add a caption with a "
+                       "question, for example: “I want to buy, where is the stop?”.\n\n🎁 Free: {limit} checks a day."),
+        "chart_hint_admin": "\n\n👑 No limit for you.",
+        "chart_wait": "🔎 Looking at your chart…",
+        "chart_head": "📷 <b>Your chart check</b>",
+        "chart_left": "🎁 Checks left today: {left} of {limit}.",
+        "chart_limit": ("⏳ Today's limit is used up ({limit} checks a day). New checks will be available tomorrow. "
+                        "Meanwhile, see the bot's signal: «📊 Signal»."),
+        "chart_off": "📷 Chart check is not available right now, please try later.",
+        "chart_fail": "⚠️ Could not analyze the picture. Try again or send a clearer screenshot.",
+        "chart_busy": "⏳ The previous check is still in progress, please wait a little.",
+        "chart_disclaimer": "<i>This is not financial advice. The trading decision is yours.</i>",
+    },
+    "uz": {
+        "btn_chart": "📷 Grafik tahlili",
+        "chart_hint": ("📷 <b>Skrinshot boʻyicha grafik tahlili</b>\n\nGrafigingiz skrinshotini yuboring (MT4/MT5, "
+                       "TradingView). Bot uni oʻz maʼlumotlari bilan birga koʻrib chiqadi va javob beradi: trend, "
+                       "darajalar, qayerda kirish va stop, hozir kirish kerakmi.\n\nSavol bilan izoh qoʻshish mumkin, "
+                       "masalan: «sotib olmoqchiman, stop qayerda?».\n\n🎁 Bepul: kuniga {limit} ta tahlil."),
+        "chart_hint_admin": "\n\n👑 Siz uchun cheklov yoʻq.",
+        "chart_wait": "🔎 Grafigingizni koʻryapman…",
+        "chart_head": "📷 <b>Grafigingiz tahlili</b>",
+        "chart_left": "🎁 Bugun qolgan tahlillar: {left} / {limit}.",
+        "chart_limit": ("⏳ Bugungi limit tugadi (kuniga {limit} ta tahlil). Yangi tahlillar ertaga boʻladi. "
+                        "Hozircha bot signalini koʻring: «📊 Signal»."),
+        "chart_off": "📷 Grafik tahlili hozircha mavjud emas, keyinroq urinib koʻring.",
+        "chart_fail": "⚠️ Rasmni tahlil qilib boʻlmadi. Qayta urinib koʻring yoki aniqroq skrinshot yuboring.",
+        "chart_busy": "⏳ Oldingi tahlil hali tayyorlanmoqda, biroz kuting.",
+        "chart_disclaimer": "<i>Bu moliyaviy maslahat emas. Bitim boʻyicha qarorni siz qabul qilasiz.</i>",
+    },
+}
+for _lang, _texts in CHART_TEXTS.items():
+    TEXTS[_lang].update(_texts)
