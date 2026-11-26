@@ -1034,6 +1034,9 @@ class MarketFeedTests(unittest.TestCase):
                 self.assertEqual(cm.exception.code, "TIMEOUT")
                 text = connect_error_text("ru", cm.exception, "XMGlobal-MT5 5")
                 self.assertIn("DEPLOYING, DISCONNECTED", text)
+                self.assertIn("Billing", text)   # терминал не запустился — дело в MetaApi, а не в пароле
+                late = at.MetaApiError("connection timeout (DEPLOYED, DISCONNECTED_FROM_BROKER)", "TIMEOUT")
+                self.assertNotIn("Billing", connect_error_text("ru", late, "S"))
                 await db.close()
         run(go())
 
