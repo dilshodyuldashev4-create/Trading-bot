@@ -250,17 +250,18 @@ class WebApp:
         }
 
     async def market_for(self, uid: int) -> dict:
-        """Цена и открытые сигналы пользователя: обычные — всем; проп-сигнал (только для проп-счетов) — тем,
-        кому он пришёл и кто от него не отказался, с проп-тейком и лотом из проп-сделки."""
+        """Цена и открытые сигналы пользователя. Сигнал, который пришёл ему как проп-сигнал (и он не отказался),
+        помечен «проп», с проп-тейком и лотом из проп-сделки; сигнал только для проп-счетов — только таким;
+        остальные обычные сигналы — всем."""
         db = self.app.db
         mine = {x["signal_id"]: x for x in await db.open_prop_trades(uid=uid) if not x.get("declined")}
         out = []
         for s in await db.open_signals():
             tr = mine.get(s["id"])
-            if s.get("prop_only"):
-                if not tr:
-                    continue
-                s = {**s, "tp": tr["tp"], "tp1": None, "part_at": None}
+            if s.get("prop_only") and not tr:
+                continue
+            if tr:   # пользователю он пришёл как проп-сигнал: свой проп-тейк, без частичной фиксации
+                s = {**s, "tp": tr["tp"], "tp1": None, "part_at": None, "prop_only": 1}
             out.append({**s, "_prop": tr})
         # проп-сделка ещё открыта, а сам сигнал уже закрыт (у проп-сделки свой тейк) — тоже показываем
         shown = {s["id"] for s in out}
