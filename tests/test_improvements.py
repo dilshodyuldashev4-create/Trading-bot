@@ -59,6 +59,18 @@ class AdxAndConfluenceTests(unittest.TestCase):
         eng.recent = {"amd": (bar, 1)}                                # сама с собой не согласие
         self.assertEqual(eng.size_for("amd", bar, 1), 0.75)
 
+    def test_volume_mult(self):
+        eng = SignalEngine(None, None, "all", 100, 300, "UTC", None, None)
+        vol = lambda last: pd.DataFrame({"close": 1.0, "volume": [100.0] * 20 + [last]})  # noqa: E731
+        self.assertEqual(eng.volume_mult(vol(300)), 1.0)               # выключено по умолчанию
+        eng.volume_bars, eng.volume_cut, eng.volume_boost = 20, 0.75, 1.25
+        self.assertEqual(eng.volume_mult(vol(80)), 0.75)               # объём ниже среднего
+        self.assertEqual(eng.volume_mult(vol(120)), 1.0)
+        self.assertEqual(eng.volume_mult(vol(160)), 1.25)              # объём в 1.6 раза выше среднего
+        self.assertEqual(eng.volume_mult(pd.DataFrame({"close": 1.0, "volume": [0.0] * 21})), 1.0)  # нет объёма
+        self.assertEqual(eng.volume_mult(pd.DataFrame({"close": [1.0] * 21})), 1.0)
+        self.assertEqual(eng.volume_mult(vol(300).iloc[-10:]), 1.0)    # мало свечей
+
 
 class PropOnlySignalsTests(unittest.TestCase):
     def test_prop_only_hidden_from_public_stats(self):

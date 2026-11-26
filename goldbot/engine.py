@@ -205,6 +205,9 @@ class SignalEngine:
         self.partial_r = 0.0
         self.partial_pct = 0.5
         self.final_r = 0.0
+        # свой тейк остатка для трендовых стратегий (reports/edge_research.md; 0 — как у всех)
+        self.trend_r = 0.0
+        self.trend_keys: tuple[str, ...] = ()
         self.on_partial: Optional[OnPartial] = None
         # закрывать сделку в прибыли, если стратегия бота дала сигнал в обратную сторону (разворот)
         self.reversal_close = False
@@ -222,6 +225,11 @@ class SignalEngine:
         self.confluence_single = 1.0
         self.confluence_strong = 1.0
         self.recent: dict[str, tuple[pd.Timestamp, int]] = {}   # стратегия → (свеча, направление) последнего сигнала
+        # тиковый объём сигнальной свечи против среднего за volume_bars прошлых: < volume_low — лот × volume_cut,
+        # > volume_high — × volume_boost (reports/edge_research.md; 0 свечей — выключено)
+        self.volume_bars = 0
+        self.volume_low, self.volume_high = 1.0, 1.5
+        self.volume_cut, self.volume_boost = 1.0, 1.0
         self.last_ok = time.monotonic()   # когда проверка рынка последний раз прошла без ошибки
         self.last_error = ""
 
@@ -233,13 +241,14 @@ class SignalEngine:
         sl = max(self.sl_min_pips, round(self.sl_atr * a / 10) * 10)
         return sl, round(sl * self.tp_atr / self.sl_atr / 10) * 10
 
-    def targets(self, df: pd.DataFrame) -> tuple[float, float, float]:
+    def targets(self, df: pd.DataFrame, key: str = "") -> tuple[float, float, float]:
         """Стоп, тейк и уровень фиксации части прибыли (0 — без фиксации) в пипсах."""
         sl, tp = self.sl_tp_pips(df)
         if self.partial_r <= 0 or self.partial_pct <= 0:
             return sl, tp, 0.0
-        if self.final_r > 0:
-            tp = round(sl * self.final_r / 10) * 10
+        final_r = self.trend_r if self.trend_r > 0 and key in self.trend_keys else self.final_r
+        if final_r > 0:
+            tp = round(sl * final_r / 10) * 10
         tp1 = round(sl * self.partial_r / 10) * 10
         return sl, tp, (tp1 if 0 < tp1 < tp else 0.0)
 
@@ -694,12 +703,12 @@ class SignalEngine:
             return None
         # до этого места могли пройти секунды и минуты (свечи, оценка новостей) — вход по свежей цене
         entry = await self.fresh_price() or price
-        sl_p, tp_p, tp1_p = self.targets(df)
+        sl_p, tp_p, tp1_p = self.targets(df, st.key)
         sl = entry - d * sl_p * PIP
         tp = entry + d * tp_p * PIP
         tp1 = entry + d * tp1_p * PIP if tp1_p else None
         part = self.partial_pct if tp1 else 0.0
-        size = self.size_for(st.key, bar, d)
+        size = round(self.size_for(st.key, bar, d) * self.volume_mult(df), 4)
         sid = await self.db.add_signal(st.key, d, entry, sl, tp, tp1, part, prop_only=prop_only, size=size)
         if prop_only:
             log.info("signal #%s (%s) only for prop accounts: ADX %.0f ≥ %g", sid, st.key, self.last_adx, self.adx_max)
@@ -744,6 +753,23 @@ class SignalEngine:
         win = pd.Timedelta(minutes=self.confluence_min)
         agree = any(k != key and v[1] == d and pd.Timedelta(0) <= bar - v[0] < win for k, v in self.recent.items())
         return self.confluence_strong if agree else self.confluence_single
+
+    def volume_mult(self, df: pd.DataFrame) -> float:
+        """Множитель лота по тиковому объёму последней закрытой свечи: на сильном объёме пробои и входы чаще
+        доходят до цели (reports/edge_research.md). Нет объёма (запасной источник свечей) — 1."""
+        n = self.volume_bars
+        if n <= 0 or "volume" not in df or len(df) < n + 1:
+            return 1.0
+        v = df["volume"].astype(float)
+        avg = float(v.iloc[-n - 1:-1].mean())
+        if not avg > 0:
+            return 1.0
+        r = float(v.iloc[-1]) / avg
+        if r < self.volume_low:
+            return self.volume_cut
+        if r > self.volume_high:
+            return self.volume_boost
+        return 1.0
 
     async def direction(self, df: pd.DataFrame, now: pd.Timestamp, st: LiveStrategy | None = None) -> int:
         """Сигнал на последней закрытой свече: 1 BUY, -1 SELL, 0 нет.

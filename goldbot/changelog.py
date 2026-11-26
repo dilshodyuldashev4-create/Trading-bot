@@ -24,6 +24,27 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-27.1",
+        "ru": [
+            "📈 Лот по объёму: если на свече сигнала торгуют активнее обычного, лот больше (×1.25), если вяло — меньше (×0.75). "
+            "В среднем риск тот же, но больше денег идёт на сильные сигналы",
+            "🎯 У пяти трендовых стратегий тейк дальше — 4R вместо 3R: тренд часто идёт дальше. "
+            "На истории 2023–2026 прибыль бота выросла с +665 % до +755 %, просадка почти та же",
+        ],
+        "en": [
+            "📈 Lot by volume: if the signal candle trades more actively than usual, the lot is bigger (×1.25), if quietly — smaller (×0.75). "
+            "The average risk is the same, but more money goes to strong signals",
+            "🎯 Five trend strategies now have a farther take profit — 4R instead of 3R: trends often run further. "
+            "On 2023–2026 history the bot's profit grew from +665% to +755% with almost the same drawdown",
+        ],
+        "uz": [
+            "📈 Hajm boʻyicha lot: signal shamida savdo odatdagidan faolroq boʻlsa, lot kattaroq (×1.25), sust boʻlsa — kichikroq (×0.75). "
+            "Oʻrtacha risk oʻsha, lekin koʻproq pul kuchli signallarga tushadi",
+            "🎯 Beshta trend strategiyasida take profit uzoqroq — 3R oʻrniga 4R: trend koʻpincha uzoqroq ketadi. "
+            "2023–2026 tarixida bot foydasi +665 % dan +755 % gacha oshdi, pasayish deyarli oʻsha",
+        ],
+    },
+    {
         "version": "2026-11-26.1",
         "ru": [
             "🎓 Новая кнопка «Уроки»: видеокурс трейдинга с нуля до профи — 22 видео лучших трейдеров по порядку: "
