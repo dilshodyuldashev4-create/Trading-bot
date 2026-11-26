@@ -90,7 +90,7 @@ input{font:inherit;color:inherit}
 .sig::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
 .sig.buy::before{background:var(--green)}.sig.sell::before{background:var(--red)}
 .side{font-weight:800;font-size:13px;padding:4px 9px;border-radius:8px;letter-spacing:.05em}
-.ptag{font-size:11px;font-weight:800;padding:3px 8px;border-radius:8px;color:var(--gold2);background:#f7d46b1a;border:1px solid #f7d46b40}
+.ptag{font-size:11px;font-weight:800;padding:3px 8px;border-radius:8px;white-space:nowrap;color:var(--gold2);background:#f7d46b1a;border:1px solid #f7d46b40}
 .ptag.reg{color:#8fb8ff;background:#5b8cff1a;border-color:#5b8cff40}
 .sig.prop{border-color:#f7d46b40}
 .chip[hidden]{display:none}
@@ -471,9 +471,11 @@ function sigCard(s, price) {
   const buy = s.dir === 1, now = price != null ? (s.dir * (price - s.entry)) / S.pip : null;
   const lo = Math.min(s.sl, s.tp), hi = Math.max(s.sl, s.tp), pos = price != null ? Math.max(0, Math.min(1, (price - lo) / (hi - lo))) : null;
   const toTp = buy ? pos : pos != null ? 1 - pos : null; // слева стоп, справа тейк
-  return `<div class="sig ${buy ? "buy" : "sell"}${s.prop ? " prop" : ""}"><div class="between"><div class="row"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
-    ${s.prop ? `<span class="ptag">🏆 ${esc(tr("prop_tag"))}</span>` : `<span class="ptag reg">📡 ${esc(tr("reg_tag"))}</span>`}<b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
-    ${now != null ? `<b class="num ${cls(now)}" data-live="${s.id}">${pips(now)}</b>` : ""}</div>
+  // сторона, номер и метка — одной строкой, дата — строкой ниже: на узком экране ничего не переносится
+  return `<div class="sig ${buy ? "buy" : "sell"}${s.prop ? " prop" : ""}"><div class="between"><div><div class="row" style="gap:8px"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
+    <b class="num">#${s.id}</b>${s.prop ? `<span class="ptag">🏆 ${esc(tr("prop_tag"))}</span>` : `<span class="ptag reg">📡 ${esc(tr("reg_tag"))}</span>`}</div>
+    <div class="sub" style="font-size:12px;margin-top:4px">🕒 ${esc(fmtDate(s.ts))}</div></div>
+    ${now != null ? `<b class="num ${cls(now)}" data-live="${s.id}" style="font-size:17px">${pips(now)}</b>` : ""}</div>
     <div class="lv"><div>${esc(tr("entry"))}<b class="num">${s.entry.toFixed(2)}</b></div><div>SL<b class="num neg">${s.sl.toFixed(2)}</b></div><div>TP<b class="num pos">${s.tp.toFixed(2)}</b></div></div>
     ${toTp != null ? `<div class="track"><i style="left:${(toTp * 100).toFixed(1)}%"></i></div>` : ""}
     ${s.prop_lot != null ? `<div class="sub mt">${s.prop ? "🏆" : "💼"} ${esc(tr(s.prop ? "prop_lot" : "reg_prop_lot", { lot: s.prop_lot.toFixed(2) }))}</div>` : ""}
@@ -897,8 +899,9 @@ function renderProfile() {
   h += subCard();
   h += `<div class="card"><h3>💼 ${esc(tr("capital"))}</h3><div class="sub">${esc(tr("capital_hint"))}</div>
     <div class="field"><span class="goldtxt" style="font-weight:800">$</span><input id="capIn" type="text" inputmode="decimal" value="${u.capital ? u.capital : ""}" placeholder="1000"><button class="mini g" id="capSave">${esc(tr("save"))}</button></div>
-    ${u.lot != null ? `<div class="kpis mt" style="grid-template-columns:1fr 2fr"><div class="kpi"><b class="num goldtxt">${u.lot.toFixed(2)}</b><span>${esc(tr("lot"))}</span></div>
-      <div class="kpi"><b class="num" style="font-size:14px;padding:4px 0">${esc(tr("risk_trade", { loss: Math.round(u.lot_loss), profit: Math.round(u.lot_profit) }))}</b><span>SL / TP</span></div></div>` : ""}</div>`;
+    ${u.lot != null ? `<div class="kpis mt" style="grid-template-columns:repeat(3,1fr)"><div class="kpi"><b class="num goldtxt">${u.lot.toFixed(2)}</b><span>${esc(tr("lot"))}</span></div>
+      <div class="kpi"><b class="num neg">−$${Math.round(u.lot_loss)}</b><span>${esc(tr("if_sl"))}</span></div>
+      <div class="kpi"><b class="num pos">+$${Math.round(u.lot_profit)}</b><span>${esc(tr("if_tp"))}</span></div></div>` : ""}</div>`;
   h += `<div class="card"><h3>🌐 ${esc(tr("language"))}</h3><div class="seg" id="langSeg">${S.langs.map(l => `<button data-l="${l.code}" class="${l.code === S.lang ? "on" : ""}">${esc(l.name)}</button>`).join("")}</div></div>`;
   h += `<button class="btn ghost" onclick="tg && tg.close()">💬 ${esc(tr("open_chat"))}</button><p class="note">${esc(tr("app_note"))}</p></div>`;
   const el = $("#p-profile"); el.innerHTML = h; animate(el);
