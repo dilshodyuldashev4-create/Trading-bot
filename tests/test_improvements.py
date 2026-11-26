@@ -71,6 +71,13 @@ class AdxAndConfluenceTests(unittest.TestCase):
         self.assertEqual(eng.volume_mult(pd.DataFrame({"close": [1.0] * 21})), 1.0)
         self.assertEqual(eng.volume_mult(vol(300).iloc[-10:]), 1.0)    # мало свечей
 
+    def test_strategy_risk_default(self):
+        from goldbot.config import Config
+        w = Config().strategy_risk
+        self.assertEqual(w["squeeze"], 1.5)
+        self.assertEqual(w["liq_m15"], 0.6)
+        self.assertNotIn("fvg_m15", w)                                  # нет в списке — × 1
+
 
 class PropOnlySignalsTests(unittest.TestCase):
     def test_prop_only_hidden_from_public_stats(self):
