@@ -213,7 +213,6 @@ class WebApp:
         lot = lot_plan(cap) if cap else None
 
         rows = await db.last_signals(1000)
-        open_sig = [s for s in rows if s["status"] == "open"]
 
         psub = await db.get_prop_sub(uid)
         prop = None
@@ -240,7 +239,7 @@ class WebApp:
             "sub": {"kind": "free"},   # сигналы бесплатные; платная только автоторговля
             "auto": {"enabled": bool(a.autotrader), "usd": config.autotrade_month_usd, "days": days, "stars": stars,
                      "month_stars": month_stars, "credits": await db.credits(uid) if a.autotrader else 0},
-            "market": self.market(open_sig),
+            "market": await self.market_for(uid),
             "stats": stats_payload(rows, lang),
             "prop": prop, "plans": plans_payload(lang, a.stage_name), "sizes": list(ps.SIZE_PRESETS),
             "size_min": ps.MIN_SIZE, "size_max": ps.MAX_SIZE,
@@ -250,11 +249,35 @@ class WebApp:
             "video": course(lang),
         }
 
+    async def market_for(self, uid: int) -> dict:
+        """Цена и открытые сигналы пользователя: обычные — всем; проп-сигнал (только для проп-счетов) — тем,
+        кому он пришёл и кто от него не отказался, с проп-тейком и лотом из проп-сделки."""
+        db = self.app.db
+        mine = {x["signal_id"]: x for x in await db.open_prop_trades(uid=uid) if not x.get("declined")}
+        out = []
+        for s in await db.open_signals():
+            tr = mine.get(s["id"])
+            if s.get("prop_only"):
+                if not tr:
+                    continue
+                s = {**s, "tp": tr["tp"], "tp1": None, "part_at": None}
+            out.append({**s, "_prop": tr})
+        # проп-сделка ещё открыта, а сам сигнал уже закрыт (у проп-сделки свой тейк) — тоже показываем
+        shown = {s["id"] for s in out}
+        for sid, tr in mine.items():
+            if sid not in shown:
+                out.append({"id": sid, "direction": tr["direction"], "entry": tr["entry"], "sl": tr["sl"],
+                            "tp": tr["tp"], "created_at": tr["created_at"], "prop_only": 1, "_prop": tr})
+        out.sort(key=lambda s: s["id"], reverse=True)
+        return self.market(out)
+
     def market(self, open_sig: list[dict]) -> dict:
         price = self.app.engine.last_price
         return {"price": round(price, 2) if price else None,
                 "open": [{"id": s["id"], "dir": s["direction"], "entry": s["entry"], "sl": s["sl"], "tp": s["tp"],
-                          "ts": s["created_at"], "tp1": s.get("tp1"), "part": bool(s.get("part_at"))}
+                          "ts": s["created_at"], "tp1": s.get("tp1"), "part": bool(s.get("part_at")),
+                          "prop": bool(s.get("prop_only")),
+                          "prop_lot": s["_prop"]["lot"] if s.get("_prop") else None}
                          for s in open_sig]}
 
     # ── обработчики ─────────────────────────────────────────────────────────
@@ -264,8 +287,8 @@ class WebApp:
 
     async def h_market(self, request: web.Request) -> web.Response:
         """Живая цена и открытые сигналы — приложение спрашивает раз в несколько секунд."""
-        await self._auth(request)
-        return web.json_response(self.market(await self.app.db.open_signals()))
+        uid, _ = await self._auth(request)
+        return web.json_response(await self.market_for(uid))
 
     async def h_settings(self, request: web.Request) -> web.Response:
         uid, u = await self._auth(request)
