@@ -288,7 +288,13 @@ class WebApp:
     async def h_prop(self, request: web.Request) -> web.Response:
         """Анкета и состояние проп-сигналов — то же, что кнопка «Сигналы для проп-фирм» в боте."""
         uid, u = await self._auth(request)
-        body = await self._body(request)
+        err = await self.do_prop(uid, await self._body(request))
+        if err:
+            return web.json_response({"error": err}, status=400)
+        return web.json_response(await self.state(uid, await self._user(uid, u)))
+
+    async def do_prop(self, uid: int, body: dict) -> str | None:
+        """Действие с проп-анкетой (общее для Mini App и мобильного приложения). None — получилось, иначе код ошибки."""
         db = self.app.db
         act = body.get("action")
         sub = await db.get_prop_sub(uid)
@@ -296,7 +302,7 @@ class WebApp:
             plan, stage = body.get("plan"), body.get("stage")
             size = _num(body.get("size"), ps.MIN_SIZE, ps.MAX_SIZE)
             if plan not in pr.PLANS or stage not in pr.PLANS[plan].stages or size is None:
-                return web.json_response({"error": "form"}, status=400)
+                return "form"
             await db.save_prop_sub(uid, plan, stage, size)
             if "only" in body:
                 await db.update_prop_sub(uid, only_prop=int(bool(body["only"])))
@@ -304,11 +310,11 @@ class WebApp:
         elif act == "balance":
             v = _num(body.get("balance"), 0, ps.MAX_SIZE * 10)
             if not sub or v is None:
-                return web.json_response({"error": "balance"}, status=400)
+                return "balance"
             await db.update_prop_sub(uid, balance=round(v, 2), peak=max(float(sub.get("peak") or 0), v), enabled=1)
         elif act == "only":
             if not sub:
-                return web.json_response({"error": "nosub"}, status=400)
+                return "nosub"
             await db.update_prop_sub(uid, only_prop=int(bool(body.get("value"))))
         elif act == "off":
             if sub:
@@ -316,26 +322,30 @@ class WebApp:
         elif act == "next":
             nxt = pr.next_stage(ps.acc_view(sub)) if sub else None
             if not nxt:
-                return web.json_response({"error": "next"}, status=400)
+                return "next"
             await db.save_prop_sub(uid, sub["plan"], nxt, float(sub["size"]))
         else:
-            return web.json_response({"error": "action"}, status=400)
-        return web.json_response(await self.state(uid, await self._user(uid, u)))
+            return "action"
+        return None
 
     async def h_account(self, request: web.Request) -> web.Response:
         """Пауза и запуск автоторговли на счёте (как кнопки в меню автоторговли)."""
         uid, u = await self._auth(request)
-        body = await self._body(request)
+        if not await self.do_account(uid, await self._body(request)):
+            return web.json_response({"error": "account"}, status=400)
+        return web.json_response(await self.state(uid, await self._user(uid, u)))
+
+    async def do_account(self, uid: int, body: dict) -> bool:
         db = self.app.db
         aid = body.get("id")
-        acc = await db.get_account(aid) if isinstance(aid, int) else None
+        acc = await db.get_account(aid) if isinstance(aid, int) and not isinstance(aid, bool) else None
         if not acc or acc["user_id"] != uid or body.get("action") not in ("pause", "resume"):
-            return web.json_response({"error": "account"}, status=400)
+            return False
         resume = body["action"] == "resume"
         await db.set_trade_enabled(acc["id"], resume)
         if resume:
             await db.update_prop_state(acc["id"], prop_halt="")
-        return web.json_response(await self.state(uid, await self._user(uid, u)))
+        return True
 
     async def h_invoice(self, request: web.Request) -> web.Response:
         """Ссылка на оплату ⭐ для WebApp.openInvoice. Оплату обрабатывает тот же код бота, что и счёт в чате."""
@@ -403,6 +413,9 @@ class WebApp:
         app.router.add_post("/api/invoice", self.h_invoice)
         app.router.add_post("/api/action", self.h_action)
         app.router.add_static("/static/", STATIC, show_index=False)
+        mobile = getattr(self.app, "mobile", None)
+        if mobile:   # API мобильного приложения (iOS / Android) — /m/api/...
+            mobile.add_routes(app)
         return app
 
     # ── запуск и кнопка меню ────────────────────────────────────────────────

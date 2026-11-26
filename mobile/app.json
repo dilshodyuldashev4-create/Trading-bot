@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "XAUUSD Gold",
+    "slug": "xauusd-gold",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "xauusdgold",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#070a12",
+    "ios": {
+      "bundleIdentifier": "uz.xauusdgold.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["tg"]
+      }
+    },
+    "android": {
+      "package": "uz.xauusdgold.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#070a12",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
+      },
+      "permissions": ["android.permission.POST_NOTIFICATIONS", "android.permission.VIBRATE"],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-image",
+      "expo-web-browser",
+      "expo-localization",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#070a12"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#f7d46b",
+          "defaultChannel": "signals"
+        }
+      ]
+    ],
+    "extra": {
+      "apiUrl": "",
+      "privacyUrl": "",
+      "supportEmail": ""
+    }
+  }
+}

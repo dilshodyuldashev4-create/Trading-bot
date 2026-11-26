@@ -45,6 +45,7 @@ from .market import Failover, make_provider
 from .news import NewsService
 from .results import WIN, move_pips, part_pips, signal_pips, tp1_move_pips
 from .health import AlertHandler, Watch, backup_db
+from . import mobile as mpush
 
 log = logging.getLogger(__name__)
 
@@ -430,6 +431,8 @@ class App:
         self._bot_name: str | None = None     # @имя бота — для ссылки в постах канала
         from .webapp import WebApp   # noqa: PLC0415 — webapp импортирует bot
         self.webapp = WebApp(self) if config.webapp_on else None
+        from .mobile import Mobile   # noqa: PLC0415 — приложение для iPhone и Android (папка mobile/)
+        self.mobile = Mobile(self) if config.webapp_on and config.mobile_on else None
         self.router = Router()
         self._register()
         self.dp.include_router(self.router)
@@ -451,6 +454,8 @@ class App:
             await self.bot.send_message(chat_id, chunk, **kw)
 
     async def _send(self, uid: int, coro_factory) -> bool:
+        if uid < 0:   # аккаунт мобильного приложения без Telegram: ему — push (deliver), не сообщение
+            return False
         try:
             await coro_factory()
             return True
@@ -462,6 +467,21 @@ class App:
         except Exception as e:  # noqa: BLE001
             log.warning("send to %s failed: %s", uid, e)
         return False
+
+    async def deliver(self, uid: int, coro_factory, push: tuple[str, str] | None, data: dict | None = None) -> bool:
+        """Личное сообщение: в Telegram (если есть) и push на телефон с приложением.
+        Для аккаунта приложения без Telegram — True: сделку он видит в приложении, даже если push не дошёл."""
+        sent = await self._send(uid, coro_factory) if uid > 0 else False
+        mob = getattr(self, "mobile", None)
+        if mob and push:
+            await mob.push_uid(uid, *push, data)
+        return sent or (uid < 0 and mob is not None)
+
+    def push_all(self, make, data: dict, skip: set[int] | frozenset = frozenset()) -> None:
+        """Push всем телефонам с приложением (в фоне, не задерживает рассылку в Telegram)."""
+        mob = getattr(self, "mobile", None)
+        if mob:
+            mob.spawn(mob.push_all(make, data, skip))
 
     async def broadcast(self, uids: list[int], make) -> int:
         ok = 0
@@ -573,8 +593,9 @@ class App:
             log.exception("prop signal #%s", s.id)
         if s.prop_only:   # пробой при сильном разгоне (ADX): только проп-счета и проп-сигналы
             return
-        await self.chan_post_signal(s)
         only_prop = await self.ps_only_uids()   # отключили обычные сигналы ради проп-сигналов
+        self.push_all(lambda lang: mpush.signal_push(lang, s), {"type": "signal", "id": s.id}, only_prop)
+        await self.chan_post_signal(s)
         uids = [u for u in await self.db.active_user_ids() if u not in only_prop]
         langs = await self.db.user_langs()
         caps = await self.db.user_capitals()
@@ -629,6 +650,8 @@ class App:
         self.spawn(self.update_cards(s, "news", price))
         side = "BUY" if s["direction"] == 1 else "SELL"
         res = s["direction"] * (price - s["entry"]) / PIP
+        self.push_all(lambda lang: mpush.close_push(lang, s, "news", res), {"type": "close", "id": s["id"]},
+                      await self.ps_only_uids())
         langs = await self.db.user_langs()
 
         def text(lang: str) -> str:
@@ -659,6 +682,8 @@ class App:
             s = {**s, "exit_price": price}
         level = {"tp": s["tp"], "sl": s["sl"], "be": s["entry"]}.get(status, price)
         res = signal_pips(s, status)   # весь лот: зафиксированная часть + остаток
+        self.push_all(lambda lang: mpush.close_push(lang, s, status, res), {"type": "close", "id": s["id"]},
+                      await self.ps_only_uids())
         pips = abs(res)
         st = await self.db.stats()
         wins = st["tp"] + st["be"]
@@ -741,6 +766,9 @@ class App:
         if s.get("prop_only"):
             return
         self.spawn(self.update_cards(s, "partial", price))
+        self.push_all(lambda lang: (mpush.ptx(lang, "partial", id=s["id"]),
+                                    mpush.ptx(lang, "partial_body", pct=f"{100 * (s.get('part') or 0):.0f}")),
+                      {"type": "partial", "id": s["id"]}, await self.ps_only_uids())
         cards = {c["user_id"]: c["msg_id"] for c in await self.db.signal_cards(s["id"])}
         langs = await self.db.user_langs()
         side = "BUY" if s["direction"] == 1 else "SELL"
@@ -866,6 +894,8 @@ class App:
         return InlineKeyboardButton(text=t(lang, "btn_app"), web_app=WebAppInfo(url=url)) if url else None
 
     async def lang_of(self, uid: int) -> str:
+        if uid < 0 and getattr(self, "mobile", None):
+            return await self.mobile.lang_for_uid(uid)
         u = await self.db.get_user(uid)
         return norm(u.get("lang") if u else None)
 
@@ -1284,7 +1314,9 @@ class App:
         if not subs:
             return []
         active = set(await self.db.active_user_ids())
-        return [x for x in subs if x["user_id"] in active]
+        mob = getattr(self, "mobile", None)
+        # аккаунты приложения без Telegram (uid < 0) получают проп-сигналы push-уведомлением
+        return [x for x in subs if x["user_id"] in active or (mob and x["user_id"] < 0)]
 
     async def ps_only_uids(self) -> set[int]:
         """Кто отключил обычные сигналы и получает только проп-сигналы."""
@@ -1367,7 +1399,7 @@ class App:
         sent = 0
         for sub in subs:
             uid = sub["user_id"]
-            lang = norm(langs.get(uid))
+            lang = norm(langs.get(uid)) if uid > 0 else await self.lang_of(uid)
             sub = await self.ps_roll(sub)
             trades = [x for x in await self.db.open_prop_trades(uid) if not x.get("declined")]
             plan = ps.plan_trade(sub, trades, sl_dist, risk_pct=config.prop_risk_pct,
@@ -1377,7 +1409,8 @@ class App:
                                  dd_mult=config.prop_dd_mult)
             lot = plan["lot"]
             if lot <= 0:
-                await self._send(uid, lambda u=uid, x=t(lang, "ps_skipped_limit", id=s.id): self.bot.send_message(u, x))
+                await self.deliver(uid, lambda u=uid, x=t(lang, "ps_skipped_limit", id=s.id): self.bot.send_message(u, x),
+                                   (mpush.ptx(lang, "prop"), mpush.ptx(lang, "prop_skip", id=s.id)))
                 continue
             loss, profit = money(lot, sl_pips), money(lot, tp_pips)
             if lot not in images:
@@ -1404,7 +1437,10 @@ class App:
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                         _btn(t(lang, "btn_accept"), f"psig:acc:{s.id}"),
                         _btn(t(lang, "btn_decline"), f"psig:dec:{s.id}")]]))
-            if await self._send(uid, send_card):
+            push = (f"{side} XAUUSD · {mpush.ptx(lang, 'prop')} #{s.id}",
+                    f"{mpush.ptx(lang, 'entry')} {s.entry:.2f} · SL {s.sl:.2f} · TP {tp:.2f} · "
+                    f"{mpush.ptx(lang, 'lot')} {lot:.2f}")
+            if await self.deliver(uid, send_card, push, {"type": "prop", "id": s.id}):
                 await self.db.add_prop_trade(s.id, uid, s.direction, s.entry, s.sl, tp, lot,
                                              getattr(box.get("m"), "message_id", None))
                 sent += 1
@@ -1469,8 +1505,11 @@ class App:
         text = (t(lang, f"ps_close_{status}", id=sid, side=side, exit=f"{exit_:.2f}", lot=f"{tr['lot']:.2f}",
                   pnl=("+" if pnl >= 0 else "") + ps.usd(pnl))
                 + await self.ps_status(sub, lang) + extra)
-        await self._send(uid, lambda u=uid, x=text, mk=markup, r=reply_to(tr.get("msg_id")):
-                         self.bot.send_message(u, x, reply_markup=mk, **r))
+        from .webapp import plain   # noqa: PLC0415
+        await self.deliver(uid, lambda u=uid, x=text, mk=markup, r=reply_to(tr.get("msg_id")):
+                           self.bot.send_message(u, x, reply_markup=mk, **r),
+                           (mpush.ptx(lang, "prop_closed", id=sid), plain(text).split("\n")[0][:180]),
+                           {"type": "prop_close", "id": sid})
 
     async def prop_morning(self) -> int:
         """Утром вместе с разбором рынка — каждому проп-подписчику состояние его счёта."""
@@ -1685,6 +1724,14 @@ class App:
 
         @r.message(CommandStart())
         async def start(m: Message, state: FSMContext):
+            arg = (m.text or "").split(maxsplit=1)[1:]
+            if arg and arg[0].startswith("app_") and getattr(self, "mobile", None):   # вход в мобильное приложение через Telegram
+                res = await self.mobile.tg_confirm(arg[0][4:], m.from_user.id, m.from_user.username,
+                                                   m.from_user.first_name)
+                lang = await self.lang_of(m.from_user.id)
+                await m.answer(t(lang, {"login": "app_login_ok", "linked": "app_link_ok",
+                                        "taken": "app_link_taken"}.get(res, "app_code_bad")))
+                return
             new = await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name)
             u = await self.db.get_user(m.from_user.id)
             if not u.get("lang"):  # сначала просим выбрать язык
@@ -3083,6 +3130,8 @@ class App:
 
     async def run(self) -> None:
         await self.db.connect()
+        if self.mobile:
+            await self.mobile.init_db()
         # поправка /offset — к цене Swissquote; старая (manual_offset) была к gold-api.com и сюда не подходит
         mo = await self.db.get_kv("manual_offset_sq")
         if mo and isinstance(self.provider, Failover):
