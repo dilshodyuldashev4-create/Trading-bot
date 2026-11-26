@@ -1551,3 +1551,77 @@ PROPSIG_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _texts in PROPSIG_TEXTS.items():
     TEXTS[_lang].update(_texts)
+
+# ── приглашение друзей и «Поделиться результатом» ───────────────────────────
+REF_TEXTS: dict[str, dict[str, str]] = {
+    "ru": {
+        "btn_invite": "🎁 Пригласить друга",
+        "btn_invite_share": "📤 Отправить приглашение",
+        "btn_share": "📤 Поделиться результатом",
+        "ref_unavailable": "🎁 Приглашения сейчас недоступны, попробуйте позже.",
+        "ref_head": ("🎁 <b>Пригласите друзей</b>\n\nВаша личная ссылка:\n{link}\n\n"
+                     "Отправьте её друзьям или в свои чаты. Кто перейдёт по ней и начнёт пользоваться ботом, "
+                     "засчитается вам.\n\n👥 Уже пришли по вашей ссылке: <b>{n}</b>"),
+        "ref_reward": ("\n\n🤖 <b>Награда:</b> за каждые {friends} друзей — {days} дней автоторговли бесплатно. "
+                       "До следующей награды: {left}."),
+        "ref_paid_reward": "\n💎 Друг оплатил автоторговлю — вам ещё {days} дней бесплатно.",
+        "ref_bonus": ("\n\n🎉 У вас <b>{days}</b> бесплатных дней автоторговли. Подключите счёт в «🤖 Автоторговля», "
+                      "платить не нужно."),
+        "ref_share_text": ("🟡 Бесплатные сигналы по золоту (XAUUSD) с лотом под ваш депозит. "
+                           "Я пользуюсь, присоединяйся:"),
+        "ref_joined": "🎉 <b>{name}</b> присоединился(ась) по вашей ссылке! Всего друзей: <b>{n}</b>.",
+        "ref_left": "\nЕщё {left} — и вы получите {days} дней автоторговли бесплатно.",
+        "ref_got_ext": "🎁 <b>Награда: +{days} дней автоторговли.</b> Ваши счета оплачены до {until}.",
+        "ref_got_bonus": ("🎁 <b>Награда: +{days} дней автоторговли.</b> Всего бесплатных дней: {total}. "
+                          "Подключите счёт в «🤖 Автоторговля», платить не нужно."),
+        "ref_friend_paid": "💎 Приглашённый вами друг подключил автоторговлю. Спасибо, что рекомендуете нас!",
+        "share_win": "✅ Сигнал по золоту XAUUSD #{id} {side} закрыт в плюсе: +{pips} пипсов. Сигналы бесплатные:",
+    },
+    "en": {
+        "btn_invite": "🎁 Invite a friend",
+        "btn_invite_share": "📤 Send invitation",
+        "btn_share": "📤 Share the result",
+        "ref_unavailable": "🎁 Invitations are not available right now, please try later.",
+        "ref_head": ("🎁 <b>Invite your friends</b>\n\nYour personal link:\n{link}\n\n"
+                     "Send it to friends or your chats. Everyone who opens it and starts using the bot "
+                     "counts for you.\n\n👥 Joined with your link: <b>{n}</b>"),
+        "ref_reward": ("\n\n🤖 <b>Reward:</b> every {friends} friends give you {days} days of free auto-trading. "
+                       "Until the next reward: {left}."),
+        "ref_paid_reward": "\n💎 A friend pays for auto-trading — you get {days} more free days.",
+        "ref_bonus": ("\n\n🎉 You have <b>{days}</b> free days of auto-trading. Connect an account in «🤖 Auto trading», "
+                      "no payment needed."),
+        "ref_share_text": "🟡 Free gold (XAUUSD) signals with a lot sized to your deposit. I use it, join me:",
+        "ref_joined": "🎉 <b>{name}</b> joined with your link! Friends in total: <b>{n}</b>.",
+        "ref_left": "\n{left} more and you get {days} days of free auto-trading.",
+        "ref_got_ext": "🎁 <b>Reward: +{days} days of auto-trading.</b> Your accounts are paid until {until}.",
+        "ref_got_bonus": ("🎁 <b>Reward: +{days} days of auto-trading.</b> Free days in total: {total}. "
+                          "Connect an account in «🤖 Auto trading», no payment needed."),
+        "ref_friend_paid": "💎 A friend you invited connected auto-trading. Thank you for recommending us!",
+        "share_win": "✅ Gold XAUUSD signal #{id} {side} closed in profit: +{pips} pips. Signals are free:",
+    },
+    "uz": {
+        "btn_invite": "🎁 Doʻstni taklif qilish",
+        "btn_invite_share": "📤 Taklif yuborish",
+        "btn_share": "📤 Natijani ulashish",
+        "ref_unavailable": "🎁 Takliflar hozircha mavjud emas, keyinroq urinib koʻring.",
+        "ref_head": ("🎁 <b>Doʻstlaringizni taklif qiling</b>\n\nSizning shaxsiy havolangiz:\n{link}\n\n"
+                     "Uni doʻstlaringizga yoki chatlaringizga yuboring. Havola orqali kirib, botdan foydalana "
+                     "boshlagan har bir kishi sizga hisoblanadi.\n\n👥 Havolangiz orqali kelganlar: <b>{n}</b>"),
+        "ref_reward": ("\n\n🤖 <b>Mukofot:</b> har {friends} ta doʻst uchun — {days} kun bepul avtosavdo. "
+                       "Keyingi mukofotgacha: {left}."),
+        "ref_paid_reward": "\n💎 Doʻstingiz avtosavdoni toʻlasa — sizga yana {days} kun bepul.",
+        "ref_bonus": ("\n\n🎉 Sizda <b>{days}</b> kun bepul avtosavdo bor. «🤖 Avtosavdo» boʻlimida hisobni ulang, "
+                      "toʻlash shart emas."),
+        "ref_share_text": ("🟡 Oltin (XAUUSD) boʻyicha bepul signallar, lot depozitingizga mos. "
+                           "Men foydalanaman, sen ham qoʻshil:"),
+        "ref_joined": "🎉 <b>{name}</b> havolangiz orqali qoʻshildi! Jami doʻstlar: <b>{n}</b>.",
+        "ref_left": "\nYana {left} ta — va {days} kun bepul avtosavdo olasiz.",
+        "ref_got_ext": "🎁 <b>Mukofot: +{days} kun avtosavdo.</b> Hisoblaringiz {until} gacha toʻlangan.",
+        "ref_got_bonus": ("🎁 <b>Mukofot: +{days} kun avtosavdo.</b> Jami bepul kunlar: {total}. "
+                          "«🤖 Avtosavdo» boʻlimida hisobni ulang, toʻlash shart emas."),
+        "ref_friend_paid": "💎 Siz taklif qilgan doʻstingiz avtosavdoni uladi. Bizni tavsiya qilganingiz uchun rahmat!",
+        "share_win": "✅ Oltin XAUUSD signali #{id} {side} foyda bilan yopildi: +{pips} pips. Signallar bepul:",
+    },
+}
+for _lang, _texts in REF_TEXTS.items():
+    TEXTS[_lang].update(_texts)

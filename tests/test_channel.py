@@ -111,6 +111,11 @@ class ChannelTests(unittest.TestCase):
                 self.assertNotIn("💼", chan[0][1])                  # без чужого баланса
                 self.assertEqual(chan[0][2]["reply_parameters"].message_id, card["m"])
                 self.assertTrue(any(e[0] == CHAN and e[1] == card["m"] for e in app.bot.edits))  # живая карточка
+                # подписчику — итог в плюсе с кнопкой «Поделиться» и его ссылкой-приглашением
+                mine = [x for x in app.bot.sent if x[0] == 1]
+                share = mine[0][2]["reply_markup"].inline_keyboard[0][0].url
+                self.assertIn("t.me/share/url", share)
+                self.assertIn("ref_1", share)
                 await db.close()
         asyncio.run(go())
 

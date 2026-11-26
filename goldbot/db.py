@@ -185,6 +185,10 @@ class DB:
         for c, typ in (("msg_id", "INTEGER"), ("caption", "TEXT"), ("decided", "INTEGER NOT NULL DEFAULT 0")):
             if c not in lcols:
                 await self.conn.execute(f"ALTER TABLE signal_lots ADD COLUMN {c} {typ}")
+        if "referred_by" not in cols:  # кто пригласил (реферальная ссылка /start ref_<id>)
+            await self.conn.execute("ALTER TABLE users ADD COLUMN referred_by INTEGER")
+        if "bonus_days" not in cols:  # бесплатные дни автоторговли за друзей, пока нет подключённого счёта
+            await self.conn.execute("ALTER TABLE users ADD COLUMN bonus_days INTEGER NOT NULL DEFAULT 0")
         if "autotrade_credits" not in cols:  # оплаченные, но ещё не подключённые счета
             await self.conn.execute("ALTER TABLE users ADD COLUMN autotrade_credits INTEGER NOT NULL DEFAULT 0")
         cur = await self.conn.execute("PRAGMA table_info(trade_accounts)")
@@ -573,6 +577,50 @@ class DB:
             await self.add_credit(uid)
             return now() + timedelta(days=days)
         return max([await self.extend_account(a["id"], days) for a in accs])
+
+    # ── приглашения друзей ───────────────────────────────────────────────────
+    async def set_referrer(self, uid: int, ref: int) -> bool:
+        """Запоминает, кто пригласил uid (один раз, не сам себя, пригласивший должен быть в базе)."""
+        if ref == uid or not await self.get_user(ref):
+            return False
+        cur = await self.conn.execute(
+            "UPDATE users SET referred_by=? WHERE id=? AND referred_by IS NULL", (ref, uid))
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def ref_count(self, uid: int) -> int:
+        """Сколько приглашённых друзей начали пользоваться ботом (выбрали язык)."""
+        cur = await self.conn.execute(
+            "SELECT COUNT(*) FROM users WHERE referred_by=? AND lang IS NOT NULL", (uid,))
+        return (await cur.fetchone())[0]
+
+    async def top_referrers(self, n: int = 10) -> list[dict]:
+        cur = await self.conn.execute(
+            "SELECT r.id, r.username, r.first_name, COUNT(*) AS friends FROM users u JOIN users r "
+            "ON r.id=u.referred_by WHERE u.lang IS NOT NULL GROUP BY r.id ORDER BY friends DESC LIMIT ?", (n,))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def referred_total(self) -> int:
+        cur = await self.conn.execute("SELECT COUNT(*) FROM users WHERE referred_by IS NOT NULL AND lang IS NOT NULL")
+        return (await cur.fetchone())[0]
+
+    async def add_bonus_days(self, uid: int, days: int) -> int:
+        await self.conn.execute("UPDATE users SET bonus_days=bonus_days+? WHERE id=?", (days, uid))
+        await self.conn.commit()
+        return await self.bonus_days(uid)
+
+    async def bonus_days(self, uid: int) -> int:
+        cur = await self.conn.execute("SELECT bonus_days FROM users WHERE id=?", (uid,))
+        row = await cur.fetchone()
+        return int(row[0] or 0) if row else 0
+
+    async def take_bonus_days(self, uid: int) -> int:
+        """Забирает все бонусные дни (для подключения счёта); возвращает, сколько было."""
+        days = await self.bonus_days(uid)
+        if days:
+            await self.conn.execute("UPDATE users SET bonus_days=0 WHERE id=?", (uid,))
+            await self.conn.commit()
+        return days
 
     @staticmethod
     def paid_until(acc: dict | None) -> datetime | None:

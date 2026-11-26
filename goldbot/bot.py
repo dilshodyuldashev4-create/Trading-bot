@@ -27,6 +27,7 @@ from aiogram.types import (BufferedInputFile, CallbackQuery, ChatMemberUpdated, 
                            PreCheckoutQuery, ReplyKeyboardMarkup, ReplyParameters, WebAppInfo)
 
 import json
+from urllib.parse import urlencode
 
 from . import changelog, econ_calendar, news_alerts
 from . import video_course as vc
@@ -56,7 +57,7 @@ def menu(lang: str) -> ReplyKeyboardMarkup:
         [b("btn_signal")],
         [b("btn_fund"), b("btn_cal")],
         [b("btn_stats"), b("btn_propsig")],
-        [b("btn_profile")],
+        [b("btn_profile"), b("btn_invite")],
         *([[b("btn_auto"), b("btn_fundednext")]] if config.metaapi_token else []),
     ])
 
@@ -67,7 +68,7 @@ APP_OLD_TEXTS = frozenset({"🟡 Приложение", "🟡 App", "🟡 Ilova"
 # все подписи кнопок главного меню на всех языках
 MENU_TEXTS = APP_OLD_TEXTS | frozenset().union(*(variants(k) for k in (
     "btn_signal", "btn_fund", "btn_cal", "btn_stats", "btn_propsig", "btn_sub", "btn_profile", "btn_auto",
-    "btn_fundednext", "btn_app_menu", "btn_lessons")))
+    "btn_fundednext", "btn_app_menu", "btn_lessons", "btn_invite")))
 
 
 LANG_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -484,14 +485,93 @@ class App:
     async def chan_lang(self) -> str:
         return norm(await self.db.get_kv("channel_lang") or config.channel_lang)
 
-    async def chan_cta(self, lang: str) -> str:
-        """Ссылка на бота под постом канала."""
-        if self._bot_name is None:
+    async def bot_username(self) -> str:
+        if getattr(self, "_bot_name", None) is None:
             try:
                 self._bot_name = (await self.bot.get_me()).username or ""
             except Exception:  # noqa: BLE001
                 return ""
-        return t(lang, "chan_cta", bot=self._bot_name) if self._bot_name else ""
+        return self._bot_name
+
+    async def chan_cta(self, lang: str) -> str:
+        """Ссылка на бота под постом канала."""
+        name = await self.bot_username()
+        return t(lang, "chan_cta", bot=name) if name else ""
+
+    # ── приглашение друзей ───────────────────────────────────────────────────
+    async def ref_link(self, uid: int) -> str:
+        """Личная ссылка-приглашение: t.me/<бот>?start=ref_<id>."""
+        name = await self.bot_username()
+        return f"https://t.me/{name}?start=ref_{uid}" if name else ""
+
+    async def share_button(self, uid: int, lang: str, text: str, label_key: str = "btn_share") -> InlineKeyboardButton | None:
+        """Кнопка «Поделиться»: открывает выбор чата в Telegram с готовым текстом и ссылкой-приглашением."""
+        link = await self.ref_link(uid)
+        if not link:
+            return None
+        url = "https://t.me/share/url?" + urlencode({"url": link, "text": text})
+        return InlineKeyboardButton(text=t(lang, label_key), url=url)
+
+    async def invite_screen(self, chat_id: int, uid: int, lang: str) -> None:
+        link = await self.ref_link(uid)
+        if not link:
+            await self.bot.send_message(chat_id, t(lang, "ref_unavailable"))
+            return
+        n = await self.db.ref_count(uid)
+        text = t(lang, "ref_head", link=link, n=n)
+        if config.ref_friends > 0 and config.ref_days > 0:
+            left = config.ref_friends - n % config.ref_friends
+            text += t(lang, "ref_reward", friends=config.ref_friends, days=config.ref_days, left=left)
+        if config.ref_paid_days > 0:
+            text += t(lang, "ref_paid_reward", days=config.ref_paid_days)
+        bonus = await self.db.bonus_days(uid)
+        if bonus:
+            text += t(lang, "ref_bonus", days=bonus)
+        btn = await self.share_button(uid, lang, t(lang, "ref_share_text"), "btn_invite_share")
+        await self.bot.send_message(chat_id, text, disable_web_page_preview=True,
+                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[btn]]) if btn else None)
+
+    async def ref_grant(self, uid: int, days: int) -> str:
+        """Бесплатные дни автоторговли пригласившему: есть подключённые счета — продлеваем их,
+        нет — копим дни до подключения счёта. Возвращает текст строки о награде."""
+        lang = await self.lang_of(uid)
+        accs = await self.db.user_accounts(uid)
+        if accs:
+            until = max([await self.db.extend_account(a["id"], days) for a in accs])
+            return t(lang, "ref_got_ext", days=days, until=self.fmt_dt(until))
+        total = await self.db.add_bonus_days(uid, days)
+        return t(lang, "ref_got_bonus", days=days, total=total)
+
+    async def ref_joined(self, friend: int) -> None:
+        """Приглашённый друг начал пользоваться ботом (выбрал язык): сообщаем пригласившему и даём награду."""
+        u = await self.db.get_user(friend) or {}
+        ref = u.get("referred_by")
+        if not ref:
+            return
+        n = await self.db.ref_count(ref)
+        lang = await self.lang_of(ref)
+        name = html.escape(u.get("first_name") or t(lang, "trader"))
+        text = t(lang, "ref_joined", name=name, n=n)
+        if config.ref_friends > 0 and config.ref_days > 0:
+            if n % config.ref_friends == 0:
+                text += "\n\n" + await self.ref_grant(ref, config.ref_days)
+            else:
+                text += t(lang, "ref_left", left=config.ref_friends - n % config.ref_friends, days=config.ref_days)
+        log.info("referral: %s joined by invite of %s (friends: %s)", friend, ref, n)
+        await self._send(ref, lambda: self.bot.send_message(ref, text))
+
+    async def ref_friend_paid(self, friend: int) -> None:
+        """Приглашённый друг впервые оплатил автоторговлю — пригласившему REF_PAID_DAYS дней бесплатно."""
+        if config.ref_paid_days <= 0 or await self.db.get_kv(f"ref_paid:{friend}"):
+            return
+        ref = (await self.db.get_user(friend) or {}).get("referred_by")
+        if not ref:
+            return
+        await self.db.set_kv(f"ref_paid:{friend}", "1")
+        lang = await self.lang_of(ref)
+        text = t(lang, "ref_friend_paid") + "\n\n" + await self.ref_grant(ref, config.ref_paid_days)
+        log.info("referral: %s paid auto trading, %s gets %s days", friend, ref, config.ref_paid_days)
+        await self._send(ref, lambda: self.bot.send_message(ref, text))
 
     async def to_channel(self, make, raise_errors: bool = False):
         """make(chat_id, lang) → корутина отправки. Ошибка канала не мешает рассылке подписчикам."""
@@ -710,14 +790,21 @@ class App:
         cards = {c["user_id"]: c["msg_id"] for c in await self.db.signal_cards(s["id"])}
         await self.update_cards(s, status, price)
 
-        def make(u: int):
+        # прибыльный итог — с кнопкой «Поделиться»: друг получает текст результата и личную ссылку-приглашение
+        share_ok = res > 0 and bool(await self.bot_username())
+
+        async def make(u: int):
             lang = norm(langs.get(u))
             body = text(lang) + balance_text(lang, u)
             reply = reply_to(cards.get(u))   # итог — ответом на карточку сигнала
+            if share_ok:
+                btn = await self.share_button(u, lang, t(lang, "share_win", id=s["id"], side=side, pips=f"{pips:.0f}"))
+                if btn:
+                    reply["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=[[btn]])
             if image:
-                return self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body,
-                                           **reply)
-            return self.bot.send_message(u, body, **reply)
+                return await self.bot.send_photo(u, BufferedInputFile(image, f"result_{s['id']}.png"), caption=body,
+                                                 **reply)
+            return await self.bot.send_message(u, body, **reply)
 
         chan_reply = await self.chan_reply(s["id"])
 
@@ -916,7 +1003,8 @@ class App:
 
     async def can_connect(self, uid: int) -> bool:
         """Можно ли подключить новый счёт: каждый счёт оплачивается отдельно (админам — бесплатно)."""
-        return self.is_admin(uid) or await self.db.credits(uid) > 0
+        return (self.is_admin(uid) or await self.db.credits(uid) > 0
+                or await self.db.bonus_days(uid) > 0)   # бесплатные дни за приглашённых друзей
 
     async def ask_payment(self, chat_id: int, uid: int, lang: str, intent: str) -> None:
         """Счёт на оплату нового счёта; после оплаты продолжим intent: real — обычный счёт, prop — FundedNext."""
@@ -1642,8 +1730,12 @@ class App:
         try:
             same = any(a["login"] == login and a["server"] == server for a in await self.db.user_accounts(uid))
             charge = not (paid_until or same or self.is_admin(uid))   # новый счёт — одно оплаченное подключение
+            bonus = 0
             if charge and not await self.db.use_credit(uid):
-                raise MetaApiError("not paid", "NOT_PAID")
+                bonus = await self.db.take_bonus_days(uid)   # нет оплаты — бесплатные дни за друзей
+                if not bonus:
+                    raise MetaApiError("not paid", "NOT_PAID")
+                charge, paid_until = False, (now() + timedelta(days=bonus)).isoformat()
             async def progress(key: str) -> None:   # подключение идёт дольше обычного — говорим, на каком шаге
                 await self.bot.send_message(chat_id, t(lang, f"at_progress_{key}", server=html.escape(server)))
 
@@ -1654,6 +1746,8 @@ class App:
             except Exception:
                 if charge:
                     await self.db.add_credit(uid)   # не подключился — оплаченное подключение возвращаем
+                if bonus:
+                    await self.db.add_bonus_days(uid, bonus)
                 raise
             bal = info.get("balance")
             balance = f"{bal:,.2f} {info.get('currency') or ''}".replace(",", " ") if bal is not None else "—"
@@ -1684,8 +1778,11 @@ class App:
         r = self.router
 
         @r.message(CommandStart())
-        async def start(m: Message, state: FSMContext):
+        async def start(m: Message, state: FSMContext, command: CommandObject | None = None):
             new = await self.db.add_user(m.from_user.id, m.from_user.username, m.from_user.first_name)
+            arg = (command.args if command else "") or ""
+            if new and arg.startswith("ref_") and arg[4:].isdigit():   # пришёл по приглашению друга
+                await self.db.set_referrer(m.from_user.id, int(arg[4:]))
             u = await self.db.get_user(m.from_user.id)
             if not u.get("lang"):  # сначала просим выбрать язык
                 await state.update_data(new_user=new)
@@ -1719,6 +1816,7 @@ class App:
             except Exception:  # noqa: BLE001 — старое сообщение могло уже не удаляться
                 pass
             if first:
+                self.spawn(self.ref_joined(uid))
                 data = await state.get_data()
                 new_user = new or bool(data.get("new_user"))
                 if (await self.db.get_user(uid)).get("capital") is None:
@@ -1884,6 +1982,16 @@ class App:
             except Exception:  # noqa: BLE001 — сообщение старое или не изменилось: шлём новое
                 await q.message.answer(text, reply_markup=kb, disable_web_page_preview=not preview)
 
+        @r.message(F.text.in_(variants("btn_invite")))
+        @r.message(Command("invite", "ref"))
+        async def invite(m: Message):
+            await self.invite_screen(m.chat.id, m.from_user.id, await self.lang_of(m.from_user.id))
+
+        @r.callback_query(F.data == "ref:menu")
+        async def invite_cb(c: CallbackQuery):
+            await c.answer()
+            await self.invite_screen(c.message.chat.id, c.from_user.id, await self.lang_of(c.from_user.id))
+
         @r.message(F.text.in_(variants("btn_profile")))
         @r.message(Command("profile"))
         async def profile(m: Message):
@@ -1894,6 +2002,7 @@ class App:
                 *([[app_btn]] if app_btn else []),
                 [InlineKeyboardButton(text=t(lang, "btn_capital"), callback_data="cap:menu")],
                 [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="lang:menu")],
+                [_btn(t(lang, "btn_invite"), "ref:menu")],
                 *([[_btn(t(lang, "btn_auto"), "at:menu")]] if self.autotrader else [])])
             cap = u.get("capital")
             cap_line = (t(lang, "profile_cap", cap=fmt_usd(cap), lot=f"{lot_plan(cap)['lot']:.2f}") if cap
@@ -1912,6 +2021,8 @@ class App:
         async def paid(m: Message):
             p = m.successful_payment
             await self.db.add_payment(m.from_user.id, p.total_amount, p.currency, p.telegram_payment_charge_id)
+            if p.invoice_payload.startswith("auto"):   # автоторговля: награда тому, кто пригласил
+                self.spawn(self.ref_friend_paid(m.from_user.id))
             if p.invoice_payload.startswith("auto:"):   # продление конкретного счёта
                 uid, lang = m.from_user.id, await self.lang_of(m.from_user.id)
                 aid = p.invoice_payload.split(":", 1)[1]
@@ -1972,7 +2083,8 @@ class App:
                     f"⭐ Выручка: {s['revenue']}\n\n"
                     f"📊 Сигналов: {s['signals']}, TP: {s['tp']}, безубыток/разворот в плюсе: {s['be']}, "
                     f"SL: {s['sl']}, в плюсе: {wr}\n"
-                    f"🌐 Языки: {langs or '—'}{auto}")
+                    f"🌐 Языки: {langs or '—'}{auto}\n"
+                    f"🎁 Пришли по приглашению друзей: {await self.db.referred_total()} (топ: /refs)")
             elif action == "release":
                 rel = changelog.latest()
                 if not rel:
@@ -2004,6 +2116,7 @@ class App:
                                        "/autotrade invite — спросить про автоторговлю всех, кого ещё не спрашивали\n"
                                        "/autotrade test — тестовая сделка мин. лотом на своём счёте (откроет и закроет)\n"
                                        "/grantauto &lt;user_id&gt; &lt;дней&gt; — выдать автоторговлю без оплаты\n"
+                                       "/refs — кто больше всех пригласил друзей\n"
                                        "/feed — откуда сейчас берутся цены (брокер или запасной источник)\n"
                                        "/channel — Telegram-канал: подключение, язык постов, тестовый пост")
             await c.answer()
@@ -2253,6 +2366,21 @@ class App:
                 if on else
                 ("⏸ Торговля во время новостей <b>выключена</b>: за {0} мин до важной новости США сигналы на паузе, "
                  "открытые сделки закрываются.\nВключить: /newstrade on").format(config.news_pause_min))
+
+        @r.message(Command("refs"))
+        async def refs_cmd(m: Message):
+            """Админ: кто больше всех пригласил друзей."""
+            if not self.is_admin(m.from_user.id):
+                return
+            top = await self.db.top_referrers(15)
+            if not top:
+                await m.answer("🎁 По приглашениям пока никто не пришёл")
+                return
+            rows = [f"{i}. {html.escape(r['first_name'] or '—')}"
+                    + (f" @{html.escape(r['username'])}" if r["username"] else "") + f" (id {r['id']}): {r['friends']}"
+                    for i, r in enumerate(top, 1)]
+            await m.answer(f"🎁 <b>Пригласили друзей</b> (всего пришло: {await self.db.referred_total()})\n\n"
+                           + "\n".join(rows))
 
         @r.message(Command("grantauto"))
         async def grant_auto(m: Message, command: CommandObject):
