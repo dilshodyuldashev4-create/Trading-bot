@@ -237,5 +237,18 @@ class Config:
     webapp_port: int = int(os.getenv("WEBAPP_PORT", "8080"))
     webapp_button: str = os.getenv("WEBAPP_BUTTON", "🟡 Gold App")
 
+    # Мобильное приложение для iPhone и Android (папка mobile/). Работает через тот же сервер, что Mini App,
+    # по адресу WEBAPP_URL (нужен постоянный домен). Push-уведомления идут через Expo (ключи не нужны).
+    mobile_on: bool = os.getenv("MOBILE_API", "1") not in ("0", "false", "no", "")
+    mobile_push: bool = os.getenv("MOBILE_PUSH", "1") not in ("0", "false", "no", "")
+    # партнёрская ссылка брокера (раздел «Открыть счёт» в приложении); пусто — раздела нет
+    broker_url: str = os.getenv("BROKER_URL", "")
+    broker_name: str = os.getenv("BROKER_NAME", "")
+    # подписка на автоторговлю через App Store / Google Play (RevenueCat): секрет вебхука из панели RevenueCat
+    revenuecat_secret: str = os.getenv("REVENUECAT_WEBHOOK_SECRET", "")
+    # ссылки на приложение в магазинах — бот показывает их в профиле и в /app
+    app_store_url: str = os.getenv("APP_STORE_URL", "")
+    play_store_url: str = os.getenv("PLAY_STORE_URL", "")
+
 
 config = Config()

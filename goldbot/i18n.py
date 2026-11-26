@@ -19,6 +19,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_app": "📱 Открыть приложение",
         "btn_app_menu": "Mini app 📱",
         "btn_lessons": "🎓 Уроки",
+        "app_login_ok": "✅ <b>Вход выполнен</b>\n\nВернитесь в приложение XAUUSD Gold — оно откроется само.",
+        "app_link_ok": "✅ <b>Telegram привязан к приложению</b>\n\nТеперь в приложении ваш профиль, капитал и счета из бота.",
+        "app_link_taken": "⚠️ Этот Telegram уже привязан к другому аккаунту приложения. Войдите в приложение через Telegram.",
+        "app_code_bad": "⚠️ Ссылка для входа устарела. Нажмите «Войти через Telegram» в приложении ещё раз.",
         "app_text": ("📱 <b>Приложение XAUUSD Gold</b>\n\nСтатистика с графиком, проп-панель, настройки и оплата — в одном окне. "
                      "Кнопки в чате работают как раньше, пользуйтесь тем, что удобнее 👇"),
         "app_off": "📱 Приложение скоро будет доступно.",
@@ -307,6 +311,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_app": "📱 Open the app",
         "btn_app_menu": "Mini app 📱",
         "btn_lessons": "🎓 Lessons",
+        "app_login_ok": "✅ <b>Signed in</b>\n\nGo back to the XAUUSD Gold app — it will open by itself.",
+        "app_link_ok": "✅ <b>Telegram is linked to the app</b>\n\nThe app now shows your profile, capital and accounts from the bot.",
+        "app_link_taken": "⚠️ This Telegram is already linked to another app account. Sign in to the app with Telegram.",
+        "app_code_bad": "⚠️ The sign-in link has expired. Tap “Continue with Telegram” in the app again.",
         "app_text": ("📱 <b>XAUUSD Gold app</b>\n\nStats with charts, the prop dashboard, settings and payment in one window. "
                      "Chat buttons work as before, use whichever you like 👇"),
         "app_off": "📱 The app will be available soon.",
@@ -596,6 +604,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_app": "📱 Ilovani ochish",
         "btn_app_menu": "Mini app 📱",
         "btn_lessons": "🎓 Darslar",
+        "app_login_ok": "✅ <b>Kirish bajarildi</b>\n\nXAUUSD Gold ilovasiga qayting — u oʻzi ochiladi.",
+        "app_link_ok": "✅ <b>Telegram ilovaga ulandi</b>\n\nEndi ilovada botdagi profilingiz, kapital va hisoblaringiz.",
+        "app_link_taken": "⚠️ Bu Telegram ilovaning boshqa akkauntiga ulangan. Ilovaga Telegram orqali kiring.",
+        "app_code_bad": "⚠️ Kirish havolasi eskirgan. Ilovada «Telegram orqali kirish» ni yana bosing.",
         "app_text": ("📱 <b>XAUUSD Gold ilovasi</b>\n\nGrafikli statistika, prop-panel, sozlamalar va toʻlov — bitta oynada. "
                      "Chatdagi tugmalar avvalgidek ishlaydi, qaysi biri qulay boʻlsa, shundan foydalaning 👇"),
         "app_off": "📱 Ilova tez orada ishga tushadi.",
