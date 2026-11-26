@@ -177,6 +177,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(j["auto"]["enabled"])
         self.assertEqual(len(j["plans"]), 4)
         self.assertEqual(j["learn"]["lessons"], LESSONS["uz"])
+        self.assertEqual(j["video"]["videos"][0]["yt"], botmod.vc.VIDEOS[0]["yt"])   # видеокурс в ответе
+        self.assertTrue(j["video"]["hint"])
         self.assertEqual(set(j["learn"]["vars"]), set(lessons_vars()))
 
     async def test_settings(self):

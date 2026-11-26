@@ -227,6 +227,11 @@ a{color:var(--gold2)}
 .lcard.done .ln{background:linear-gradient(160deg,#f7d46b2e,#a66d1022);border-color:#f7d46b55}
 .lcard.done .ln::after{content:"✓";position:absolute;right:-5px;bottom:-5px;width:19px;height:19px;border-radius:50%;background:var(--gold);color:#1b1404;font-size:11px;font-weight:900;display:grid;place-items:center;box-shadow:0 0 0 2px var(--bg)}
 .lcard.next{border-color:#f7d46b88;box-shadow:0 0 0 3px #f7d46b18}
+.lcard .ln.vn{font-size:16px;font-weight:900;color:var(--gold2,#f7d46b)}
+.lvl{display:flex;align-items:center;gap:8px;margin:20px 2px 2px;font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.vplayer{position:relative;width:100%;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:#000;border:1px solid var(--line2)}
+.vplayer iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.vtested{display:inline-flex;margin-top:8px;font-size:12px}
 .lcard .mid{flex:1;min-width:0}
 .lcard .mid small{display:block;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--gold3)}
 .lcard .mid b{display:block;font-size:15px;margin:1px 0}
@@ -255,6 +260,7 @@ a{color:var(--gold2)}
 .callout:last-child{margin-bottom:0}
 .callout .e{font-size:17px;line-height:1.3;flex:none}
 .callout.tip{background:#f7d46b10;border:1px solid #f7d46b33;color:#f3e7c4}
+.callout.vhint{background:#f7d46b10;border:1px solid #f7d46b33;color:#f3e7c4;margin-top:12px}
 .callout.warn{background:#ff5d7310;border:1px solid #ff5d7333;color:#ffd5db}
 .ex{border-radius:16px;border:1px solid var(--line);overflow:hidden;margin:0 0 12px;background:#0d0f16}
 .ex:last-child{margin-bottom:0}
@@ -329,7 +335,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 let S = null, T = {}, page = "home", period = 30, hFilter = "all", hShow = 25, propEdit = false, form = {};
 let lastPrice = null, marketTimer = null, busy = false;
 const PAGES = ["home", "stats", "learn", "prop", "profile"];
-let learnDone = new Set(), lesson = null, quiz = {}, calcS = null;
+let learnDone = new Set(), lesson = null, quiz = {}, calcS = null, learnTab = "text", video = null, videoDone = new Set();
 
 function tr(k, v) { let s = T[k] ?? k; if (v) for (const [a, b] of Object.entries(v)) s = s.split("{" + a + "}").join(b); return s; }
 function haptic(kind = "light") { try { if (["success","error","warning"].includes(kind)) tg.HapticFeedback.notificationOccurred(kind); else if (kind === "sel") tg.HapticFeedback.selectionChanged(); else tg.HapticFeedback.impactOccurred(kind); } catch (e) {} }
@@ -363,7 +369,7 @@ function apply(j) { S = j; T = j.t; document.documentElement.lang = j.lang; rend
 /* ── навигация ── */
 function go(p) {
   if (!PAGES.includes(p)) return;
-  if (p === "learn" && page === "learn") lesson = null;
+  if (p === "learn" && page === "learn") { lesson = null; video = null; }
   page = p; haptic("sel");
   document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
   document.querySelectorAll(".page").forEach(s => s.classList.toggle("on", s.id === "p-" + p));
@@ -646,6 +652,7 @@ function fill(x) { let s = String(x ?? ""); for (const [k, v] of Object.entries(
 function cloud() { try { return tg && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") && tg.CloudStorage ? tg.CloudStorage : null; } catch (e) { return null; } }
 function setDone(str) { const ids = new Set(lessons().map(l => l.id)); learnDone = new Set(String(str || "").split(",").filter(x => ids.has(x))); }
 function loadLearn() {
+  loadVideos();
   try { setDone(localStorage.getItem(LKEY + S.user.id)); } catch (e) {}
   const c = cloud();
   if (c) try { c.getItem(LKEY, (err, v) => { if (!err && v != null && v !== "") { const before = learnDone.size; setDone(v); if (learnDone.size !== before && (page === "learn" || page === "home")) render(page); } }); } catch (e) {}
@@ -658,8 +665,8 @@ function saveLearn() {
 function nextLesson() { return lessons().find(l => !learnDone.has(l.id)) || null; }
 function openLesson(id) { lesson = id; quiz = {}; calcS = null; haptic("light"); if (page !== "learn") go("learn"); else { renderLearn(); syncBack(); } window.scrollTo({ top: 0 }); }
 function closeLesson() { lesson = null; haptic("sel"); renderLearn(); syncBack(); window.scrollTo({ top: 0 }); }
-function syncBack() { try { const b = tg && tg.BackButton; if (!b) return; if (page === "learn" && lesson) b.show(); else b.hide(); } catch (e) {} }
-if (tg && tg.BackButton) try { tg.BackButton.onClick(() => { if (lesson) closeLesson(); }); } catch (e) {}
+function syncBack() { try { const b = tg && tg.BackButton; if (!b) return; if (page === "learn" && (lesson || video)) b.show(); else b.hide(); } catch (e) {} }
+if (tg && tg.BackButton) try { tg.BackButton.onClick(() => { if (video) closeVideo(); else if (lesson) closeLesson(); }); } catch (e) {}
 
 function learnMini() {
   const L = lessons(), n = learnDone.size, nx = nextLesson();
@@ -668,12 +675,19 @@ function learnMini() {
     <div class="bar" style="margin-top:0"><i class="gold" data-w="${(n / L.length * 100).toFixed(1)}%"></i></div>
     <button class="lcard next" onclick="openLesson('${nx.id}')"><div class="ln">${nx.icon}</div><div class="mid"><small>${esc(tr("lesson_n", { n: L.indexOf(nx) + 1 }))} · ${esc(tr("lesson_min", { n: nx.min }))}</small><b>${esc(nx.title)}</b><span>${esc(nx.sub)}</span></div><span class="go">→</span></button></div>`;
 }
+function learnTabs() {
+  return `<div class="seg" id="learnTabs" style="margin-bottom:14px">${["text", "video"].map(k => `<button data-lt="${k}" class="${learnTab === k ? "on" : ""}">${esc(tr("learn_tab_" + k))}</button>`).join("")}</div>`;
+}
+function wireTabs(el) {
+  el.querySelectorAll("[data-lt]").forEach(b => b.onclick = () => { if (learnTab === b.dataset.lt) return; learnTab = b.dataset.lt; haptic("sel"); renderLearn(); });
+}
 function renderLearn() {
   const el = $("#p-learn");
   if (lesson && !lessons().some(l => l.id === lesson)) lesson = null;
+  if (learnTab === "video" || video) { renderVideo(el); return; }
   if (lesson) { el.innerHTML = lessonView(lesson); wireLesson(el); animate(el); return; }
   const L = lessons(), n = learnDone.size, nx = nextLesson();
-  let h = `<div class="stagger"><div class="card gold hero"><div class="ringwrap">${ring(n / L.length, 112, 10, `${n}/${L.length}`, tr("tab_learn"))}
+  let h = learnTabs() + `<div class="stagger"><div class="card gold hero"><div class="ringwrap">${ring(n / L.length, 112, 10, `${n}/${L.length}`, tr("tab_learn"))}
     <div style="min-width:0"><div style="font-size:20px;font-weight:800;line-height:1.25">${esc(tr("learn_title"))}</div><p class="sub" style="margin:6px 0 0">${esc(tr("learn_sub"))}</p></div></div>
     ${nx ? `<button class="btn mt2" onclick="openLesson('${nx.id}')">${esc(n ? tr("learn_continue", { title: nx.title }) : tr("learn_start"))}</button>`
          : `<div class="chip ok mt2" style="white-space:normal;line-height:1.4">🏆 ${esc(tr("learn_done_all"))}</div>`}</div><div>`;
@@ -684,9 +698,74 @@ function renderLearn() {
       ${done ? `<span class="badge">✓ ${esc(tr("done_badge"))}</span>` : `<span class="go">→</span>`}</button>`;
   });
   h += `</div>${n ? `<button class="btn ghost mt2" id="learnReset">↺ ${esc(tr("learn_again"))}</button>` : ""}</div>`;
-  el.innerHTML = h; animate(el);
+  el.innerHTML = h; animate(el); wireTabs(el);
   el.querySelectorAll("[data-lesson]").forEach(b => b.onclick = () => openLesson(b.dataset.lesson));
   const r = $("#learnReset"); if (r) r.onclick = () => confirmBox(tr("learn_again_q"), ok => { if (ok) { learnDone = new Set(); saveLearn(); renderLearn(); } });
+}
+/* ── видеокурс ── */
+const VKEY = "video_done";
+const videos = () => (S.video && S.video.videos) || [];
+function setVDone(str) { const ids = new Set(videos().map(v => v.yt)); videoDone = new Set(String(str || "").split(",").filter(x => ids.has(x))); }
+function loadVideos() {
+  try { setVDone(localStorage.getItem(VKEY + S.user.id)); } catch (e) {}
+  const c = cloud();
+  if (c) try { c.getItem(VKEY, (err, v) => { if (!err && v != null && v !== "") { const before = videoDone.size; setVDone(v); if (videoDone.size !== before && page === "learn" && learnTab === "video") renderLearn(); } }); } catch (e) {}
+}
+function saveVideos() {
+  const v = [...videoDone].join(",");
+  try { localStorage.setItem(VKEY + S.user.id, v); } catch (e) {}
+  const c = cloud(); if (c) try { c.setItem(VKEY, v, () => {}); } catch (e) {}
+}
+function nextVideo() { return videos().find(v => !videoDone.has(v.yt)) || null; }
+function openVideo(n) { video = n; learnTab = "video"; haptic("light"); if (page !== "learn") go("learn"); else { renderLearn(); syncBack(); } window.scrollTo({ top: 0 }); }
+function closeVideo() { video = null; haptic("sel"); renderLearn(); syncBack(); window.scrollTo({ top: 0 }); }
+function renderVideo(el) {
+  const V = videos();
+  if (video && !V.some(v => v.n === video)) video = null;
+  if (video) { el.innerHTML = videoView(video); wireVideo(el); animate(el); return; }
+  const n = V.filter(v => videoDone.has(v.yt)).length, nx = nextVideo();
+  let h = learnTabs() + `<div class="stagger"><div class="card gold hero"><div class="ringwrap">${ring(V.length ? n / V.length : 0, 112, 10, `${n}/${V.length}`, "🎬")}
+    <div style="min-width:0"><div style="font-size:20px;font-weight:800;line-height:1.25">${esc(tr("video_title"))}</div><p class="sub" style="margin:6px 0 0">${esc(tr("video_sub"))}</p></div></div>
+    ${nx ? `<button class="btn mt2" data-video="${nx.n}">▶ ${esc(tr("video_n", { n: nx.n }))}: ${esc(nx.title)}</button>`
+         : `<div class="chip ok mt2" style="white-space:normal;line-height:1.4">🏆 ${esc(tr("learn_done_all"))}</div>`}</div>
+    <div class="callout vhint"><span class="e">💬</span><div>${esc(S.video.hint)}</div></div><div>`;
+  for (const lv of S.video.levels) {
+    const items = V.filter(v => v.level === lv.id);
+    if (!items.length) continue;
+    h += `<div class="lvl">${lv.icon} ${esc(lv.title)}</div>`;
+    for (const v of items) {
+      const done = videoDone.has(v.yt), isNext = nx && nx.n === v.n;
+      h += `<button class="lcard ${done ? "done" : ""} ${isNext ? "next" : ""}" data-video="${v.n}"><div class="ln vn">${v.n}</div>
+        <div class="mid"><small>${esc(tr("video_n", { n: v.n }))} · ${esc(v.channel)}${v.tested ? " · ✅" : ""}</small><b>${esc(v.title)}</b><span>${esc(v.sub)}</span></div>
+        ${done ? `<span class="badge">✓</span>` : `<span class="go">▶</span>`}</button>`;
+    }
+  }
+  h += `</div><div class="sub" style="margin:14px 2px 0;font-size:12px;line-height:1.5">${esc(tr("video_tested_note"))}</div></div>`;
+  el.innerHTML = h; animate(el); wireTabs(el);
+  el.querySelectorAll("[data-video]").forEach(b => b.onclick = () => openVideo(+b.dataset.video));
+}
+function videoView(n) {
+  const V = videos(), i = V.findIndex(v => v.n === n), v = V[i], nx = V[i + 1], done = videoDone.has(v.yt);
+  const lv = S.video.levels.find(x => x.id === v.level) || {};
+  return `<div class="lhead"><button class="back" id="vBack">← ${esc(tr("back"))}</button><span class="sp" style="flex:1"></span>
+    <span class="sub">${esc(tr("video_n", { n: v.n }))} / ${V.length}</span>${done ? `<span class="badge">✓ ${esc(tr("video_watched"))}</span>` : ""}</div>
+    <div class="stagger"><div class="vplayer"><iframe src="${esc(v.embed)}" title="${esc(v.title)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+    <div class="card gold" style="margin-top:12px"><div class="sub">${lv.icon || ""} ${esc(lv.title || "")}</div><h2 style="margin:6px 0 4px;font-size:20px">${esc(v.title)}</h2>
+      <div class="sub">${esc(v.sub)}</div><div class="sub" style="margin-top:6px;font-size:12px">${esc(tr("video_by", { channel: v.channel }))}</div>
+      ${v.tested ? `<span class="chip ok vtested">✅ ${esc(tr("video_tested"))}</span>` : ""}</div>
+    <div class="callout vhint"><span class="e">💬</span><div>${esc(S.video.hint)}</div></div>
+    ${done ? "" : `<button class="btn" id="vMark">${esc(tr("video_mark"))}</button>`}
+    ${nx ? `<button class="btn ${done ? "" : "ghost"} mt2" data-video="${nx.n}">${esc(tr("video_next"))}: ${esc(nx.title)} →</button>`
+         : (done ? `<div class="chip ok mt2" style="white-space:normal;line-height:1.4">🏆 ${esc(tr("learn_done_all"))}</div>` : "")}
+    <button class="btn ghost mt2" id="vYt">▶️ ${esc(tr("video_open_yt"))}</button></div>`;
+}
+function wireVideo(el) {
+  const v = videos().find(x => x.n === video);
+  $("#vBack").onclick = closeVideo;
+  $("#vYt").onclick = () => openLink(v.url);
+  const mk = $("#vMark");
+  if (mk) mk.onclick = () => { const first = !videoDone.has(v.yt); videoDone.add(v.yt); saveVideos(); haptic("success"); renderLearn(); if (first && videoDone.size === videos().length) confetti(); };
+  el.querySelectorAll("[data-video]").forEach(b => b.onclick = () => openVideo(+b.dataset.video));
 }
 function block(b) {
   switch (b.t) {
