@@ -90,6 +90,9 @@ input{font:inherit;color:inherit}
 .sig::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px}
 .sig.buy::before{background:var(--green)}.sig.sell::before{background:var(--red)}
 .side{font-weight:800;font-size:13px;padding:4px 9px;border-radius:8px;letter-spacing:.05em}
+.ptag{font-size:11px;font-weight:800;padding:3px 8px;border-radius:8px;color:var(--gold2);background:#f7d46b1a;border:1px solid #f7d46b40}
+.sig.prop{border-color:#f7d46b40}
+.chip[hidden]{display:none}
 .side.buy{background:#3ee09a1f;color:var(--green)}.side.sell{background:#ff5d731f;color:var(--red)}
 .lv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .lv div{font-size:11px;color:var(--muted);font-weight:600}
@@ -467,11 +470,12 @@ function sigCard(s, price) {
   const buy = s.dir === 1, now = price != null ? (s.dir * (price - s.entry)) / S.pip : null;
   const lo = Math.min(s.sl, s.tp), hi = Math.max(s.sl, s.tp), pos = price != null ? Math.max(0, Math.min(1, (price - lo) / (hi - lo))) : null;
   const toTp = buy ? pos : pos != null ? 1 - pos : null; // слева стоп, справа тейк
-  return `<div class="sig ${buy ? "buy" : "sell"}"><div class="between"><div class="row"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
-    <b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
+  return `<div class="sig ${buy ? "buy" : "sell"}${s.prop ? " prop" : ""}"><div class="between"><div class="row"><span class="side ${buy ? "buy" : "sell"}">${buy ? "BUY" : "SELL"}</span>
+    ${s.prop ? `<span class="ptag">🏆 ${esc(tr("prop_tag"))}</span>` : ""}<b class="num">#${s.id}</b><span class="sub">${esc(fmtDate(s.ts))}</span></div>
     ${now != null ? `<b class="num ${cls(now)}" data-live="${s.id}">${pips(now)}</b>` : ""}</div>
     <div class="lv"><div>${esc(tr("entry"))}<b class="num">${s.entry.toFixed(2)}</b></div><div>SL<b class="num neg">${s.sl.toFixed(2)}</b></div><div>TP<b class="num pos">${s.tp.toFixed(2)}</b></div></div>
     ${toTp != null ? `<div class="track"><i style="left:${(toTp * 100).toFixed(1)}%"></i></div>` : ""}
+    ${s.prop_lot != null ? `<div class="sub mt">🏆 ${esc(tr("prop_lot", { lot: s.prop_lot.toFixed(2) }))}</div>` : ""}
     ${s.part ? `<div class="sub mt">✓ ${esc(tr("part_done"))}</div>` : ""}</div>`;
 }
 function renderHome() {
@@ -480,7 +484,7 @@ function renderHome() {
   <div class="card gold hero"><div class="between"><div><p class="hello">${esc(tr("hello", { name }))} 👋</p>${subChip()}</div></div>
     <div class="live mt2"><span class="dot"></span>${esc(tr("live"))}</div>
     <div class="price num" id="price">${m.price != null ? m.price.toFixed(2) : `<span class="sub">${esc(tr("price_wait"))}</span>`}</div></div>`;
-  h += `<div class="card"><h3>📡 ${esc(tr("open_trades"))}<span class="sp"></span>${m.open.length ? `<span class="chip warn num">${m.open.length}</span>` : ""}</h3><div id="openList">
+  h += `<div class="card"><h3>📡 ${esc(tr("open_trades"))}<span class="sp"></span><span class="chip warn num" id="openCnt"${m.open.length ? "" : " hidden"}>${m.open.length}</span></h3><div id="openList">
     ${m.open.length ? m.open.map(s => sigCard(s, m.price)).join("") : `<div class="sub">${esc(tr("no_open"))}</div>`}</div></div>`;
   h += `<div class="card"><h3>📈 ${esc(tr("tab_stats"))}<span class="sp"></span><span style="text-transform:none;letter-spacing:0">${esc(tr("stats_30"))}</span></h3>
     <div class="ringwrap">${ring((c30.wr ?? 0) / 100, 118, 10, c30.wr != null ? `<span data-count="${c30.wr}" data-fmt="pct">0%</span>` : "—", tr("wr"))}
@@ -924,6 +928,8 @@ async function tick() {
     if (el && m.price != null) { el.textContent = m.price.toFixed(2); if (prev != null && m.price !== prev) { el.classList.remove("up", "down"); void el.offsetWidth; el.classList.add(m.price > prev ? "up" : "down"); setTimeout(() => el.classList.remove("up", "down"), 900); } }
     const ol = $("#openList");
     if (ol) ol.innerHTML = m.open.length ? m.open.map(s => sigCard(s, m.price)).join("") : `<div class="sub">${esc(tr("no_open"))}</div>`;
+    const oc = $("#openCnt");
+    if (oc) { oc.textContent = m.open.length; oc.hidden = !m.open.length; }
   } catch (e) {}
 }
 

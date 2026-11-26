@@ -265,6 +265,30 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(j["price"], 2650.55)
         self.assertEqual(len(j["open"]), 1)
 
+    async def test_prop_signal_shown_only_to_its_subscriber(self):
+        """Проп-сигнал (только для проп-счетов) виден в «Открытых сигналах» тому, кому он пришёл, с пометкой и лотом."""
+        sid = await self.db.add_signal("combo", -1, 3584.35, 3612.35, 3500.0, prop_only=True)
+        await self.db.add_prop_trade(sid, 7, -1, 3584.35, 3612.35, 3542.35, 0.35)
+        for path in ("market", "state"):
+            _, j = await self.post(path)
+            m = j if path == "market" else j["market"]
+            self.assertEqual(len(m["open"]), 2)
+            p = m["open"][0]
+            self.assertEqual((p["id"], p["prop"], p["prop_lot"], p["tp"]), (sid, True, 0.35, 3542.35))
+            self.assertFalse(m["open"][1]["prop"])
+        # другому пользователю проп-сигнал не показываем
+        other = {"X-Init-Data": sign({"id": 8, "first_name": "Ali"})}
+        _, j = await self.post("market", hdr=other)
+        self.assertEqual(len(j["open"]), 1)
+        # отказался — не показываем; сигнал закрыт, а проп-сделка ещё открыта — показываем
+        await self.db.set_prop_declined(sid, 7, True)
+        _, j = await self.post("market")
+        self.assertEqual(len(j["open"]), 1)
+        await self.db.set_prop_declined(sid, 7, False)
+        await self.db.close_signal(sid, "rev")
+        _, j = await self.post("market")
+        self.assertEqual(j["open"][0]["id"], sid)
+
     async def test_old_expired_trial_still_free(self):
         await self.post("state")
         await self.db.conn.execute("UPDATE users SET trial_until=? WHERE id=7",
