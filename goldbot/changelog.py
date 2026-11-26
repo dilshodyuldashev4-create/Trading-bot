@@ -24,6 +24,24 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-27.1",
+        "ru": [
+            "✨ Меню стало короче: «📰 Новости», «🗓 Календарь», «🏆 Проп-сигналы», а «Сигнал» и «Статистика» рядом",
+            "📩 Сигналы стали короче и понятнее: главное (вход, стоп, тейк, ваш лот) видно сразу",
+            "📱 В приложении карточки сигналов аккуратнее, а в профиле видно, сколько вы теряете по стопу и получаете по тейку",
+        ],
+        "en": [
+            "✨ A shorter menu: «📰 News», «🗓 Calendar», «🏆 Prop signals», with «Signal» and «Statistics» side by side",
+            "📩 Signals are shorter and clearer: the key info (entry, stop, take, your lot) is visible at once",
+            "📱 In the app, signal cards are neater, and your profile shows what you lose at the stop and gain at the take",
+        ],
+        "uz": [
+            "✨ Menyu qisqardi: «📰 Yangiliklar», «🗓 Taqvim», «🏆 Prop-signallar», «Signal» va «Statistika» yonma-yon",
+            "📩 Signallar qisqaroq va tushunarliroq: asosiysi (kirish, stop, teyk, lotingiz) darhol koʻrinadi",
+            "📱 Ilovada signal kartalari tartibli, profilda esa stopda qancha yoʻqotishingiz va teykda qancha olishingiz koʻrinadi",
+        ],
+    },
+    {
         "version": "2026-11-26.1",
         "ru": [
             "🎓 Новая кнопка «Уроки»: видеокурс трейдинга с нуля до профи — 22 видео лучших трейдеров по порядку: "
