@@ -385,6 +385,7 @@ class App:
         self.engine.confluence_single = config.confluence_single
         self.engine.confluence_strong = config.confluence_strong
         self.engine.volume_bars = config.volume_bars
+        self.engine.strategy_risk = dict(config.strategy_risk)
         self.engine.volume_low, self.engine.volume_high = config.volume_low, config.volume_high
         self.engine.volume_cut, self.engine.volume_boost = config.volume_cut, config.volume_boost
         self.engine.news_pause_min = config.news_pause_min

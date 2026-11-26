@@ -228,6 +228,8 @@ class SignalEngine:
         # тиковый объём сигнальной свечи против среднего за volume_bars прошлых: < volume_low — лот × volume_cut,
         # > volume_high — × volume_boost (reports/edge_research.md; 0 свечей — выключено)
         self.volume_bars = 0
+        # вес риска стратегии: ключ → множитель лота (reports/edge2_research.md; нет в словаре — 1)
+        self.strategy_risk: dict[str, float] = {}
         self.volume_low, self.volume_high = 1.0, 1.5
         self.volume_cut, self.volume_boost = 1.0, 1.0
         self.last_ok = time.monotonic()   # когда проверка рынка последний раз прошла без ошибки
@@ -708,7 +710,7 @@ class SignalEngine:
         tp = entry + d * tp_p * PIP
         tp1 = entry + d * tp1_p * PIP if tp1_p else None
         part = self.partial_pct if tp1 else 0.0
-        size = round(self.size_for(st.key, bar, d) * self.volume_mult(df), 4)
+        size = round(self.size_for(st.key, bar, d) * self.volume_mult(df) * self.strategy_risk.get(st.key, 1.0), 4)
         sid = await self.db.add_signal(st.key, d, entry, sl, tp, tp1, part, prop_only=prop_only, size=size)
         if prop_only:
             log.info("signal #%s (%s) only for prop accounts: ADX %.0f ≥ %g", sid, st.key, self.last_adx, self.adx_max)

@@ -1206,7 +1206,7 @@ for _lang, _texts in MANAGE_TEXTS.items():
 # согласие стратегий, живая карточка, защита от спреда, сверка счетов, прогноз челленджа, Myfxbook
 EXTRA_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
-        "sig_strong": "\n💪 <b>Сильный сигнал</b>: две стратегии согласны, лот больше обычного в {x} раза",
+        "sig_strong": "\n💪 <b>Сильный сигнал</b>: по истории у таких сигналов результат лучше, лот больше обычного в {x} раза",
         "card_partial": "✅ <b>Зафиксировано {pct}%</b> на {tp1}, стоп остатка в безубытке ({entry})",
         "card_live": "⏳ <b>Сделка идёт</b>: {r}R ({pips} пипсов), цена {price} · обновлено {time}",
         "card_tp": "🏁 <b>Закрыта по Take Profit</b>: {pips} пипсов",
@@ -1228,7 +1228,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "chan_cta": "\n\n🤖 Бесплатные сигналы с лотом под ваш депозит и автоторговля: @{bot}",
     },
     "en": {
-        "sig_strong": "\n💪 <b>Strong signal</b>: two strategies agree, the lot is {x} times the usual",
+        "sig_strong": "\n💪 <b>Strong signal</b>: such signals did better in history, the lot is {x} times the usual",
         "card_partial": "✅ <b>{pct}% taken</b> at {tp1}, stop of the rest at breakeven ({entry})",
         "card_live": "⏳ <b>Trade running</b>: {r}R ({pips} pips), price {price} · updated {time}",
         "card_tp": "🏁 <b>Closed at Take Profit</b>: {pips} pips",
@@ -1250,7 +1250,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "chan_cta": "\n\n🤖 Free signals with a lot sized to your deposit, and auto-trading: @{bot}",
     },
     "uz": {
-        "sig_strong": "\n💪 <b>Kuchli signal</b>: ikki strategiya bir xil, lot odatdagidan {x} baravar katta",
+        "sig_strong": "\n💪 <b>Kuchli signal</b>: tarixda bunday signallar natijasi yaxshiroq, lot odatdagidan {x} baravar katta",
         "card_partial": "✅ <b>{pct}% olindi</b> {tp1} da, qolgan qism stopi zararsizlikda ({entry})",
         "card_live": "⏳ <b>Bitim davom etmoqda</b>: {r}R ({pips} pips), narx {price} · yangilandi {time}",
         "card_tp": "🏁 <b>Take Profit bilan yopildi</b>: {pips} pips",

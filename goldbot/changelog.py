@@ -24,6 +24,24 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-27.4",
+        "ru": [
+            "⚖️ Лот по силе стратегии: у стратегий, которые на истории зарабатывают больше на сделку, лот больше (×1.5), "
+            "у слабых — меньше (×0.6). В среднем риск тот же. На истории 2023–2026 прибыль бота выросла с +755 % до +884 %, "
+            "просадка та же",
+        ],
+        "en": [
+            "⚖️ Lot by strategy strength: strategies that earn more per trade in history get a bigger lot (×1.5), "
+            "weaker ones a smaller lot (×0.6). The average risk is the same. On 2023–2026 history the bot's profit grew "
+            "from +755% to +884% with the same drawdown",
+        ],
+        "uz": [
+            "⚖️ Strategiya kuchi boʻyicha lot: tarixda har bitimda koʻproq topadigan strategiyalarda lot kattaroq (×1.5), "
+            "kuchsizlarida kichikroq (×0.6). Oʻrtacha risk oʻsha. 2023–2026 tarixida bot foydasi +755 % dan +884 % gacha "
+            "oshdi, pasayish oʻsha",
+        ],
+    },
+    {
         "version": "2026-11-27.3",
         "ru": [
             "📈 Лот по объёму: если на свече сигнала торгуют активнее обычного, лот больше (×1.25), если вяло — меньше (×0.75). "

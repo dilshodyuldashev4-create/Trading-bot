@@ -82,6 +82,13 @@ class Config:
     # тиковый объём сигнальной свечи (reports/edge_research.md): объём ниже VOLUME_LOW от среднего за
     # VOLUME_BARS прошлых свечей — лот × VOLUME_CUT, выше VOLUME_HIGH — × VOLUME_BOOST (в среднем риск тот же).
     # Обычные счета и лот в сигнале; проп-счета — как раньше. Нет объёма в свечах — × 1. VOLUME_BARS=0 — выключено
+    # вес риска по стратегиям (reports/edge2_research.md): у стратегий с большей прибылью на сделку лот больше,
+    # у слабых — меньше, в среднем риск тот же. Обычные счета и лот в сигнале; проп-счета — как раньше.
+    # «ключ:множитель» через запятую, кого нет в списке — × 1; пусто — выключено
+    strategy_risk: dict[str, float] = field(default_factory=lambda: {
+        k.strip(): float(v) for k, v in (x.split(":") for x in os.getenv(
+            "STRATEGY_RISK", "squeeze:1.5,donchian_h1:1.5,days5:1.5,amd:1.5,kama_h4:1.5,klinger_h4:1.5,"
+                             "asia:0.6,liq_m15:0.6,donchian:0.6").split(",") if ":" in x)})
     volume_bars: int = int(os.getenv("VOLUME_BARS", "20"))
     volume_low: float = float(os.getenv("VOLUME_LOW", "1.0"))
     volume_high: float = float(os.getenv("VOLUME_HIGH", "1.5"))
