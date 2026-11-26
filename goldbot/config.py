@@ -184,6 +184,11 @@ class Config:
     stars_per_usd: float = float(os.getenv("STARS_PER_USD", "50"))
     stars_invoice_max: int = int(os.getenv("STARS_INVOICE_MAX", "10000"))
     autotrade_days: int = int(os.getenv("AUTOTRADE_DAYS", "30"))
+    # приглашение друзей: за каждые REF_FRIENDS друзей, которые начали пользоваться ботом, — REF_DAYS дней
+    # автоторговли бесплатно; когда приглашённый друг впервые оплатит автоторговлю — ещё REF_PAID_DAYS дней (0 — выкл.)
+    ref_friends: int = int(os.getenv("REF_FRIENDS", "5"))
+    ref_days: int = int(os.getenv("REF_DAYS", "7"))
+    ref_paid_days: int = int(os.getenv("REF_PAID_DAYS", "15"))
     # защита обычного счёта от плохих дней (reports/day_guard_research.md), день — по времени сервера (PROP_DAY_TZ):
     # после AUTOTRADE_DAY_LOSSES Stop Loss за день — до завтра без новых сделок (0 — выкл.); AUTOTRADE_DAY_SIDE=1 —
     # за день только в сторону первой сделки дня; баланс ниже своего максимума на AUTOTRADE_DD_PCT % — риск ×
