@@ -276,12 +276,15 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             p = m["open"][0]
             self.assertEqual((p["id"], p["prop"], p["prop_lot"], p["tp"]), (sid, True, 0.35, 3542.35))
             self.assertFalse(m["open"][1]["prop"])
-        # обычный сигнал, пришедший и как проп: во вкладке «Проп» — свой проп-тейк и лот
+        # обычный сигнал, пришедший пользователю как проп-сигнал: для него это проп — проп-тейк и лот
         reg = j["market"]["open"][1]
         await self.db.add_prop_trade(reg["id"], 7, 1, 2600.0, 2595.0, 2606.0, 0.5)
         _, j = await self.post("market")
         reg = j["open"][1]
-        self.assertEqual((reg["prop"], reg["prop_lot"], reg["prop_tp"], reg["tp"]), (False, 0.5, 2606.0, 2610.0))
+        self.assertEqual((reg["prop"], reg["prop_lot"], reg["tp"]), (True, 0.5, 2606.0))
+        _, j = await self.post("market", hdr={"X-Init-Data": sign({"id": 8, "first_name": "Ali"})})
+        self.assertEqual((j["open"][0]["prop"], j["open"][0]["tp"]), (False, 2610.0))   # другим — обычный
+        await self.db.close_prop_trade(reg["id"], 7, "tp", 10.0)
         # другому пользователю проп-сигнал не показываем
         other = {"X-Init-Data": sign({"id": 8, "first_name": "Ali"})}
         _, j = await self.post("market", hdr=other)
