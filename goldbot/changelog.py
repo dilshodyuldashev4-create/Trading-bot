@@ -24,6 +24,26 @@ CAPTION_LIMIT = 1024  # подпись к фото в Telegram
 
 RELEASES: list[dict] = [
     {
+        "version": "2026-11-27.2",
+        "ru": [
+            "🎁 Новая кнопка «🎁 Пригласить»: личная ссылка для друзей. За каждые 5 друзей — 7 дней "
+            "автоторговли бесплатно, а если друг подключит автоторговлю — ещё 15 дней",
+            "📤 Под сделкой, закрытой в плюсе, появилась кнопка «Поделиться результатом»: отправьте его друзьям "
+            "вместе с вашей ссылкой",
+        ],
+        "en": [
+            "🎁 New «🎁 Invite» button: your personal link for friends. Every 5 friends give you 7 days of "
+            "free auto trading, and if a friend connects auto trading — 15 more days",
+            "📤 A trade closed in profit now has a «Share the result» button: send it to friends together with your link",
+        ],
+        "uz": [
+            "🎁 Yangi «🎁 Taklif qilish» tugmasi: doʻstlar uchun shaxsiy havola. Har 5 ta doʻst uchun 7 kun "
+            "bepul avtosavdo, doʻstingiz avtosavdoni ulasa — yana 15 kun",
+            "📤 Foyda bilan yopilgan bitim ostida «Natijani ulashish» tugmasi paydo boʻldi: uni havolangiz bilan "
+            "doʻstlaringizga yuboring",
+        ],
+    },
+    {
         "version": "2026-11-27.1",
         "ru": [
             "✨ Меню стало короче: «📰 Новости», «🗓 Календарь», «🏆 Проп-сигналы», а «Сигнал» и «Статистика» рядом",
