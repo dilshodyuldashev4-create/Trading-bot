@@ -50,10 +50,31 @@ def media_type(data: bytes) -> str:
     return "image/jpeg"
 
 
-async def analyze(image: bytes, language: str, market: str, model: str, caption: str = "") -> str | None:
-    """Текст разбора (уже экранирован для HTML) или None — нет ключа, баланса или ответа."""
+class ChartVisionError(Exception):
+    """Разбор не получился; текст — причина для админа и лога (ошибка API, баланс, модель…)."""
+
+
+def _reason(e: Exception) -> str:
+    import anthropic
+    if isinstance(e, anthropic.APIStatusError):
+        msg = str(getattr(e, "message", "") or e)
+        low = msg.lower()
+        if "credit balance" in low or "billing" in low:
+            return f"на счёте Claude закончились деньги (HTTP {e.status_code}): {msg}"
+        if e.status_code == 401:
+            return f"неверный ANTHROPIC_API_KEY (HTTP 401): {msg}"
+        if e.status_code == 404 or "model" in low:
+            return f"модель недоступна (ANTHROPIC_MODEL), HTTP {e.status_code}: {msg}"
+        return f"HTTP {e.status_code}: {msg}"
+    if isinstance(e, anthropic.APIConnectionError):
+        return f"нет связи с api.anthropic.com: {e}"
+    return f"{type(e).__name__}: {e}"
+
+
+async def analyze(image: bytes, language: str, market: str, model: str, caption: str = "") -> str:
+    """Текст разбора (уже экранирован для HTML). Ошибка — ChartVisionError с причиной."""
     if not available():
-        return None
+        raise ChartVisionError("нет ANTHROPIC_API_KEY в .env")
     import anthropic
 
     content: list[dict] = [
@@ -61,24 +82,24 @@ async def analyze(image: bytes, language: str, market: str, model: str, caption:
                                      "data": base64.standard_b64encode(image).decode()}},
         {"type": "text", "text": ("Subscriber's note: " + caption[:500]) if caption else "Analyze this chart."},
     ]
-    client = anthropic.AsyncAnthropic()
+    kw = dict(model=model, max_tokens=3000, system=PROMPT.format(language=language, market=market or "no data"),
+              messages=[{"role": "user", "content": content}])
+    client = anthropic.AsyncAnthropic(timeout=120, max_retries=2)
     try:
-        resp = await client.beta.messages.create(
-            model=model,
-            max_tokens=3000,
-            output_config={"effort": "low"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            system=PROMPT.format(language=language, market=market or "no data"),
-            messages=[{"role": "user", "content": content}],
-        )
-    except anthropic.APIStatusError as e:
-        log.warning("chart vision error %s: %s", e.status_code, e.message)
-        return None
-    except anthropic.APIConnectionError:
-        log.warning("chart vision connection error")
-        return None
+        try:   # как в новостях: с запасной моделью на стороне API
+            resp = await client.beta.messages.create(**kw, output_config={"effort": "low"},
+                                                     betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+        except (TypeError, anthropic.BadRequestError) as e:
+            # старая библиотека anthropic или API не принял бета-параметры — обычный запрос без них
+            log.warning("chart vision: beta request failed (%s), retrying plain", _reason(e))
+            resp = await client.messages.create(**kw)
+    except Exception as e:  # noqa: BLE001
+        reason = _reason(e)
+        log.warning("chart vision failed: %s", reason)
+        raise ChartVisionError(reason) from e
     if resp.stop_reason == "refusal":
-        return None
-    text = "".join(b.text for b in resp.content if b.type == "text").strip()
-    return html.escape(text) if text else None
+        raise ChartVisionError("Claude отказался разбирать эту картинку")
+    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    if not text:
+        raise ChartVisionError(f"пустой ответ Claude (stop_reason={resp.stop_reason})")
+    return html.escape(text)

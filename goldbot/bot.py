@@ -1015,18 +1015,17 @@ class App:
             await m.answer(t(lang, "chart_fail"))
             return
         self._chart_busy.add(uid)
+        wait = None
         try:
             wait = await m.answer(t(lang, "chart_wait"))
-            buf = await self.bot.download(file_id)
-            text = await chart_vision.analyze(buf.read(), t(lang, "news_lang"), await self.chart_context(uid),
-                                              config.anthropic_model, m.caption or "")
             try:
-                await wait.delete()
-            except Exception:  # noqa: BLE001
-                pass
-            if not text:
-                await m.answer(t(lang, "chart_fail"))
-                return
+                buf = await self.bot.download(file_id)
+                image = buf.read()
+            except Exception as e:  # noqa: BLE001
+                raise chart_vision.ChartVisionError(f"не удалось скачать картинку из Telegram: {type(e).__name__}: {e}")
+            log.info("chart review: uid=%s, %d bytes, %s", uid, len(image), chart_vision.media_type(image))
+            text = await chart_vision.analyze(image, t(lang, "news_lang"), await self.chart_context(uid),
+                                              config.anthropic_model, m.caption or "")
             if left is not None:   # списываем только удачный разбор
                 key = self._chart_key(uid)
                 used = int(await self.db.get_kv(key, "0") or 0) + 1
@@ -1035,10 +1034,20 @@ class App:
             tail = "" if left is None else "\n\n" + t(lang, "chart_left", left=left, limit=config.chart_ai_daily)
             await self.send_long(m.chat.id, f"{t(lang, 'chart_head')}\n\n{text}\n\n{t(lang, 'chart_disclaimer')}{tail}",
                                  reply_parameters=ReplyParameters(message_id=m.message_id))
-        except Exception:  # noqa: BLE001
-            log.exception("chart review")
-            await m.answer(t(lang, "chart_fail"))
+        except Exception as e:  # noqa: BLE001
+            reason = str(e) if isinstance(e, chart_vision.ChartVisionError) else f"{type(e).__name__}: {e}"
+            log.warning("chart review failed for %s: %s", uid, reason,
+                        exc_info=not isinstance(e, chart_vision.ChartVisionError))
+            msg = t(lang, "chart_fail")
+            if self.is_admin(uid):   # админу — настоящая причина, чтобы не искать в логах
+                msg += "\n\n🛠 Причина (видно только админу):\n<code>" + html.escape(reason[:700]) + "</code>"
+            await m.answer(msg)
         finally:
+            if wait is not None:
+                try:
+                    await wait.delete()
+                except Exception:  # noqa: BLE001
+                    pass
             self._chart_busy.discard(uid)
 
     async def lang_of(self, uid: int) -> str:

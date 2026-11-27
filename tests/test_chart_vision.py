@@ -83,7 +83,7 @@ class ChartVisionTests(unittest.TestCase):
                                        content=[SimpleNamespace(type="text", text="Trend <up>")])
 
         fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()))
-        with mock.patch("anthropic.AsyncAnthropic", lambda: fake):
+        with mock.patch("anthropic.AsyncAnthropic", lambda **k: fake):
             out = asyncio.run(chart_vision.analyze(PNG, "Russian", "price 4100", "m", "где стоп?"))
         self.assertEqual(out, "Trend &lt;up&gt;")   # экранировано для HTML
         img, note = sent["messages"][0]["content"]
@@ -91,6 +91,37 @@ class ChartVisionTests(unittest.TestCase):
         self.assertIn("где стоп?", note["text"])
         self.assertIn("price 4100", sent["system"])
         self.assertIn("Russian", sent["system"])
+
+    def test_api_error_reason_and_plain_retry(self):
+        import anthropic
+
+        def err(status, msg):
+            cls = anthropic.BadRequestError if status == 400 else anthropic.NotFoundError
+            e = cls.__new__(cls)
+            Exception.__init__(e, msg)
+            e.message, e.status_code = msg, status
+            return e
+
+        calls = []
+
+        class Beta:
+            async def create(self, **kw):
+                calls.append("beta")
+                raise err(400, "fallbacks: unknown field")
+
+        class Plain:
+            async def create(self, **kw):
+                calls.append("plain")
+                raise err(404, "model: claude-x not found")
+
+        fake = SimpleNamespace(beta=SimpleNamespace(messages=Beta()), messages=Plain())
+        with mock.patch("anthropic.AsyncAnthropic", lambda **k: fake):
+            with self.assertRaises(chart_vision.ChartVisionError) as cm:
+                asyncio.run(chart_vision.analyze(PNG, "Russian", "", "claude-x"))
+        self.assertEqual(calls, ["beta", "plain"])
+        self.assertIn("модель недоступна", str(cm.exception))
+        e = err(400, "Your credit balance is too low to access the Anthropic API.")
+        self.assertIn("закончились деньги", chart_vision._reason(e))
 
     def test_texts_and_menu_button(self):
         for lang in TEXTS:
@@ -139,7 +170,7 @@ class ChartVisionTests(unittest.TestCase):
                     return "ok"
 
                 async def fail(*a, **k):
-                    return None
+                    raise chart_vision.ChartVisionError("на счёте Claude закончились деньги")
                 with mock.patch.object(chart_vision, "analyze", ok):
                     for _ in range(config.chart_ai_daily + 2):
                         await app.chart_review(FakeMsg(1))
@@ -148,7 +179,11 @@ class ChartVisionTests(unittest.TestCase):
                 with mock.patch.object(chart_vision, "analyze", fail):
                     m = FakeMsg(5)
                     await app.chart_review(m)
-                self.assertIn(t("uz", "chart_fail"), m.answers)
+                self.assertEqual(m.answers[-1], t("uz", "chart_fail"))   # подписчику причину не показываем
+                with mock.patch.object(chart_vision, "analyze", fail):
+                    adm = FakeMsg(1)
+                    await app.chart_review(adm)
+                self.assertIn("закончились деньги", adm.answers[-1])      # админу — причина
                 self.assertEqual(await app.chart_left(5), config.chart_ai_daily)   # неудача не списана
                 await db.close()
         asyncio.run(go())
